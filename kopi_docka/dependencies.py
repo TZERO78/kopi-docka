@@ -4,14 +4,15 @@ Dependency management for Kopi-Docka.
 This module handles checking and installing system dependencies.
 """
 
-import logging
 import os
 import shutil
 import subprocess
 from typing import List, Dict, Tuple, Optional
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+from .logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class DependencyManager:
@@ -31,6 +32,19 @@ class DependencyManager:
             'required': True,
             'description': 'Docker container runtime',
             'install_notes': 'May require adding user to docker group'
+        },
+        'python3-systemd': {
+            'check_command': None,
+            'check_method': 'check_python_systemd',
+            'packages': {
+                'debian': 'python3-systemd',
+                'redhat': 'python3-systemd',
+                'arch': 'python-systemd',
+                'alpine': None  # Not available in Alpine
+            },
+            'required': False,
+            'description': 'Structured logging for systemd journal',
+            'install_notes': 'Enhances logging when running under systemd'
         },
         'kopia': {
             'check_command': 'kopia',
@@ -92,46 +106,22 @@ class DependencyManager:
                 'alpine': 'hostname'
             },
             'required': False,
-            'description': 'System hostname detection'
-        },
-        'git': {
-            'check_command': 'git',
-            'check_method': 'check_git',
-            'packages': {
-                'debian': 'git',
-                'redhat': 'git',
-                'arch': 'git',
-                'alpine': 'git'
-            },
-            'required': False,
-            'description': 'Version control (for recovery scripts)'
-        },
-        'curl': {
-            'check_command': 'curl',
-            'check_method': 'check_curl',
-            'packages': {
-                'debian': 'curl',
-                'redhat': 'curl',
-                'arch': 'curl',
-                'alpine': 'curl'
-            },
-            'required': False,
-            'description': 'Download tool (for recovery scripts)'
+            'description': 'System hostname for reporting'
         }
     }
     
     def __init__(self):
         """Initialize dependency manager."""
         self.distro = self._detect_distro()
-        
+        logger.debug(f"Detected distribution: {self.distro}")
+    
     def _detect_distro(self) -> str:
         """
-        Detect Linux distribution.
+        Detect Linux distribution type.
         
         Returns:
-            Distribution name: 'debian', 'redhat', 'arch', 'alpine', or 'unknown'
+            Distribution type (debian, redhat, arch, alpine, unknown)
         """
-        # Check for various distro-specific files
         if os.path.exists('/etc/debian_version'):
             return 'debian'
         elif os.path.exists('/etc/redhat-release'):
@@ -140,124 +130,80 @@ class DependencyManager:
             return 'arch'
         elif os.path.exists('/etc/alpine-release'):
             return 'alpine'
-        elif os.path.exists('/etc/os-release'):
-            # Try to parse os-release for more info
-            try:
-                with open('/etc/os-release', 'r') as f:
-                    content = f.read().lower()
-                    if 'debian' in content or 'ubuntu' in content:
-                        return 'debian'
-                    elif 'rhel' in content or 'centos' in content or 'fedora' in content:
-                        return 'redhat'
-                    elif 'arch' in content:
-                        return 'arch'
-                    elif 'alpine' in content:
-                        return 'alpine'
-            except Exception:
-                pass
-        
-        return 'unknown'
+        else:
+            return 'unknown'
     
-    # Individual check methods (for backward compatibility and direct access)
-    
-    @staticmethod
-    def check_docker() -> bool:
+    def _get_package_manager(self) -> Optional[Tuple[str, List[str]]]:
         """
-        Check if Docker is installed and accessible.
+        Get package manager for current distro.
         
         Returns:
-            True if Docker is available and running
+            Tuple of (manager_name, install_command) or None
         """
+        managers = {
+            'debian': ('apt', ['apt-get', 'install', '-y']),
+            'redhat': ('yum', ['yum', 'install', '-y']),
+            'arch': ('pacman', ['pacman', '-S', '--noconfirm']),
+            'alpine': ('apk', ['apk', 'add', '--no-cache'])
+        }
+        return managers.get(self.distro)
+    
+    def check_python_systemd(self) -> bool:
+        """Check if python-systemd module is installed."""
         try:
-            result = subprocess.run(
-                ['docker', 'version'],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            return result.returncode == 0
-        except (FileNotFoundError, subprocess.TimeoutExpired):
+            import systemd.journal
+            return True
+        except ImportError:
             return False
     
-    @staticmethod
-    def check_kopia() -> bool:
-        """
-        Check if Kopia is installed and accessible.
+    def check_docker(self) -> bool:
+        """Check if Docker is installed and running."""
+        if not shutil.which('docker'):
+            return False
         
-        Returns:
-            True if Kopia is available
-        """
+        try:
+            result = subprocess.run(
+                ['docker', 'info'],
+                capture_output=True,
+                timeout=5
+            )
+            if result.returncode != 0:
+                logger.debug("Docker installed but not accessible (user not in docker group?)")
+                return False
+            return True
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError) as e:
+            logger.debug(f"Error checking Docker: {e}")
+            return False
+    
+    def check_kopia(self) -> bool:
+        """Check if Kopia is installed."""
         return shutil.which('kopia') is not None
     
-    @staticmethod
-    def check_tar() -> bool:
-        """
-        Check if tar is installed and accessible.
-        
-        Returns:
-            True if tar is available
-        """
+    def check_tar(self) -> bool:
+        """Check if tar is installed."""
         return shutil.which('tar') is not None
     
-    @staticmethod
-    def check_openssl() -> bool:
-        """
-        Check if OpenSSL is installed and accessible.
-        
-        Returns:
-            True if OpenSSL is available
-        """
+    def check_openssl(self) -> bool:
+        """Check if openssl is installed."""
         return shutil.which('openssl') is not None
     
-    @staticmethod
-    def check_coreutils() -> bool:
-        """
-        Check if coreutils (du, etc.) is installed.
-        
-        Returns:
-            True if coreutils commands are available
-        """
+    def check_coreutils(self) -> bool:
+        """Check if coreutils (du) is installed."""
         return shutil.which('du') is not None
     
-    @staticmethod
-    def check_hostname() -> bool:
-        """
-        Check if hostname command is available.
-        
-        Returns:
-            True if hostname is available
-        """
+    def check_hostname(self) -> bool:
+        """Check if hostname command is available."""
         return shutil.which('hostname') is not None
-    
-    @staticmethod
-    def check_git() -> bool:
-        """
-        Check if git is installed.
-        
-        Returns:
-            True if git is available
-        """
-        return shutil.which('git') is not None
-    
-    @staticmethod
-    def check_curl() -> bool:
-        """
-        Check if curl is installed.
-        
-        Returns:
-            True if curl is available
-        """
-        return shutil.which('curl') is not None
     
     def check_dependency(self, name: str) -> bool:
         """
         Check if a specific dependency is installed.
         
         Args:
-            name: Dependency name from DEPENDENCIES dict
+            name: Dependency name
             
         Returns:
-            True if dependency is installed
+            True if installed, False otherwise
         """
         dep = self.DEPENDENCIES.get(name)
         if not dep:
@@ -265,15 +211,14 @@ class DependencyManager:
         
         # Use specific check method if available
         if 'check_method' in dep:
-            method_name = dep['check_method']
-            method = getattr(self, method_name, None)
+            method = getattr(self, dep['check_method'], None)
             if method:
                 return method()
         
         # Fallback to command check
         return shutil.which(dep['check_command']) is not None
     
-    def check_all(self, include_optional: bool = True) -> Dict[str, bool]:
+    def check_all(self, include_optional: bool = False) -> Dict[str, bool]:
         """
         Check all dependencies.
         
@@ -372,169 +317,262 @@ class DependencyManager:
         Returns:
             List of shell commands to install missing dependencies
         """
-        missing = self.get_missing()
-        if not missing:
-            return []
-        
         commands = []
-        packages = []
-        special = []
+        missing = self.get_missing()
+        
+        if not missing:
+            return commands
+        
+        manager_info = self._get_package_manager()
+        if not manager_info:
+            logger.warning(f"Unknown distribution: {self.distro}")
+            return commands
+        
+        manager_name, base_cmd = manager_info
+        
+        # Group packages for installation
+        regular_packages = []
+        special_installs = []
         
         for dep_name in missing:
             dep = self.DEPENDENCIES[dep_name]
-            if dep.get('special_install'):
-                special.append(dep_name)
+            package = dep['packages'].get(self.distro)
+            
+            if package is None:
+                # Special installation required
+                special_installs.append(dep_name)
             else:
-                package = dep['packages'].get(self.distro)
-                if package:
-                    packages.append(package)
+                regular_packages.append(package)
         
-        # Build install commands based on distro
-        if self.distro == 'debian' and packages:
-            commands.append(f"sudo apt update")
-            commands.append(f"sudo apt install -y {' '.join(packages)}")
-        elif self.distro == 'redhat' and packages:
-            commands.append(f"sudo yum install -y {' '.join(packages)}")
-        elif self.distro == 'arch' and packages:
-            commands.append(f"sudo pacman -S --noconfirm {' '.join(packages)}")
-        elif self.distro == 'alpine' and packages:
-            commands.append(f"sudo apk add {' '.join(packages)}")
+        # Create install command for regular packages
+        if regular_packages:
+            cmd = base_cmd + regular_packages
+            commands.append(' '.join(cmd))
         
-        # Special installations
-        if 'kopia' in special:
-            commands.extend(self._get_kopia_install_commands())
+        # Add special installation instructions
+        for dep_name in special_installs:
+            if dep_name == 'kopia':
+                if self.distro == 'debian':
+                    commands.extend([
+                        'curl -s https://kopia.io/signing-key | apt-key add -',
+                        'echo "deb http://packages.kopia.io/apt/ stable main" > /etc/apt/sources.list.d/kopia.list',
+                        'apt update',
+                        'apt install -y kopia'
+                    ])
+                elif self.distro == 'redhat':
+                    commands.extend([
+                        'rpm --import https://kopia.io/signing-key',
+                        'cat > /etc/yum.repos.d/kopia.repo <<EOF\n[kopia]\nname=Kopia\nbaseurl=http://packages.kopia.io/rpm/stable/\$basearch/\nenabled=1\ngpgcheck=1\ngpgkey=https://kopia.io/signing-key\nEOF',
+                        'yum install -y kopia'
+                    ])
         
-        # Docker post-install
+        # Add Docker group command if Docker is missing
         if 'docker' in missing:
-            commands.append("# Post-install: Add user to docker group")
-            commands.append(f"sudo usermod -aG docker $USER")
-            commands.append("# Note: You need to log out and back in for group changes")
+            commands.append('usermod -aG docker $USER')
         
         return commands
     
-    def _get_kopia_install_commands(self) -> List[str]:
+    def install_missing(self, dry_run: bool = False) -> bool:
         """
-        Get Kopia-specific installation commands.
-        
-        Returns:
-            List of commands to install Kopia
-        """
-        if self.distro == 'debian':
-            return [
-                "# Install Kopia repository",
-                "curl -s https://kopia.io/signing-key | sudo gpg --dearmor -o /usr/share/keyrings/kopia-keyring.gpg",
-                'echo "deb [signed-by=/usr/share/keyrings/kopia-keyring.gpg] http://packages.kopia.io/apt/ stable main" | sudo tee /etc/apt/sources.list.d/kopia.list',
-                "sudo apt update",
-                "sudo apt install -y kopia"
-            ]
-        elif self.distro == 'redhat':
-            return [
-                "# Install Kopia repository",
-                "rpm --import https://kopia.io/signing-key",
-                "cat <<EOF | sudo tee /etc/yum.repos.d/kopia.repo",
-                "[kopia]",
-                "name=Kopia",
-                "baseurl=http://packages.kopia.io/rpm/stable/\$basearch/",
-                "gpgcheck=1",
-                "enabled=1",
-                "gpgkey=https://kopia.io/signing-key",
-                "EOF",
-                "sudo yum install -y kopia"
-            ]
-        elif self.distro == 'arch':
-            return [
-                "# Install from AUR (requires yay or similar AUR helper)",
-                "yay -S kopia-bin"
-            ]
-        else:
-            return [
-                "# Manual installation required",
-                "# Visit: https://kopia.io/docs/installation/",
-                "# Or download directly:",
-                "curl -L https://github.com/kopia/kopia/releases/latest/download/kopia-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m) -o kopia",
-                "chmod +x kopia",
-                "sudo mv kopia /usr/local/bin/"
-            ]
-    
-    def install_interactive(self, auto_yes: bool = False) -> bool:
-        """
-        Interactively install missing dependencies.
+        Attempt to install missing dependencies.
         
         Args:
-            auto_yes: Skip confirmation prompts
+            dry_run: Only show what would be installed
             
         Returns:
-            True if installation successful
+            True if successful, False otherwise
         """
         missing = self.get_missing()
         
         if not missing:
-            print("✓ All required dependencies are installed!")
+            logger.info("All required dependencies are already installed")
             return True
         
-        print("\n⚠ Missing Dependencies:")
-        print("-" * 50)
+        logger.info(f"Missing dependencies: {', '.join(missing)}")
         
-        for dep_name in missing:
-            dep = self.DEPENDENCIES[dep_name]
-            status = "REQUIRED" if dep['required'] else "Optional"
-            print(f"  ✗ {dep_name:<12} : {dep['description']}")
-            print(f"    Status: {status}")
-            if dep.get('install_notes'):
-                print(f"    Note: {dep['install_notes']}")
-        
-        print("-" * 50)
-        print(f"Distribution detected: {self.distro}")
+        if os.geteuid() != 0:
+            logger.error("Root privileges required to install dependencies")
+            logger.info("Run: sudo kopi-docka install-deps")
+            return False
         
         commands = self.get_install_commands()
         
         if not commands:
-            print(f"\n⚠ Cannot auto-install on '{self.distro}' distribution")
-            print("\nPlease install manually:")
-            for dep in missing:
-                print(f"  - {dep}")
-            print("\nFor installation help, visit:")
-            print("  https://github.com/TZERO78/kopi-docka/wiki/Installation")
+            logger.error("Cannot determine installation commands for this system")
             return False
         
-        print("\n📋 Installation commands that will be executed:")
-        print("-" * 50)
-        for cmd in commands:
-            if cmd.startswith('#'):
-                print(f"  {cmd}")
-            else:
-                print(f"  $ {cmd}")
-        print("-" * 50)
+        if dry_run:
+            logger.info("Would execute the following commands:")
+            for cmd in commands:
+                logger.info(f"  {cmd}")
+            return True
         
-        if not auto_yes:
-            response = input("\n❓ Execute these commands? [y/N]: ")
-            if response.lower() != 'y':
-                print("Installation cancelled.")
+        # Execute installation commands
+        for cmd in commands:
+            logger.info(f"Executing: {cmd}")
+            try:
+                result = subprocess.run(
+                    cmd,
+                    shell=True,
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode != 0:
+                    logger.error(f"Command failed: {result.stderr}")
+                    return False
+            except Exception as e:
+                logger.error(f"Error executing command: {e}")
                 return False
         
-        # Execute commands
-        print("\n🚀 Starting installation...\n")
+        # Check if installation was successful
+        still_missing = self.get_missing()
+        if still_missing:
+            logger.warning(f"Some dependencies still missing after installation: {', '.join(still_missing)}")
+            return False
+        
+        logger.info("All dependencies successfully installed")
+        return True
+    
+    def print_install_guide(self):
+        """Print installation guide for missing dependencies."""
+        missing = self.get_missing(required_only=False)
+        
+        if not missing:
+            print("✅ All dependencies are installed!")
+            return
+        
+        print("\n" + "=" * 60)
+        print("DEPENDENCY INSTALLATION GUIDE")
+        print("=" * 60)
+        
+        required_missing = []
+        optional_missing = []
+        
+        for dep_name in missing:
+            dep = self.DEPENDENCIES[dep_name]
+            if dep['required']:
+                required_missing.append(dep_name)
+            else:
+                optional_missing.append(dep_name)
+        
+        if required_missing:
+            print("\n🚨 REQUIRED Dependencies Missing:")
+            for dep_name in required_missing:
+                dep = self.DEPENDENCIES[dep_name]
+                print(f"\n  📦 {dep_name}")
+                print(f"     {dep['description']}")
+                if 'install_notes' in dep:
+                    print(f"     Note: {dep['install_notes']}")
+        
+        if optional_missing:
+            print("\n📎 Optional Dependencies Missing:")
+            for dep_name in optional_missing:
+                dep = self.DEPENDENCIES[dep_name]
+                print(f"\n  📦 {dep_name}")
+                print(f"     {dep['description']}")
+        
+        # Show installation commands
+        commands = self.get_install_commands()
+        if commands:
+            print("\n" + "-" * 60)
+            print("Installation Commands:")
+            print("-" * 60)
+            
+            if os.geteuid() != 0:
+                print("\n⚠ Run as root or with sudo:")
+            
+            for cmd in commands:
+                print(f"\n  $ {cmd}")
+        
+        # Special instructions
+        if 'docker' in missing:
+            print("\n" + "-" * 60)
+            print("📌 Docker Post-Installation:")
+            print("-" * 60)
+            print("  After installing Docker:")
+            print("  1. Add your user to the docker group:")
+            print("     $ sudo usermod -aG docker $USER")
+            print("  2. Log out and back in for group changes to take effect")
+            print("  3. Verify with: docker run hello-world")
+        
+        if 'kopia' in missing and self.distro == 'arch':
+            print("\n" + "-" * 60)
+            print("📌 Kopia on Arch Linux:")
+            print("-" * 60)
+            print("  Install from AUR:")
+            print("  $ yay -S kopia-bin")
+            print("  OR")
+            print("  $ paru -S kopia-bin")
+        
+        print("\n" + "=" * 60)
+        
+        # Automated installation option
+        if required_missing:
+            print("\n💡 For automated installation (requires root):")
+            print("   $ sudo kopi-docka install-deps")
+        else:
+            print("\n✅ All required dependencies are installed!")
+            print("   Optional dependencies can enhance functionality.")
+    
+    def auto_install(self, force: bool = False) -> bool:
+        """
+        Auto-install missing dependencies with confirmation.
+        
+        Args:
+            force: Skip confirmation prompt
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        missing = self.get_missing()
+        
+        if not missing:
+            print("✅ All required dependencies are already installed!")
+            return True
+        
+        print("\n🔍 Checking system dependencies...")
+        print(f"Distribution: {self.distro.capitalize()}")
+        print(f"Missing: {', '.join(missing)}")
+        
+        commands = self.get_install_commands()
+        
+        if not commands:
+            print("\n❌ Cannot determine installation commands for this system")
+            print("Please install dependencies manually:")
+            self.print_install_guide()
+            return False
+        
+        print("\n📋 The following commands will be executed:")
+        for cmd in commands:
+            print(f"  $ {cmd}")
+        
+        if not force:
+            response = input("\n⚠ Proceed with installation? [y/N]: ")
+            if response.lower() != 'y':
+                return False
+        
+        print("\n📦 Installing dependencies...")
         
         for cmd in commands:
-            if cmd.startswith('#'):
-                print(f"\n{cmd}")
-                continue
-            
-            print(f"Running: {cmd}")
-            
-            # Special handling for multiline commands (like cat <<EOF)
-            if 'EOF' in cmd or cmd.startswith('cat'):
-                print("⚠ This command needs manual execution")
-                print(f"Please run:\n{cmd}")
-                input("Press Enter when done...")
-                continue
-            
-            result = subprocess.run(cmd, shell=True)
-            if result.returncode != 0:
-                print(f"✗ Command failed with exit code {result.returncode}")
-                response = input("Continue anyway? [y/N]: ")
-                if response.lower() != 'y':
+            print(f"\n→ {cmd}")
+            try:
+                result = subprocess.run(
+                    cmd,
+                    shell=True,
+                    text=True
+                )
+                if result.returncode != 0:
+                    print(f"❌ Command failed with exit code {result.returncode}")
                     return False
+            except Exception as e:
+                print(f"❌ Error: {e}")
+                return False
+        
+        # Post-installation checks
+        if 'docker' in missing:
+            print("\n⚠ Docker installed. You may need to:")
+            print("  1. Log out and back in for group membership")
+            print("  2. Or run: newgrp docker")
         
         # Verify installation
         print("\n🔍 Verifying installation...")
