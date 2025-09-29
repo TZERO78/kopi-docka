@@ -11,6 +11,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 from typing import List, Optional, Dict, Any
 
 from .logging import get_logger, log_manager
@@ -79,6 +80,8 @@ class BackupManager:
         logger.info(f"Starting backup of unit: {unit.name}", 
                    extra={'unit_name': unit.name})
         start_time = time.time()
+        backup_id = uuid4().hex
+        started_iso = datetime.utcnow().isoformat(timespec="seconds")
         metadata = BackupMetadata(
             unit_name=unit.name,
             timestamp=datetime.now(),
@@ -97,7 +100,7 @@ class BackupManager:
             # Step 2: Backup recipes
             logger.info("Backing up recipes...", 
                        extra={'unit_name': unit.name})
-            recipe_snapshot = self._backup_recipes(unit)
+            recipe_snapshot = self._backup_recipes(unit, backup_id, started_iso)
             if recipe_snapshot:
                 metadata.kopia_snapshot_ids.append(recipe_snapshot)
             
@@ -107,13 +110,13 @@ class BackupManager:
                 
                 # Submit volume backup tasks
                 for volume in unit.volumes:
-                    future = executor.submit(self._backup_volume, volume, unit)
+                    future = executor.submit(self._backup_volume, volume, unit, backup_id, started_iso)
                     futures.append(('volume', volume.name, future))
                 
                 # Submit database backup tasks if enabled
                 if self.config.getboolean('backup', 'database_backup'):
                     for container in unit.get_database_containers():
-                        future = executor.submit(self._backup_database, container, unit)
+                        future = executor.submit(self._backup_database, container, unit, backup_id, started_iso)
                         futures.append(('database', container.name, future))
                 
                 # Wait for all backups to complete
@@ -278,12 +281,14 @@ class BackupManager:
                        extra={'container': container.name})
             time.sleep(2)
     
-    def _backup_recipes(self, unit: BackupUnit) -> Optional[str]:
+    def _backup_recipes(self, unit: BackupUnit, backup_id: str, started_iso: str) -> Optional[str]:
         """
         Backup compose files and container configurations.
         
         Args:
             unit: Backup unit
+            backup_id: Stable identifier for this backup run
+            started_iso: UTC start timestamp shared across artifacts
             
         Returns:
             Kopia snapshot ID or None
@@ -334,7 +339,8 @@ class BackupManager:
                     tags={
                         'type': 'recipe',
                         'unit': unit.name,
-                        'timestamp': datetime.now().isoformat()
+                        'timestamp': started_iso,
+                        'backup_id': backup_id,
                     }
                 )
                 
@@ -345,13 +351,15 @@ class BackupManager:
                         extra={'unit_name': unit.name})
             return None
     
-    def _backup_volume(self, volume: VolumeInfo, unit: BackupUnit) -> Optional[str]:
+    def _backup_volume(self, volume: VolumeInfo, unit: BackupUnit, backup_id: str, started_iso: str) -> Optional[str]:
         """
         Backup a single volume using tar stream.
         
         Args:
             volume: Volume to backup
             unit: Backup unit this volume belongs to
+            backup_id: Stable identifier for this backup run
+            started_iso: UTC start timestamp shared across artifacts
             
         Returns:
             Kopia snapshot ID or None
@@ -409,7 +417,8 @@ class BackupManager:
                     'type': 'volume',
                     'unit': unit.name,
                     'volume': volume.name,
-                    'timestamp': datetime.now().isoformat(),
+                    'timestamp': started_iso,
+                    'backup_id': backup_id,
                     'size_bytes': str(volume.size_bytes) if volume.size_bytes else '0'
                 }
             )
@@ -440,13 +449,15 @@ class BackupManager:
                         extra={'unit_name': unit.name, 'volume': volume.name})
             return None
     
-    def _backup_database(self, container: ContainerInfo, unit: BackupUnit) -> Optional[str]:
+    def _backup_database(self, container: ContainerInfo, unit: BackupUnit, backup_id: str, started_iso: str) -> Optional[str]:
         """
         Backup a database container.
         
         Args:
             container: Database container
             unit: Backup unit this container belongs to
+            backup_id: Stable identifier for this backup run
+            started_iso: UTC start timestamp shared across artifacts
             
         Returns:
             Kopia snapshot ID or None
@@ -476,7 +487,8 @@ class BackupManager:
                     'database_type': container.database_type,
                     'unit': unit.name,
                     'container': container.name,
-                    'timestamp': datetime.now().isoformat(),
+                    'timestamp': started_iso,
+                    'backup_id': backup_id,
                     'metadata': metadata if metadata else ''
                 }
             )
