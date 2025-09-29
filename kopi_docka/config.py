@@ -78,6 +78,7 @@ class Config:
                 'parallel_workers': 'auto',
                 'stop_timeout': 30,
                 'start_timeout': 60,
+                'task_timeout': 2,
                 'database_backup': 'true',
                 'update_recovery_bundle': 'false',
                 'recovery_bundle_path': '/backup/recovery',
