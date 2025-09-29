@@ -1,14 +1,13 @@
 """
 System utilities module for Kopi-Docka.
 
-This module provides system-level utilities including resource monitoring,
-dependency checking, and optimization calculations.
+This module provides system-level utilities including resource monitoring
+and optimization calculations.
 """
 
 import logging
 import os
 import subprocess
-import shutil
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -22,50 +21,11 @@ logger = logging.getLogger(__name__)
 
 class SystemUtils:
     """
-    System utilities for resource management and dependency checking.
+    System utilities for resource management.
     
-    Provides methods for checking system resources, validating dependencies,
-    and calculating optimal configurations based on system capabilities.
+    Provides methods for checking system resources and calculating 
+    optimal configurations based on system capabilities.
     """
-    
-    @staticmethod
-    def check_docker() -> bool:
-        """
-        Check if Docker is installed and accessible.
-        
-        Returns:
-            True if Docker is available
-        """
-        try:
-            result = subprocess.run(
-                ['docker', 'version'],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            return result.returncode == 0
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return False
-    
-    @staticmethod
-    def check_kopia() -> bool:
-        """
-        Check if Kopia is installed and accessible.
-        
-        Returns:
-            True if Kopia is available
-        """
-        return shutil.which('kopia') is not None
-    
-    @staticmethod
-    def check_tar() -> bool:
-        """
-        Check if tar is installed and accessible.
-        
-        Returns:
-            True if tar is available
-        """
-        return shutil.which('tar') is not None
     
     @staticmethod
     def get_available_ram() -> float:
@@ -97,7 +57,43 @@ class SystemUtils:
             usage = psutil.disk_usage(path)
             return usage.free / (1024 ** 3)  # Convert to GB
         except Exception as e:
-            logger.error(f"Failed to get disk space: {e}")
+            logger.error(f"Failed to get disk space for {path}: {e}")
+            return 0.0
+    
+    @staticmethod
+    def get_total_disk_space(path: str = '/') -> float:
+        """
+        Get total disk space in gigabytes.
+        
+        Args:
+            path: Path to check disk space for
+            
+        Returns:
+            Total disk space in GB
+        """
+        try:
+            usage = psutil.disk_usage(path)
+            return usage.total / (1024 ** 3)  # Convert to GB
+        except Exception as e:
+            logger.error(f"Failed to get total disk space for {path}: {e}")
+            return 0.0
+    
+    @staticmethod
+    def get_disk_usage_percent(path: str = '/') -> float:
+        """
+        Get disk usage percentage.
+        
+        Args:
+            path: Path to check disk usage for
+            
+        Returns:
+            Disk usage percentage (0-100)
+        """
+        try:
+            usage = psutil.disk_usage(path)
+            return usage.percent
+        except Exception as e:
+            logger.error(f"Failed to get disk usage for {path}: {e}")
             return 0.0
     
     @staticmethod
@@ -124,7 +120,7 @@ class SystemUtils:
         ram_gb = SystemUtils.get_available_ram()
         cpu_count = SystemUtils.get_cpu_count()
         
-        # Determine workers based on RAM
+        # Determine workers based on RAM thresholds
         ram_workers = 1
         for threshold_gb, workers in RAM_WORKER_THRESHOLDS:
             if ram_gb <= threshold_gb:
@@ -180,11 +176,14 @@ class SystemUtils:
         Returns:
             Formatted string (e.g., "1.5 GB")
         """
-        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if size_bytes < 0:
+            return "0 B"
+        
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB', 'PB']:
             if size_bytes < 1024.0:
                 return f"{size_bytes:.2f} {unit}"
             size_bytes /= 1024.0
-        return f"{size_bytes:.2f} PB"
+        return f"{size_bytes:.2f} EB"
     
     @staticmethod
     def format_duration(seconds: float) -> str:
@@ -197,11 +196,17 @@ class SystemUtils:
         Returns:
             Formatted string (e.g., "2h 15m 30s")
         """
-        hours = int(seconds // 3600)
+        if seconds < 0:
+            return "0s"
+        
+        days = int(seconds // 86400)
+        hours = int((seconds % 86400) // 3600)
         minutes = int((seconds % 3600) // 60)
         secs = int(seconds % 60)
         
         parts = []
+        if days > 0:
+            parts.append(f"{days}d")
         if hours > 0:
             parts.append(f"{hours}h")
         if minutes > 0:
@@ -220,6 +225,20 @@ class SystemUtils:
             True if running as root
         """
         return os.geteuid() == 0
+    
+    @staticmethod
+    def get_current_user() -> str:
+        """
+        Get current username.
+        
+        Returns:
+            Current username
+        """
+        import pwd
+        try:
+            return pwd.getpwuid(os.getuid()).pw_name
+        except Exception:
+            return os.environ.get('USER', 'unknown')
     
     @staticmethod
     def ensure_directory(path: Path, mode: int = 0o755):
@@ -251,9 +270,55 @@ class SystemUtils:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.settimeout(1)
                 result = s.connect_ex((host, port))
-                return result != 0
+                return result != 0  # Returns True if port is NOT in use
         except Exception:
             return False
+    
+    @staticmethod
+    def get_system_info() -> Dict[str, any]:
+        """
+        Get comprehensive system information.
+        
+        Returns:
+            Dictionary with system information
+        """
+        import platform
+        
+        try:
+            info = {
+                'platform': platform.system(),
+                'platform_release': platform.release(),
+                'platform_version': platform.version(),
+                'architecture': platform.machine(),
+                'hostname': platform.node(),
+                'processor': platform.processor(),
+                'python_version': platform.python_version(),
+                'cpu_count': SystemUtils.get_cpu_count(),
+                'ram_gb': SystemUtils.get_available_ram(),
+                'disk_free_gb': SystemUtils.get_available_disk_space(),
+            }
+            
+            # Add Docker info if available
+            try:
+                docker_version = SystemUtils.get_docker_version()
+                if docker_version:
+                    info['docker_version'] = '.'.join(map(str, docker_version))
+            except Exception:
+                pass
+            
+            # Add Kopia info if available
+            try:
+                kopia_version = SystemUtils.get_kopia_version()
+                if kopia_version:
+                    info['kopia_version'] = kopia_version
+            except Exception:
+                pass
+            
+            return info
+            
+        except Exception as e:
+            logger.error(f"Failed to get system info: {e}")
+            return {}
     
     @staticmethod
     def get_docker_version() -> Optional[Tuple[int, int, int]]:
@@ -272,12 +337,14 @@ class SystemUtils:
             )
             if result.returncode == 0:
                 version_str = result.stdout.strip()
-                # Parse version like "20.10.21"
+                # Parse version like "20.10.21" or "24.0.5"
                 parts = version_str.split('.')
                 if len(parts) >= 3:
                     return (int(parts[0]), int(parts[1]), int(parts[2]))
+                elif len(parts) == 2:
+                    return (int(parts[0]), int(parts[1]), 0)
         except Exception as e:
-            logger.error(f"Failed to get Docker version: {e}")
+            logger.debug(f"Failed to get Docker version: {e}")
         
         return None
     
@@ -291,17 +358,118 @@ class SystemUtils:
         """
         try:
             result = subprocess.run(
-                ['kopia', 'version'],
+                ['kopia', '--version'],
                 capture_output=True,
                 text=True,
                 timeout=5
             )
             if result.returncode == 0:
                 # Parse version from output
+                # Format is usually: "kopia version X.Y.Z"
                 for line in result.stdout.split('\n'):
-                    if line.startswith('VERSION:'):
-                        return line.split(':', 1)[1].strip()
+                    if 'version' in line.lower():
+                        parts = line.split()
+                        for part in parts:
+                            if part[0].isdigit():
+                                return part
         except Exception as e:
-            logger.error(f"Failed to get Kopia version: {e}")
+            logger.debug(f"Failed to get Kopia version: {e}")
         
         return None
+    
+    @staticmethod
+    def get_load_average() -> Tuple[float, float, float]:
+        """
+        Get system load average.
+        
+        Returns:
+            Tuple of (1min, 5min, 15min) load averages
+        """
+        try:
+            return os.getloadavg()
+        except Exception:
+            return (0.0, 0.0, 0.0)
+    
+    @staticmethod
+    def get_memory_info() -> Dict[str, float]:
+        """
+        Get detailed memory information.
+        
+        Returns:
+            Dictionary with memory stats in GB
+        """
+        try:
+            mem = psutil.virtual_memory()
+            return {
+                'total_gb': mem.total / (1024 ** 3),
+                'available_gb': mem.available / (1024 ** 3),
+                'used_gb': mem.used / (1024 ** 3),
+                'free_gb': mem.free / (1024 ** 3),
+                'percent_used': mem.percent
+            }
+        except Exception as e:
+            logger.error(f"Failed to get memory info: {e}")
+            return {}
+    
+    @staticmethod
+    def check_writable(path: str) -> bool:
+        """
+        Check if path is writable.
+        
+        Args:
+            path: Path to check
+            
+        Returns:
+            True if path is writable
+        """
+        try:
+            test_path = Path(path)
+            if test_path.is_dir():
+                # Test directory writability
+                test_file = test_path / '.kopi_docka_write_test'
+                try:
+                    test_file.touch()
+                    test_file.unlink()
+                    return True
+                except Exception:
+                    return False
+            else:
+                # Test parent directory writability
+                return os.access(test_path.parent, os.W_OK)
+        except Exception:
+            return False
+    
+    # Backward compatibility methods that now use DependencyManager
+    
+    @staticmethod
+    def check_docker() -> bool:
+        """
+        Check if Docker is installed and accessible.
+        
+        Returns:
+            True if Docker is available
+        """
+        from .dependencies import DependencyManager
+        return DependencyManager.check_docker()
+    
+    @staticmethod
+    def check_kopia() -> bool:
+        """
+        Check if Kopia is installed and accessible.
+        
+        Returns:
+            True if Kopia is available
+        """
+        from .dependencies import DependencyManager
+        return DependencyManager.check_kopia()
+    
+    @staticmethod
+    def check_tar() -> bool:
+        """
+        Check if tar is installed and accessible.
+        
+        Returns:
+            True if tar is available
+        """
+        from .dependencies import DependencyManager
+        return DependencyManager.check_tar()

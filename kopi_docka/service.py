@@ -1,351 +1,263 @@
 """
-Service mode for Kopi-Docka.
+Kopi-Docka — service.py
+========================
+Systemd‑freundlicher Daemon + Timer‑Helper für Kopi‑Docka.
 
-This module provides daemon functionality with systemd integration,
-proper logging, and signal handling.
+Ziele (KISS):
+- Sauberer Daemon mit sd_notify (READY/STATUS/STOPPING/WATCHDOG)
+- Watchdog-Unterstützung (systemd WatchdogSec)
+- Locking gegen Parallelstarts
+- Signal‑Handling (SIGTERM/SIGINT/SIGHUP)
+- Optionale, einfache Zeitsteuerung (Intervalle) ODER Nutzung via systemd‑Timer
+- Einfache Helper zum Schreiben von Unit‑Dateien
+
+Hinweis:
+- Für echte Produktions-Jobs empfiehlt sich der **systemd‑Timer** (siehe README).
+- Der Daemon kann alternativ intern in festen Intervallen Backups starten.
 """
 
-import logging
-import signal
+import os
 import sys
 import time
+import signal
 import fcntl
-import os
-from pathlib import Path
+import logging
+import subprocess
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Optional
+from pathlib import Path
+from typing import Optional, List, Tuple
 
+# -------- Logging --------
+LOGGER = logging.getLogger("kopi_docka.service")
+_handler = logging.StreamHandler()
+_formatter = logging.Formatter(
+    fmt="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+_handler.setFormatter(_formatter)
+LOGGER.addHandler(_handler)
+LOGGER.setLevel(logging.INFO)
+
+# -------- systemd detection --------
 try:
-    from systemd import journal
+    from systemd import daemon as systemd_daemon  # type: ignore
+
     HAS_SYSTEMD = True
-except ImportError:
+except Exception:  # pragma: no cover - optional dep
+    systemd_daemon = None  # type: ignore
     HAS_SYSTEMD = False
 
 
-logger = logging.getLogger(__name__)
-
-
-class SystemdHandler(logging.Handler):
-    """
-    Log handler that sends messages to systemd journal.
-    """
-    
-    def __init__(self):
-        super().__init__()
-        self.journal = journal if HAS_SYSTEMD else None
-    
-    def emit(self, record):
-        """Send log record to systemd journal."""
-        if not self.journal:
-            return
-        
-        # Map Python log levels to systemd priorities
-        priority_map = {
-            logging.DEBUG: journal.LOG_DEBUG,
-            logging.INFO: journal.LOG_INFO,
-            logging.WARNING: journal.LOG_WARNING,
-            logging.ERROR: journal.LOG_ERR,
-            logging.CRITICAL: journal.LOG_CRIT,
-        }
-        
-        priority = priority_map.get(record.levelno, journal.LOG_INFO)
-        
-        # Send to journal with metadata
-        self.journal.send(
-            record.getMessage(),
-            PRIORITY=priority,
-            LOGGER=record.name,
-            CODE_FILE=record.pathname,
-            CODE_LINE=record.lineno,
-            CODE_FUNC=record.funcName,
-            SYSLOG_IDENTIFIER='kopi-docka'
-        )
-
-
+# -------- Locking --------
 class LockFile:
+    """Simple PID lock using fcntl. Default path aligns with RuntimeDirectory.
     """
-    Prevents multiple instances from running simultaneously.
-    """
-    
-    def __init__(self, path: str = '/var/run/kopi-docka.lock'):
-        """
-        Initialize lock file.
-        
-        Args:
-            path: Path to lock file
-        """
-        self.path = Path(path)
-        self.fd = None
-    
-    def acquire(self) -> bool:
-        """
-        Try to acquire lock.
-        
-        Returns:
-            True if lock acquired, False if already locked
-        """
+
+    def __init__(self, path: str = "/run/kopi-docka/kopi-docka.lock"):
+        self.path = path
+        self.fd: Optional[int] = None
+
+    def acquire(self) -> None:
+        Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        self.fd = os.open(self.path, os.O_CREAT | os.O_RDWR, 0o600)
         try:
-            # Ensure directory exists
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Open or create lock file
-            self.fd = open(self.path, 'w')
-            
-            # Try to acquire exclusive lock (non-blocking)
             fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            
-            # Write PID to lock file
-            self.fd.write(str(os.getpid()))
-            self.fd.flush()
-            
-            return True
-            
-        except IOError:
-            # Lock is held by another process
-            if self.fd:
-                self.fd.close()
-                self.fd = None
-            return False
-    
-    def release(self):
-        """Release the lock."""
-        if self.fd:
+        except BlockingIOError:
+            raise RuntimeError("Another kopi-docka service instance is running.")
+        os.ftruncate(self.fd, 0)
+        os.write(self.fd, str(os.getpid()).encode())
+
+    def release(self) -> None:
+        if self.fd is not None:
             try:
                 fcntl.flock(self.fd, fcntl.LOCK_UN)
-                self.fd.close()
-                self.path.unlink(missing_ok=True)
-            except Exception:
-                pass
             finally:
+                os.close(self.fd)
                 self.fd = None
-    
-    def __enter__(self):
-        """Context manager entry."""
-        if not self.acquire():
-            raise RuntimeError("Could not acquire lock - another instance may be running")
-        return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit."""
-        self.release()
 
 
-class ServiceManager:
-    """
-    Manages Kopi-Docka as a service/daemon.
-    """
-    
-    def __init__(self, config):
-        """
-        Initialize service manager.
-        
-        Args:
-            config: Configuration object
-        """
-        self.config = config
-        self.running = False
+# -------- systemd notify helpers --------
+
+def sd_notify_ready(status: Optional[str] = None) -> None:
+    if not HAS_SYSTEMD:
+        return
+    try:
+        msg = "READY=1"
+        if status:
+            msg += f"\nSTATUS={status}"
+        systemd_daemon.notify(msg)  # type: ignore[arg-type]
+    except Exception:  # pragma: no cover - best effort
+        pass
+
+
+def sd_notify_status(status: str) -> None:
+    if not HAS_SYSTEMD:
+        return
+    try:
+        systemd_daemon.notify(f"STATUS={status}")  # type: ignore[arg-type]
+    except Exception:  # pragma: no cover
+        pass
+
+
+def sd_notify_stopping(status: Optional[str] = None) -> None:
+    if not HAS_SYSTEMD:
+        return
+    try:
+        msg = "STOPPING=1"
+        if status:
+            msg += f"\nSTATUS={status}"
+        systemd_daemon.notify(msg)  # type: ignore[arg-type]
+    except Exception:  # pragma: no cover
+        pass
+
+
+def sd_notify_watchdog() -> None:
+    """Send WATCHDOG=1 if watchdog is configured."""
+    if not HAS_SYSTEMD:
+        return
+    try:
+        systemd_daemon.notify("WATCHDOG=1")  # type: ignore[arg-type]
+    except Exception:  # pragma: no cover
+        pass
+
+
+# -------- Config --------
+@dataclass
+class ServiceConfig:
+    # How to trigger a backup when running inside the daemon:
+    backup_cmd: str = "/usr/local/bin/kopi-docka backup"
+
+    # Optional: run backups every N minutes (if not using systemd timer)
+    interval_minutes: Optional[int] = None  # e.g. 1440 for daily
+
+    # Optional: minimum time between runs (safety)
+    min_interval: timedelta = timedelta(minutes=30)
+
+    # Log level
+    log_level: str = "INFO"
+
+
+# -------- Service --------
+class KopiDockaService:
+    def __init__(self, cfg: ServiceConfig):
+        self.cfg = cfg
+        self.running = True
         self.lock = LockFile()
-        self._setup_signal_handlers()
-        self._setup_logging()
-    
-    def _setup_signal_handlers(self):
-        """Setup signal handlers for graceful shutdown."""
-        signal.signal(signal.SIGTERM, self._handle_signal)
-        signal.signal(signal.SIGINT, self._handle_signal)
-        signal.signal(signal.SIGHUP, self._handle_reload)
-    
-    def _handle_signal(self, signum, frame):
-        """Handle shutdown signals."""
-        logger.info(f"Received signal {signum}, shutting down gracefully...")
+        self._last_run: Optional[datetime] = None
+        # compute watchdog interval if provided by systemd
+        self._watchdog_usec = int(os.getenv("WATCHDOG_USEC", "0") or 0)
+        self._watchdog_interval: Optional[float] = None
+        if self._watchdog_usec and os.getenv("NOTIFY_SOCKET"):
+            # send heartbeat at half the watchdog timeout
+            self._watchdog_interval = max(1.0, (self._watchdog_usec / 1_000_000) / 2)
+
+    # ----- signal handling -----
+    def _sigterm(self, *_):
+        LOGGER.info("Received SIGTERM -> stopping…")
         self.running = False
-        
-        # Notify systemd we're stopping
-        if HAS_SYSTEMD:
-            journal.send("Stopping Kopi-Docka service", PRIORITY=journal.LOG_INFO)
-    
-    def _handle_reload(self, signum, frame):
-        """Handle reload signal (SIGHUP)."""
-        logger.info("Received SIGHUP, reloading configuration...")
-        # In a real implementation, reload config here
-        self.config = self.config.__class__(self.config.config_file)
-    
-    def _setup_logging(self):
-        """Setup logging with systemd journal support."""
-        root_logger = logging.getLogger()
-        
-        # Remove existing handlers
-        for handler in root_logger.handlers[:]:
-            root_logger.removeHandler(handler)
-        
-        # Console handler (for non-systemd environments)
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(
-            logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        )
-        root_logger.addHandler(console_handler)
-        
-        # Systemd journal handler
-        if HAS_SYSTEMD:
-            systemd_handler = SystemdHandler()
-            root_logger.addHandler(systemd_handler)
-        
-        # File handler (optional, based on config)
-        log_file = self.config.get('logging', 'file')
-        if log_file:
-            try:
-                file_handler = logging.FileHandler(log_file)
-                file_handler.setFormatter(
-                    logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-                )
-                root_logger.addHandler(file_handler)
-            except Exception as e:
-                logger.warning(f"Could not create file handler: {e}")
-        
-        # Set log level
-        level = self.config.get('logging', 'level', 'INFO')
-        root_logger.setLevel(getattr(logging, level.upper()))
-    
-    def notify_systemd(self, state: str, status: Optional[str] = None):
-        """
-        Notify systemd about service state.
-        
-        Args:
-            state: Service state (READY, STOPPING, etc.)
-            status: Optional status message
-        """
-        if not HAS_SYSTEMD:
-            return
-        
+
+    def _sigint(self, *_):
+        LOGGER.info("Received SIGINT -> stopping…")
+        self.running = False
+
+    def _sighup(self, *_):
+        LOGGER.info("Received SIGHUP -> log reopen or reload (noop)")
+
+    # ----- core -----
+    def start(self) -> int:
+        # log level
+        LOGGER.setLevel(getattr(logging, self.cfg.log_level.upper(), logging.INFO))
+
+        # install signals
+        signal.signal(signal.SIGTERM, self._sigterm)
+        signal.signal(signal.SIGINT, self._sigint)
+        signal.signal(signal.SIGHUP, self._sighup)
+
+        # lock
         try:
-            import systemd.daemon
-            
-            notifications = [f"STATE={state}"]
-            if status:
-                notifications.append(f"STATUS={status}")
-            
-            systemd.daemon.notify('\n'.join(notifications))
-            
-        except ImportError:
-            pass
-    
-    def run_scheduled_backup(self):
-        """Run a scheduled backup."""
-        from .discovery import DockerDiscovery
-        from .backup import BackupManager
-        
-        try:
-            # Notify systemd we're running
-            self.notify_systemd("BUSY", "Running scheduled backup")
-            
-            # Perform backup
-            discovery = DockerDiscovery()
-            backup_manager = BackupManager(self.config)
-            
-            units = discovery.discover_backup_units()
-            logger.info(f"Starting scheduled backup of {len(units)} units")
-            
-            success_count = 0
-            for unit in units:
-                try:
-                    metadata = backup_manager.backup_unit(unit)
-                    if metadata.success:
-                        success_count += 1
-                        logger.info(f"Successfully backed up: {unit.name}")
-                    else:
-                        logger.error(f"Backup failed for: {unit.name}")
-                except Exception as e:
-                    logger.error(f"Error backing up {unit.name}: {e}")
-            
-            logger.info(f"Scheduled backup complete: {success_count}/{len(units)} successful")
-            
-            # Notify systemd we're idle
-            self.notify_systemd("READY", f"Last backup: {datetime.now()}")
-            
+            self.lock.acquire()
         except Exception as e:
-            logger.error(f"Scheduled backup failed: {e}")
-            self.notify_systemd("READY", f"Last backup failed: {e}")
-    
-    def run_daemon(self):
-        """
-        Run as daemon with scheduled backups.
-        
-        This is the main service loop when running under systemd.
-        """
-        logger.info("Starting Kopi-Docka daemon")
-        
-        # Try to acquire lock
-        if not self.lock.acquire():
-            logger.error("Another instance is already running")
-            sys.exit(1)
-        
+            LOGGER.error(str(e))
+            return 1
+
         try:
-            self.running = True
-            
-            # Notify systemd we're ready
-            self.notify_systemd("READY", "Waiting for scheduled backup")
-            
-            # Calculate next backup time
-            schedule_enabled = self.config.getboolean('schedule', 'enabled')
-            if not schedule_enabled:
-                logger.warning("Scheduled backups are disabled in configuration")
-                # Keep running for manual triggers via systemd
-                while self.running:
-                    time.sleep(60)
-                return
-            
-            # Parse schedule
-            daily_time = self.config.get('schedule', 'daily_at', '02:00')
-            hour, minute = map(int, daily_time.split(':'))
-            
-            while self.running:
-                now = datetime.now()
-                
-                # Calculate next run time
-                next_run = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-                if next_run <= now:
-                    next_run += timedelta(days=1)
-                
-                # Wait until next run or shutdown
-                wait_seconds = (next_run - now).total_seconds()
-                logger.info(f"Next backup scheduled at {next_run}")
-                
-                # Wait with periodic checks for shutdown
-                waited = 0
-                while waited < wait_seconds and self.running:
-                    time.sleep(min(60, wait_seconds - waited))
-                    waited += 60
-                
-                # Run backup if still running
-                if self.running:
-                    self.run_scheduled_backup()
-            
+            sd_notify_ready("Waiting (idle)")
+            return self._run_loop()
         finally:
-            self.lock.release()
-            logger.info("Kopi-Docka daemon stopped")
-    
-    def run_oneshot(self):
-        """
-        Run single backup and exit (for systemd timer usage).
-        """
-        logger.info("Running one-shot backup")
-        
-        with self.lock:
-            self.run_scheduled_backup()
-        
-        logger.info("One-shot backup complete")
+            try:
+                sd_notify_stopping("Stopping service")
+            finally:
+                self.lock.release()
+
+    def _maybe_run_backup(self) -> None:
+        now = datetime.now()
+        if self._last_run is not None:
+            if now - self._last_run < self.cfg.min_interval:
+                return
+        LOGGER.info("Starting backup run…")
+        sd_notify_status("Running backup")
+        try:
+            # Run the external CLI; inherit environment
+            res = subprocess.run(
+                self.cfg.backup_cmd,
+                shell=True,
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            for line in (res.stdout or "").splitlines():
+                LOGGER.info("BACKUP | %s", line)
+            if res.returncode != 0:
+                LOGGER.error("Backup finished with non-zero exit code: %s", res.returncode)
+            else:
+                LOGGER.info("Backup finished successfully")
+        except Exception as e:  # robust against unexpected
+            LOGGER.exception("Backup execution failed: %s", e)
+        finally:
+            self._last_run = datetime.now()
+            sd_notify_status(f"Last backup: {self._last_run:%Y-%m-%d %H:%M:%S}")
+
+    def _run_loop(self) -> int:
+        # If no internal interval configured, we just idle (systemd timer will trigger separate oneshots)
+        interval = self.cfg.interval_minutes
+        if not interval:
+            LOGGER.info("No internal schedule configured (interval_minutes=None). Idling for manual or timer-based triggering.")
+        else:
+            LOGGER.info("Internal schedule active: every %d minutes", interval)
+
+        next_watchdog = time.monotonic() + (self._watchdog_interval or 1e9)
+
+        while self.running:
+            # watchdog heartbeat
+            if self._watchdog_interval is not None and time.monotonic() >= next_watchdog:
+                sd_notify_watchdog()
+                next_watchdog = time.monotonic() + self._watchdog_interval
+
+            if interval:
+                # run if first time or interval elapsed
+                if self._last_run is None or (datetime.now() - self._last_run) >= timedelta(minutes=interval):
+                    self._maybe_run_backup()
+
+            # idle sleep
+            time.sleep(1.0)
+
+        LOGGER.info("Service loop ended.")
+        return 0
 
 
-def write_systemd_units(output_dir: Path = Path('/etc/systemd/system')):
-    """
-    Write systemd service and timer unit files.
-    
-    Args:
-        output_dir: Directory to write unit files to
-    """
-    # Service unit for daemon mode
-    service_content = """[Unit]
-Description=Kopi-Docka Docker Backup Service
-Documentation=https://github.com/yourusername/kopi-docka
+# -------- systemd unit helpers --------
+UNIT_HEADER = """# Generated by Kopi-Docka service.py
+# Adjust paths as needed.
+"""
+
+
+def write_systemd_units(output_dir: Path = Path("/etc/systemd/system")) -> None:
+    """Write hardened service and timer units as examples."""
+    service_content = f"""{UNIT_HEADER}[Unit]
+Description=Kopi-Docka Docker Backup Service (Daemon)
+Documentation=https://github.com/TZERO78/kopi-docka
 After=docker.service
 Requires=docker.service
 
@@ -355,6 +267,7 @@ ExecStart=/usr/local/bin/kopi-docka daemon
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=30
+WatchdogSec=300
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=kopi-docka
@@ -364,62 +277,110 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/backup /var/lib/docker /var/run/docker.sock /var/log
+ReadWritePaths=/backup /var/lib/docker /var/run/docker.sock /var/log /run/kopi-docka
 RuntimeDirectory=kopi-docka
 RuntimeDirectoryMode=0755
+UMask=0077
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallFilter=@system-service
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+PrivateDevices=yes
 
 [Install]
 WantedBy=multi-user.target
 """
-    
-    # Timer unit for scheduled backups (alternative to daemon)
-    timer_content = """[Unit]
-Description=Daily Kopi-Docka Backup
-Documentation=https://github.com/yourusername/kopi-docka
+
+    timer_content = f"""{UNIT_HEADER}[Unit]
+Description=Daily Kopi-Docka Backup at 02:00
 
 [Timer]
-OnCalendar=daily
-OnCalendar=02:00:00
+OnCalendar=*-*-* 02:00:00
 Persistent=true
 RandomizedDelaySec=15m
 
 [Install]
 WantedBy=timers.target
 """
-    
-    # One-shot service for timer
-    oneshot_content = """[Unit]
-Description=Kopi-Docka Docker Backup
-Documentation=https://github.com/yourusername/kopi-docka
+
+    oneshot_service = f"""{UNIT_HEADER}[Unit]
+Description=Kopi-Docka One-Shot Backup
 After=docker.service
 Requires=docker.service
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/kopi-docka backup
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=kopi-docka-backup
-
-# Security hardening
+# Security subset (oneshot)
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=/backup /var/lib/docker /var/run/docker.sock /var/log
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
 """
-    
-    # Write files
+
     output_dir.mkdir(parents=True, exist_ok=True)
-    
-    (output_dir / 'kopi-docka.service').write_text(service_content)
-    (output_dir / 'kopi-docka.timer').write_text(timer_content)
-    (output_dir / 'kopi-docka-backup.service').write_text(oneshot_content)
-    
-    print(f"Systemd units written to {output_dir}")
-    print("\nTo enable daemon mode:")
-    print("  systemctl daemon-reload")
-    print("  systemctl enable --now kopi-docka.service")
-    print("\nTo enable timer mode:")
-    print("  systemctl daemon-reload")
-    print("  systemctl enable --now kopi-docka.timer")
+    (output_dir / "kopi-docka.service").write_text(service_content)
+    (output_dir / "kopi-docka.timer").write_text(timer_content)
+    (output_dir / "kopi-docka-backup.service").write_text(oneshot_service)
+
+    LOGGER.info("Wrote units to %s", output_dir)
+
+
+# -------- CLI entry (minimal) --------
+
+def _parse_args(argv: List[str]) -> Tuple[str, ServiceConfig]:
+    """Very small arg parser to avoid extra deps. Intended to be wrapped by Typer in main CLI.
+
+    Supported subcommands here:
+      - daemon: run persistent daemon (optional internal schedule)
+      - write-units: write example systemd units
+    """
+    import argparse
+
+    p = argparse.ArgumentParser(prog="kopi-docka-service")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    d = sub.add_parser("daemon", help="Run service daemon")
+    d.add_argument("--interval-minutes", type=int, default=None, help="Run internal backup every N minutes (else idle; prefer systemd timer)")
+    d.add_argument("--backup-cmd", default="/usr/local/bin/kopi-docka backup", help="Command to start a backup run")
+    d.add_argument("--log-level", default="INFO", help="Log level (INFO/DEBUG/…)")
+
+    wu = sub.add_parser("write-units", help="Write example systemd unit files")
+    wu.add_argument("--output-dir", default="/etc/systemd/system")
+
+    ns = p.parse_args(argv)
+    if ns.cmd == "daemon":
+        cfg = ServiceConfig(
+            backup_cmd=ns.backup_cmd,
+            interval_minutes=ns.interval_minutes,
+            log_level=ns.log_level,
+        )
+        return ns.cmd, cfg
+    else:
+        # write-units
+        cfg = ServiceConfig()
+        cfg._output_dir = ns.output_dir  # type: ignore[attr-defined]
+        return ns.cmd, cfg
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    cmd, cfg = _parse_args(argv or sys.argv[1:])
+    if cmd == "daemon":
+        svc = KopiDockaService(cfg)
+        return svc.start()
+    elif cmd == "write-units":
+        write_systemd_units(Path(getattr(cfg, "_output_dir", "/etc/systemd/system")))
+        return 0
+    return 2
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())

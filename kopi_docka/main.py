@@ -1,433 +1,475 @@
-#!/usr/bin/env python3
 """
-Main entry point for the Kopi-Docka command-line tool.
+System utilities module for Kopi-Docka.
 
-This module handles command-line argument parsing and delegates to appropriate
-subcommands for backup, restore, and other operations.
+This module provides system-level utilities including resource monitoring
+and optimization calculations.
 """
 
-import sys
-import argparse
 import logging
+import os
+import subprocess
 from pathlib import Path
+from typing import Optional, Tuple
 
-from .config import Config, create_default_config
-from .discovery import DockerDiscovery
-from .backup import BackupManager
-from .restore import RestoreManager
-from .repository import KopiaRepository
-from .system_utils import SystemUtils
-from .dry_run import DryRunReport
-from .constants import DEFAULT_CONFIG_PATHS
+import psutil
+
+from .constants import RAM_WORKER_THRESHOLDS
 
 
-def setup_logging(verbose: bool = False):
+logger = logging.getLogger(__name__)
+
+
+class SystemUtils:
     """
-    Configure logging for the application.
+    System utilities for resource management.
     
-    Args:
-        verbose: Enable verbose logging if True
+    Provides methods for checking system resources and calculating 
+    optimal configurations based on system capabilities.
     """
-    level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-
-
-def cmd_backup(args, config):
-    """
-    Execute backup command.
     
-    Args:
-        args: Parsed command-line arguments
-        config: Configuration object
-    """
-    discovery = DockerDiscovery()
-    backup_manager = BackupManager(config)
+    @staticmethod
+    def get_available_ram() -> float:
+        """
+        Get available system RAM in gigabytes.
+        
+        Returns:
+            Available RAM in GB
+        """
+        try:
+            memory = psutil.virtual_memory()
+            return memory.total / (1024 ** 3)  # Convert to GB
+        except Exception as e:
+            logger.error(f"Failed to get RAM info: {e}")
+            return 2.0  # Conservative default
     
-    # Determine if recovery bundle should be updated
-    update_recovery = None
-    if hasattr(args, 'update_recovery'):
-        update_recovery = args.update_recovery
+    @staticmethod
+    def get_available_disk_space(path: str = '/') -> float:
+        """
+        Get available disk space in gigabytes.
+        
+        Args:
+            path: Path to check disk space for
+            
+        Returns:
+            Available disk space in GB
+        """
+        try:
+            usage = psutil.disk_usage(path)
+            return usage.free / (1024 ** 3)  # Convert to GB
+        except Exception as e:
+            logger.error(f"Failed to get disk space for {path}: {e}")
+            return 0.0
     
-    if args.dry_run:
-        report = DryRunReport(config)
-        units = discovery.discover_backup_units()
-        report.generate(units, update_recovery_bundle=update_recovery)
-        return
+    @staticmethod
+    def get_total_disk_space(path: str = '/') -> float:
+        """
+        Get total disk space in gigabytes.
+        
+        Args:
+            path: Path to check disk space for
+            
+        Returns:
+            Total disk space in GB
+        """
+        try:
+            usage = psutil.disk_usage(path)
+            return usage.total / (1024 ** 3)  # Convert to GB
+        except Exception as e:
+            logger.error(f"Failed to get total disk space for {path}: {e}")
+            return 0.0
     
-    units = discovery.discover_backup_units()
+    @staticmethod
+    def get_disk_usage_percent(path: str = '/') -> float:
+        """
+        Get disk usage percentage.
+        
+        Args:
+            path: Path to check disk usage for
+            
+        Returns:
+            Disk usage percentage (0-100)
+        """
+        try:
+            usage = psutil.disk_usage(path)
+            return usage.percent
+        except Exception as e:
+            logger.error(f"Failed to get disk usage for {path}: {e}")
+            return 0.0
     
-    if args.unit:
-        units = [u for u in units if u.name == args.unit]
-        if not units:
-            logging.error(f"Backup unit '{args.unit}' not found")
-            sys.exit(1)
+    @staticmethod
+    def get_cpu_count() -> int:
+        """
+        Get number of CPU cores.
+        
+        Returns:
+            Number of CPU cores
+        """
+        try:
+            return psutil.cpu_count(logical=True) or 1
+        except Exception:
+            return 1
     
-    success_count = 0
-    for unit in units:
-        metadata = backup_manager.backup_unit(unit, update_recovery_bundle=update_recovery)
-        if metadata.success:
-            success_count += 1
+    @staticmethod
+    def get_optimal_workers() -> int:
+        """
+        Calculate optimal number of parallel workers based on system resources.
+        
+        Returns:
+            Recommended number of workers
+        """
+        ram_gb = SystemUtils.get_available_ram()
+        cpu_count = SystemUtils.get_cpu_count()
+        
+        # Determine workers based on RAM thresholds
+        ram_workers = 1
+        for threshold_gb, workers in RAM_WORKER_THRESHOLDS:
+            if ram_gb <= threshold_gb:
+                ram_workers = workers
+                break
+        
+        # Don't exceed CPU count
+        optimal = min(ram_workers, cpu_count)
+        
+        logger.debug(f"System has {ram_gb:.1f}GB RAM, {cpu_count} CPUs. "
+                    f"Recommending {optimal} workers.")
+        
+        return optimal
     
-    # Log summary
-    logging.info(f"Backup complete: {success_count}/{len(units)} units successful")
-
-
-def cmd_restore(args, config):
-    """
-    Execute restore command.
+    @staticmethod
+    def estimate_backup_size(path: str) -> int:
+        """
+        Estimate size of path for backup.
+        
+        Args:
+            path: Path to estimate
+            
+        Returns:
+            Estimated size in bytes
+        """
+        try:
+            if os.path.isfile(path):
+                return os.path.getsize(path)
+            
+            total_size = 0
+            for dirpath, dirnames, filenames in os.walk(path):
+                for filename in filenames:
+                    filepath = os.path.join(dirpath, filename)
+                    try:
+                        total_size += os.path.getsize(filepath)
+                    except (OSError, IOError):
+                        continue
+            
+            return total_size
+            
+        except Exception as e:
+            logger.error(f"Failed to estimate size of {path}: {e}")
+            return 0
     
-    Args:
-        args: Parsed command-line arguments
-        config: Configuration object
-    """
-    restore_manager = RestoreManager(config)
-    restore_manager.interactive_restore()
-
-
-def cmd_list(args, config):
-    """
-    List backups command.
+    @staticmethod
+    def format_bytes(size_bytes: int) -> str:
+        """
+        Format bytes into human-readable string.
+        
+        Args:
+            size_bytes: Size in bytes
+            
+        Returns:
+            Formatted string (e.g., "1.5 GB")
+        """
+        if size_bytes < 0:
+            return "0 B"
+        
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB', 'PB']:
+            if size_bytes < 1024.0:
+                return f"{size_bytes:.2f} {unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.2f} EB"
     
-    Args:
-        args: Parsed command-line arguments
-        config: Configuration object
-    """
-    repo = KopiaRepository(config)
+    @staticmethod
+    def format_duration(seconds: float) -> str:
+        """
+        Format duration into human-readable string.
+        
+        Args:
+            seconds: Duration in seconds
+            
+        Returns:
+            Formatted string (e.g., "2h 15m 30s")
+        """
+        if seconds < 0:
+            return "0s"
+        
+        days = int(seconds // 86400)
+        hours = int((seconds % 86400) // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        
+        parts = []
+        if days > 0:
+            parts.append(f"{days}d")
+        if hours > 0:
+            parts.append(f"{hours}h")
+        if minutes > 0:
+            parts.append(f"{minutes}m")
+        if secs > 0 or not parts:
+            parts.append(f"{secs}s")
+        
+        return " ".join(parts)
     
-    if args.units:
-        units = repo.list_backup_units()
-        for unit in units:
-            print(f"Unit: {unit['name']} - Last backup: {unit['timestamp']}")
-    else:
-        snapshots = repo.list_snapshots()
-        for snap in snapshots:
-            print(f"Snapshot: {snap['id']} - {snap['path']} - {snap['timestamp']}")
-
-
-def cmd_check(args, config):
-    """
-    Check system requirements.
+    @staticmethod
+    def is_root() -> bool:
+        """
+        Check if running as root.
+        
+        Returns:
+            True if running as root
+        """
+        return os.geteuid() == 0
     
-    Args:
-        args: Parsed command-line arguments
-        config: Configuration object
-    """
-    utils = SystemUtils()
+    @staticmethod
+    def get_current_user() -> str:
+        """
+        Get current username.
+        
+        Returns:
+            Current username
+        """
+        import pwd
+        try:
+            return pwd.getpwuid(os.getuid()).pw_name
+        except Exception:
+            return os.environ.get('USER', 'unknown')
     
-    print("System Check Report")
-    print("=" * 50)
+    @staticmethod
+    def ensure_directory(path: Path, mode: int = 0o755):
+        """
+        Ensure directory exists with proper permissions.
+        
+        Args:
+            path: Directory path
+            mode: Permission mode
+        """
+        path.mkdir(parents=True, exist_ok=True)
+        path.chmod(mode)
     
-    # Check Docker
-    if utils.check_docker():
-        print("✓ Docker is installed and running")
-    else:
-        print("✗ Docker is not available")
+    @staticmethod
+    def check_port_available(port: int, host: str = '127.0.0.1') -> bool:
+        """
+        Check if a network port is available.
+        
+        Args:
+            port: Port number
+            host: Host address
+            
+        Returns:
+            True if port is available
+        """
+        import socket
+        
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(1)
+                result = s.connect_ex((host, port))
+                return result != 0  # Returns True if port is NOT in use
+        except Exception:
+            return False
     
-    # Check Kopia
-    if utils.check_kopia():
-        print("✓ Kopia is installed")
-    else:
-        print("✗ Kopia is not installed")
+    @staticmethod
+    def get_system_info() -> Dict[str, any]:
+        """
+        Get comprehensive system information.
+        
+        Returns:
+            Dictionary with system information
+        """
+        import platform
+        
+        try:
+            info = {
+                'platform': platform.system(),
+                'platform_release': platform.release(),
+                'platform_version': platform.version(),
+                'architecture': platform.machine(),
+                'hostname': platform.node(),
+                'processor': platform.processor(),
+                'python_version': platform.python_version(),
+                'cpu_count': SystemUtils.get_cpu_count(),
+                'ram_gb': SystemUtils.get_available_ram(),
+                'disk_free_gb': SystemUtils.get_available_disk_space(),
+            }
+            
+            # Add Docker info if available
+            try:
+                docker_version = SystemUtils.get_docker_version()
+                if docker_version:
+                    info['docker_version'] = '.'.join(map(str, docker_version))
+            except Exception:
+                pass
+            
+            # Add Kopia info if available
+            try:
+                kopia_version = SystemUtils.get_kopia_version()
+                if kopia_version:
+                    info['kopia_version'] = kopia_version
+            except Exception:
+                pass
+            
+            return info
+            
+        except Exception as e:
+            logger.error(f"Failed to get system info: {e}")
+            return {}
     
-    # Check system resources
-    ram_gb = utils.get_available_ram()
-    print(f"✓ Available RAM: {ram_gb:.2f} GB")
-    print(f"✓ Recommended workers: {utils.get_optimal_workers()}")
+    @staticmethod
+    def get_docker_version() -> Optional[Tuple[int, int, int]]:
+        """
+        Get Docker version.
+        
+        Returns:
+            Version tuple (major, minor, patch) or None
+        """
+        try:
+            result = subprocess.run(
+                ['docker', 'version', '--format', '{{.Server.Version}}'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                version_str = result.stdout.strip()
+                # Parse version like "20.10.21" or "24.0.5"
+                parts = version_str.split('.')
+                if len(parts) >= 3:
+                    return (int(parts[0]), int(parts[1]), int(parts[2]))
+                elif len(parts) == 2:
+                    return (int(parts[0]), int(parts[1]), 0)
+        except Exception as e:
+            logger.debug(f"Failed to get Docker version: {e}")
+        
+        return None
     
-    # Check repository
-    try:
-        repo = KopiaRepository(config)
-        if repo.is_initialized():
-            print("✓ Kopia repository is initialized")
-        else:
-            print("✗ Kopia repository not initialized")
-    except Exception as e:
-        print(f"✗ Repository check failed: {e}")
-
-
-def cmd_config(args, config):
-    """
-    Configuration management command.
+    @staticmethod
+    def get_kopia_version() -> Optional[str]:
+        """
+        Get Kopia version.
+        
+        Returns:
+            Version string or None
+        """
+        try:
+            result = subprocess.run(
+                ['kopia', '--version'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                # Parse version from output
+                # Format is usually: "kopia version X.Y.Z"
+                for line in result.stdout.split('\n'):
+                    if 'version' in line.lower():
+                        parts = line.split()
+                        for part in parts:
+                            if part[0].isdigit():
+                                return part
+        except Exception as e:
+            logger.debug(f"Failed to get Kopia version: {e}")
+        
+        return None
     
-    Args:
-        args: Parsed command-line arguments
-        config: Configuration object
-    """
-    if args.show:
-        config.display()
-    elif args.init:
-        create_default_config(force=True)
-        print("Configuration file created successfully")
-    elif args.edit:
-        import subprocess
-        import os
-        editor = os.environ.get('EDITOR', 'nano')
-        subprocess.call([editor, str(config.config_file)])
-
-
-def cmd_install(args, config):
-    """
-    Install and initialize Kopia repository.
+    @staticmethod
+    def get_load_average() -> Tuple[float, float, float]:
+        """
+        Get system load average.
+        
+        Returns:
+            Tuple of (1min, 5min, 15min) load averages
+        """
+        try:
+            return os.getloadavg()
+        except Exception:
+            return (0.0, 0.0, 0.0)
     
-    Args:
-        args: Parsed command-line arguments
-        config: Configuration object
-    """
-    repo = KopiaRepository(config)
+    @staticmethod
+    def get_memory_info() -> Dict[str, float]:
+        """
+        Get detailed memory information.
+        
+        Returns:
+            Dictionary with memory stats in GB
+        """
+        try:
+            mem = psutil.virtual_memory()
+            return {
+                'total_gb': mem.total / (1024 ** 3),
+                'available_gb': mem.available / (1024 ** 3),
+                'used_gb': mem.used / (1024 ** 3),
+                'free_gb': mem.free / (1024 ** 3),
+                'percent_used': mem.percent
+            }
+        except Exception as e:
+            logger.error(f"Failed to get memory info: {e}")
+            return {}
     
-    if repo.is_initialized():
-        print("Repository already initialized")
-        return
+    @staticmethod
+    def check_writable(path: str) -> bool:
+        """
+        Check if path is writable.
+        
+        Args:
+            path: Path to check
+            
+        Returns:
+            True if path is writable
+        """
+        try:
+            test_path = Path(path)
+            if test_path.is_dir():
+                # Test directory writability
+                test_file = test_path / '.kopi_docka_write_test'
+                try:
+                    test_file.touch()
+                    test_file.unlink()
+                    return True
+                except Exception:
+                    return False
+            else:
+                # Test parent directory writability
+                return os.access(test_path.parent, os.W_OK)
+        except Exception:
+            return False
     
-    repo.initialize()
-    print("Kopia repository initialized successfully")
-
-
-def cmd_daemon(args, config):
-    """
-    Run in daemon mode.
+    # Backward compatibility methods that now use DependencyManager
     
-    Args:
-        args: Parsed command-line arguments
-        config: Configuration object
-    """
-    from .service import ServiceManager
+    @staticmethod
+    def check_docker() -> bool:
+        """
+        Check if Docker is installed and accessible.
+        
+        Returns:
+            True if Docker is available
+        """
+        from .dependencies import DependencyManager
+        return DependencyManager.check_docker()
     
-    manager = ServiceManager(config)
+    @staticmethod
+    def check_kopia() -> bool:
+        """
+        Check if Kopia is installed and accessible.
+        
+        Returns:
+            True if Kopia is available
+        """
+        from .dependencies import DependencyManager
+        return DependencyManager.check_kopia()
     
-    if args.oneshot:
-        manager.run_oneshot()
-    else:
-        manager.run_daemon()
-
-
-def cmd_systemd_install(args, config):
-    """
-    Install systemd unit files.
-    
-    Args:
-        args: Parsed command-line arguments
-        config: Configuration object
-    """
-    from .service import write_systemd_units
-    from pathlib import Path
-    
-    output_dir = Path('/etc/systemd/system')
-    if args.user:
-        output_dir = Path.home() / '.config/systemd/user'
-    
-    write_systemd_units(output_dir)
-    
-    print("\nNext steps:")
-    if args.user:
-        print("  systemctl --user daemon-reload")
-        print("  systemctl --user enable --now kopi-docka.timer")
-    else:
-        print("  sudo systemctl daemon-reload")
-        print("  sudo systemctl enable --now kopi-docka.timer")
-
-
-def cmd_disaster_recovery(args, config):
-    """
-    Create disaster recovery bundle.
-    
-    Args:
-        args: Parsed command-line arguments
-        config: Configuration object
-    """
-    from .disaster_recovery import DisasterRecoveryManager
-    from pathlib import Path
-    
-    manager = DisasterRecoveryManager(config)
-    
-    output_path = Path(args.output) if args.output else Path.cwd()
-    
-    print("\n" + "=" * 60)
-    print("CREATING DISASTER RECOVERY BUNDLE")
-    print("=" * 60)
-    
-    bundle_path = manager.create_recovery_bundle(output_path)
-    
-    print("\n✓ Recovery bundle created successfully!")
-    print(f"  Bundle: {bundle_path}")
-    print(f"  README: {bundle_path}.README")
-    print(f"  Password: {bundle_path}.PASSWORD")
-    print("\n⚠️  IMPORTANT:")
-    print("  1. Store the .PASSWORD file securely")
-    print("  2. Keep bundle copies in multiple locations")
-    print("  3. Test recovery procedure regularly")
-    print("=" * 60)
-
-
-def main():
-    """Main entry point for the application."""
-    parser = argparse.ArgumentParser(
-        prog='kopi-docka',
-        description='Robust backup solution for Docker environments using Kopia'
-    )
-    
-    parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Enable verbose output'
-    )
-    
-    parser.add_argument(
-        '-c', '--config',
-        type=Path,
-        help='Path to configuration file'
-    )
-    
-    subparsers = parser.add_subparsers(
-        title='Commands',
-        dest='command',
-        help='Available commands'
-    )
-    
-    # Backup command
-    backup_parser = subparsers.add_parser(
-        'backup',
-        help='Backup Docker containers and volumes'
-    )
-    backup_parser.add_argument(
-        '--dry-run',
-        action='store_true',
-        help='Simulate backup without making changes'
-    )
-    backup_parser.add_argument(
-        '--unit',
-        type=str,
-        help='Backup specific unit only'
-    )
-    backup_parser.add_argument(
-        '--update-recovery',
-        action='store_true',
-        help='Update disaster recovery bundle after backup'
-    )
-    
-    # Restore command
-    restore_parser = subparsers.add_parser(
-        'restore',
-        help='Restore Docker containers and volumes'
-    )
-    
-    # List command
-    list_parser = subparsers.add_parser(
-        'list',
-        help='List available backups'
-    )
-    list_parser.add_argument(
-        '--units',
-        action='store_true',
-        help='List backup units instead of snapshots'
-    )
-    
-    # Check command
-    check_parser = subparsers.add_parser(
-        'check',
-        help='Check system requirements and status'
-    )
-    
-    # Config command
-    config_parser = subparsers.add_parser(
-        'config',
-        help='Configuration management'
-    )
-    config_parser.add_argument(
-        '--show',
-        action='store_true',
-        help='Show current configuration'
-    )
-    config_parser.add_argument(
-        '--init',
-        action='store_true',
-        help='Initialize configuration file'
-    )
-    config_parser.add_argument(
-        '--edit',
-        action='store_true',
-        help='Edit configuration file'
-    )
-    
-    # Install command
-    install_parser = subparsers.add_parser(
-        'install',
-        help='Initialize Kopia repository'
-    )
-    
-    # Daemon command
-    daemon_parser = subparsers.add_parser(
-        'daemon',
-        help='Run in daemon mode (for systemd)'
-    )
-    daemon_parser.add_argument(
-        '--oneshot',
-        action='store_true',
-        help='Run once and exit'
-    )
-    
-    # Systemd install command
-    systemd_parser = subparsers.add_parser(
-        'systemd-install',
-        help='Install systemd service files'
-    )
-    systemd_parser.add_argument(
-        '--user',
-        action='store_true',
-        help='Install as user service'
-    )
-    
-    # Disaster recovery command
-    dr_parser = subparsers.add_parser(
-        'disaster-recovery',
-        help='Create disaster recovery bundle'
-    )
-    dr_parser.add_argument(
-        '-o', '--output',
-        type=str,
-        help='Output directory for recovery bundle'
-    )
-    
-    args = parser.parse_args()
-    
-    if not args.command:
-        parser.print_help()
-        sys.exit(0)
-    
-    setup_logging(args.verbose)
-    
-    # Load configuration
-    config_path = args.config if hasattr(args, 'config') and args.config else None
-    config = Config(config_path)
-    
-    # Execute command
-    commands = {
-        'backup': cmd_backup,
-        'restore': cmd_restore,
-        'list': cmd_list,
-        'check': cmd_check,
-        'config': cmd_config,
-        'install': cmd_install,
-        'daemon': cmd_daemon,
-        'systemd-install': cmd_systemd_install,
-        'disaster-recovery': cmd_disaster_recovery,
-    }
-    
-    try:
-        commands[args.command](args, config)
-    except KeyboardInterrupt:
-        logging.info("Operation cancelled by user")
-        sys.exit(130)
-    except Exception as e:
-        logging.error(f"Command failed: {e}")
-        if args.verbose:
-            logging.exception("Full traceback:")
-        sys.exit(1)
-
-
-if __name__ == '__main__':
-    main()
+    @staticmethod
+    def check_tar() -> bool:
+        """
+        Check if tar is installed and accessible.
+        
+        Returns:
+            True if tar is available
+        """
+        from .dependencies import DependencyManager
+        return DependencyManager.check_tar()
