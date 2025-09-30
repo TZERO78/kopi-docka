@@ -6,7 +6,7 @@
 # @description: Checks, reports, and installs system dependencies required by Kopi-Docka.
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
-# @version:     1.0.0
+# @version:     1.0.1
 #
 # ------------------------------------------------------------------------------
 # Copyright (c) 2025 Markus F. (TZERO78)
@@ -25,6 +25,7 @@ This module handles checking and installing system dependencies.
 """
 
 import os
+import re
 import shutil
 import subprocess
 from typing import List, Dict, Tuple, Optional
@@ -65,6 +66,20 @@ class DependencyManager:
             "required": False,
             "description": "Structured logging for systemd journal",
             "install_notes": "Enhances logging when running under systemd",
+        },
+        "systemd-creds": {
+            "check_command": "systemd-creds",
+            "check_method": "check_systemd_creds",
+            "packages": {
+                "debian": None,  # Part of systemd 250+
+                "redhat": None,  # Part of systemd 250+
+                "arch": None,  # Part of systemd 250+
+                "alpine": None,  # Not available
+            },
+            "required": False,
+            "description": "Encrypted credential storage (systemd 250+)",
+            "install_notes": "Requires systemd 250 or newer. Check with: systemctl --version",
+            "version_command": ["systemd-creds", "--version"],
         },
         "kopia": {
             "check_command": "kopia",
@@ -176,6 +191,32 @@ class DependencyManager:
             return True
         except ImportError:
             return False
+
+    def check_systemd_creds(self) -> bool:
+        """Check if systemd-creds is available (systemd 250+)."""
+        if not shutil.which("systemd-creds"):
+            return False
+
+        # Check systemd version
+        try:
+            result = subprocess.run(
+                ["systemctl", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                # Parse version from first line
+                first_line = result.stdout.split("\n")[0]
+                # Format: "systemd 251 (251.4-1ubuntu1)"
+                version_match = re.search(r"systemd (\d+)", first_line)
+                if version_match:
+                    version = int(version_match.group(1))
+                    return version >= 250
+        except Exception as e:
+            logger.debug(f"Error checking systemd version: {e}")
+
+        return False
 
     def check_docker(self) -> bool:
         """Check if Docker is installed and running."""
@@ -311,6 +352,22 @@ class DependencyManager:
             except Exception:
                 pass
 
+        elif name == "systemd-creds":
+            try:
+                result = subprocess.run(
+                    ["systemctl", "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if result.returncode == 0:
+                    first_line = result.stdout.split("\n")[0]
+                    version_match = re.search(r"systemd (\d+)", first_line)
+                    if version_match:
+                        return version_match.group(1)
+            except Exception:
+                pass
+
         elif "version_command" in dep:
             try:
                 result = subprocess.run(
@@ -385,6 +442,11 @@ class DependencyManager:
                             "yum install -y kopia",
                         ]
                     )
+            elif dep_name == "systemd-creds":
+                # systemd-creds requires systemd 250+, which may need OS upgrade
+                logger.info(
+                    f"systemd-creds requires systemd 250+. Check your systemd version with: systemctl --version"
+                )
 
         # Add Docker group command if Docker is missing
         if "docker" in missing:
@@ -487,6 +549,8 @@ class DependencyManager:
                 dep = self.DEPENDENCIES[dep_name]
                 print(f"\n  📦 {dep_name}")
                 print(f"     {dep['description']}")
+                if "install_notes" in dep:
+                    print(f"     Note: {dep['install_notes']}")
 
         # Show installation commands
         commands = self.get_install_commands()
@@ -520,6 +584,15 @@ class DependencyManager:
             print("  $ yay -S kopia-bin")
             print("  OR")
             print("  $ paru -S kopia-bin")
+
+        if "systemd-creds" in missing:
+            print("\n" + "-" * 60)
+            print("📌 systemd-creds (systemd 250+):")
+            print("-" * 60)
+            print("  Check your systemd version:")
+            print("     $ systemctl --version")
+            print("  If below 250, you may need to upgrade your distribution")
+            print("  or compile systemd from source (advanced).")
 
         print("\n" + "=" * 60)
 
@@ -655,7 +728,7 @@ class DependencyManager:
                 if verbose and dep.get("version")
                 else ""
             )
-            print(f"{status} {dep['name']:<12} : {dep['description']}{version}")
+            print(f"{status} {dep['name']:<15} : {dep['description']}{version}")
 
             if not dep["installed"]:
                 all_required_ok = False
@@ -671,7 +744,7 @@ class DependencyManager:
                 if verbose and dep.get("version")
                 else ""
             )
-            print(f"{status} {dep['name']:<12} : {dep['description']}{version}")
+            print(f"{status} {dep['name']:<15} : {dep['description']}{version}")
 
         print("=" * 60)
 
