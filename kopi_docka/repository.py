@@ -91,12 +91,12 @@ class KopiaRepository:
         cmd: List[str] = ["kopia", "repository", "create", backend]
         cmd.extend(self._backend_args(backend, args))
         # Compression/Encryption aus Config
-        compression = self.config.get("kopia", "compression")
-        encryption = self.config.get("kopia", "encryption")
-        if compression:
-            cmd.extend(["--compression", compression])
-        if encryption:
-            cmd.extend(["--encryption", encryption])
+        #compression = self.config.get("kopia", "compression")
+        #encryption = self.config.get("kopia", "encryption")
+        #if compression:
+        #    cmd.extend(["--compression", compression])
+        #if encryption:
+        #    cmd.extend(["--encryption", encryption])
 
         # Für filesystem: Zielverzeichnis anlegen
         if backend == "filesystem":

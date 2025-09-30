@@ -74,7 +74,7 @@ setup(
 
     entry_points={
         "console_scripts": [
-            # Haupt-CLI (Typer) mit Subcommands: init, list, backup, restore, disaster-recovery,
+            # Haupt-CLI (Typer) mit Subcommands: init, list, backup, restore, disaster_recovery,
             # write-units, daemon, doctor, etc.
             "kopi-docka=kopi_docka.__main__:main",
             # Leichter Service/Daemon-Helper (optional, identische Subcommands wie in README)

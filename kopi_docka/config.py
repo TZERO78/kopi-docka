@@ -33,45 +33,80 @@ def generate_secure_password(length: int = 32) -> str:
     return ''.join(secrets.choice(alphabet) for _ in range(length))
 
 
-def create_default_config(path: Path, force: bool = False):
+def create_default_config(path: Optional[Path] = None, force: bool = False):
     """
     Create a default configuration file from the template.
     
     Args:
-        path: Path where to create the config file.
+        path: Optional path where to create the config file. If None, uses default.
         force: Overwrite existing file if True.
     """
+    # Handle None path - determine default location
+    if path is None:
+        if os.geteuid() == 0:
+            path = Path('/etc/kopi-docka.conf')
+        else:
+            path = Path.home() / '.config' / 'kopi-docka' / 'config.conf'
+    else:
+        path = Path(path).expanduser()
+    
+    # Now safe to check exists
     if path.exists() and not force:
         logger.warning(f"Configuration file already exists at {path}, not overwriting.")
         return
-
+    
     # Ensure the parent directory exists
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Find the template file. It should be in the same package directory.
-    template_path = Path(__file__).parent / 'config_template.ini'
-
-    if not template_path.exists():
-        logger.critical(
-            f"FATAL: Configuration template '{template_path.name}' is missing. "
-            "The application seems to be installed incorrectly."
-        )
-        sys.exit(1)  # Stop immediately if the installation is faulty
-
-    # The clean way: Read template, inject a password, and write the file.
-    with open(template_path, 'r', encoding='utf-8') as f:
-        template_content = f.read()
-
-    password = generate_secure_password()
-    # Assumes the template has a `{password}` placeholder
-    config_content = template_content.format(password=password)
+    # Find the template file
+    template_path = Path(__file__).parent / 'config-template.ini'
     
-    with open(path, 'w', encoding='utf-8') as f:
-        f.write(config_content)
+    if not template_path.exists():
+        # Fallback: Try alternative name
+        template_path = Path(__file__).parent / 'config_template.ini'
+        
+    if not template_path.exists():
+        logger.error(
+            f"Configuration template not found. Creating minimal config."
+        )
+        # Create minimal config without template
+        minimal_config = f"""# Kopi-Docka Configuration
+[kopia]
+repository_path = /backup/kopia-repository
+password = {generate_secure_password()}
+cache_directory = /var/cache/kopi-docka
 
-    # Set secure permissions (readable only by the owner)
+[backup]
+base_path = /backup/kopi-docka
+parallel_workers = auto
+stop_timeout = 30
+database_backup = true
+
+[docker]
+socket = /var/run/docker.sock
+"""
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(minimal_config)
+    else:
+        # Read template and replace password
+        with open(template_path, 'r', encoding='utf-8') as f:
+            template_content = f.read()
+        
+        # Replace password placeholder if exists
+        if 'CHANGE_ME' in template_content:
+            password = generate_secure_password()
+            config_content = template_content.replace('CHANGE_ME_TO_A_SECURE_PASSWORD', password)
+        else:
+            config_content = template_content
+        
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(config_content)
+    
+    # Set secure permissions (readable only by owner)
     path.chmod(0o600)
     logger.info(f"Default configuration created at {path}")
+    
+    return path  # Return path for caller
 
 
 class Config:

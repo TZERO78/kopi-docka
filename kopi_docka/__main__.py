@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 ################################################################################
 # KOPI-DOCKA
 #
@@ -16,6 +17,7 @@
 # - Implements commands for version, init, list, backup, restore, and maintenance
 # - Centralizes config loading via _load_config helper
 # - Integrates service helpers to manage systemd daemon and unit files
+# - Uses DependencyManager for system requirement checks
 ################################################################################
 
 """
@@ -34,7 +36,8 @@ from typing import Optional, List
 import typer
 
 from .constants import VERSION
-from .config import Config
+from .config import Config, create_default_config
+from .dependencies import DependencyManager
 from .logging import get_logger, log_manager
 from .discovery import DockerDiscovery
 from .backup import BackupManager
@@ -58,14 +61,21 @@ logger = get_logger(__name__)
 # -------------------------
 
 
-def _load_config(config_path: Optional[Path]) -> Config:
-    # If your Config supports an explicit path, use it; otherwise rely on its defaults.
-    if config_path:
+def _load_config(config_path: Optional[Path] = None) -> Config:
+    """Load configuration from path or defaults."""
+    if config_path and config_path.exists():
         return Config(config_path)
-    return Config()
+    
+    # Try default locations
+    try:
+        return Config()
+    except:
+        # No config exists yet
+        return None
 
 
 def _filter_units(all_units, names: Optional[List[str]]):
+    """Filter backup units by name."""
     if not names:
         return all_units
     wanted = set(names)
@@ -95,13 +105,14 @@ def _entry(
         log_manager.configure(level=log_level.upper())
     except Exception:
         # Fallback if custom manager errors
-        pass
+        import logging
+        logging.basicConfig(level=log_level.upper())
 
-    ctx.obj = {"config": _load_config(config)}
+    ctx.obj = {"config_path": config}
 
 
 # -------------------------
-# Commands
+# Version Command
 # -------------------------
 
 
@@ -111,12 +122,204 @@ def cmd_version():
     typer.echo(f"Kopi-Docka {VERSION}")
 
 
+# -------------------------
+# Dependency Management Commands
+# -------------------------
+
+
+@app.command("check")
+def cmd_check(
+    ctx: typer.Context,
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed information"),
+):
+    """Check system requirements and dependencies."""
+    deps = DependencyManager()
+    deps.print_status(verbose=verbose)
+    
+    # Check repository status
+    cfg = _load_config(ctx.obj.get("config_path"))
+    if cfg:
+        try:
+            repo = KopiaRepository(cfg)
+            if repo.is_initialized():
+                typer.echo("✓ Kopia repository is initialized")
+            else:
+                typer.echo("✗ Kopia repository not initialized")
+                typer.echo("  Run: kopi-docka init")
+        except Exception as e:
+            typer.echo(f"✗ Repository check failed: {e}")
+    else:
+        typer.echo("✗ No configuration found")
+        typer.echo("  Run: kopi-docka new-config")
+
+
+@app.command("install-deps")
+def cmd_install_deps(
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be installed"),
+):
+    """Install missing system dependencies."""
+    deps = DependencyManager()
+    
+    if dry_run:
+        missing = deps.get_missing()
+        if missing:
+            deps.install_missing(dry_run=True)
+        else:
+            typer.echo("✓ All dependencies already installed")
+        return
+    
+    # Install missing dependencies
+    missing = deps.get_missing()
+    if missing:
+        success = deps.auto_install(force=force)
+        if not success:
+            raise typer.Exit(code=1)
+        typer.echo(f"\n✓ Installed {len(missing)} dependencies")
+    else:
+        typer.echo("✓ All required dependencies already installed")
+    
+    # Just hint about config, don't create/edit
+    cfg = _load_config()
+    if not cfg or not cfg.config_file.exists():
+        typer.echo("\n💡 Tip: Create config with: kopi-docka new-config")
+
+
+@app.command("deps")
+def cmd_deps():
+    """Show dependency installation guide."""
+    deps = DependencyManager()
+    deps.print_install_guide()
+
+
+# -------------------------
+# Configuration Commands
+# -------------------------
+
+
+@app.command("config")
+def cmd_config(
+    ctx: typer.Context,
+    show: bool = typer.Option(True, "--show", help="Show current configuration"),
+):
+    """Show current configuration."""
+    cfg = _load_config(ctx.obj.get("config_path"))
+    
+    if not cfg or not cfg.config_file.exists():
+        typer.echo("❌ No configuration found")
+        typer.echo("Run: kopi-docka new-config")
+        raise typer.Exit(code=1)
+    
+    # Display configuration
+    import configparser
+    typer.echo(f"Configuration file: {cfg.config_file}")
+    typer.echo("=" * 60)
+    
+    config = configparser.ConfigParser()
+    config.read(cfg.config_file)
+    
+    for section in config.sections():
+        typer.echo(f"\n[{section}]")
+        for option, value in config.items(section):
+            # Mask sensitive values
+            if 'password' in option.lower() or 'token' in option.lower():
+                value = '***MASKED***'
+            typer.echo(f"  {option} = {value}")
+
+
+@app.command("new-config")
+def cmd_new_config(
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing config"),
+    edit: bool = typer.Option(True, "--edit/--no-edit", help="Open in editor after creation"),
+    path: Optional[Path] = typer.Option(None, "--path", "-p", help="Custom config path"),
+):
+    """Create new configuration file."""
+    import subprocess
+    import os
+    
+    # Check if exists
+    cfg = _load_config(path)
+    if cfg and cfg.config_file.exists() and not force:
+        typer.echo(f"⚠️ Config already exists at: {cfg.config_file}")
+        typer.echo("Use --force to overwrite or 'edit-config' to modify")
+        raise typer.Exit(code=1)
+    
+    # Create config
+    typer.echo("Creating new configuration...")
+    create_default_config(path, force)  # Beide Parameter sind optional
+    
+    # Load to get path
+    cfg = Config(path) if path else Config()
+    typer.echo(f"✓ Config created at: {cfg.config_file}")
+    
+    if edit:
+        editor = os.environ.get('EDITOR', 'nano')
+        typer.echo(f"\nOpening in {editor} for initial setup...")
+        typer.echo("Important settings to configure:")
+        typer.echo("  • repository_path - Where to store backups")
+        typer.echo("  • password - Strong password for encryption")
+        typer.echo("  • backup paths - Adjust for your system")
+        subprocess.call([editor, str(cfg.config_file)])
+
+
+@app.command("edit-config")
+def cmd_edit_config(
+    ctx: typer.Context,
+    editor: Optional[str] = typer.Option(None, "--editor", "-e", help="Specify editor to use"),
+):
+    """Edit existing configuration file."""
+    import subprocess
+    import os
+    
+    cfg = _load_config(ctx.obj.get("config_path"))
+    
+    if not cfg or not cfg.config_file.exists():
+        typer.echo(f"❌ No config found")
+        typer.echo("Run: kopi-docka new-config")
+        raise typer.Exit(code=1)
+    
+    # Use specified editor or default
+    if not editor:
+        editor = os.environ.get('EDITOR', 'nano')
+    
+    typer.echo(f"Opening {cfg.config_file} in {editor}...")
+    subprocess.call([editor, str(cfg.config_file)])
+    
+    # Validate after editing
+    try:
+        cfg_test = Config(cfg.config_file)
+        typer.echo("✓ Configuration valid")
+    except Exception as e:
+        typer.echo(f"⚠️ Configuration might have issues: {e}")
+
+
+# -------------------------
+# Repository Commands
+# -------------------------
+
+
 @app.command("init")
 def cmd_init(ctx: typer.Context):
     """
     Initialize (or connect to) the Kopia repository.
     """
-    cfg: Config = ctx.obj["config"]
+    # Check dependencies first
+    deps = DependencyManager()
+    missing = deps.get_missing()
+    
+    if missing:
+        typer.echo("⚠ Missing required dependencies:")
+        for dep in missing:
+            typer.echo(f"  - {dep}")
+        typer.echo("\nRun: kopi-docka install-deps")
+        raise typer.Exit(code=1)
+    
+    cfg = _load_config(ctx.obj.get("config_path"))
+    if not cfg:
+        typer.echo("❌ No configuration found")
+        typer.echo("Run: kopi-docka new-config")
+        raise typer.Exit(code=1)
+    
     repo = KopiaRepository(cfg)
 
     if repo.is_initialized():
@@ -138,6 +341,11 @@ def cmd_init(ctx: typer.Context):
         raise typer.Exit(code=1)
 
 
+# -------------------------
+# Backup/Restore Commands
+# -------------------------
+
+
 @app.command("list")
 def cmd_list(
     ctx: typer.Context,
@@ -147,7 +355,12 @@ def cmd_list(
     """
     List backup units or repository snapshots.
     """
-    cfg: Config = ctx.obj["config"]
+    cfg = _load_config(ctx.obj.get("config_path"))
+    if not cfg:
+        typer.echo("❌ No configuration found")
+        typer.echo("Run: kopi-docka new-config")
+        raise typer.Exit(code=1)
+    
     if not (units or snapshots):
         units = True  # default behavior
 
@@ -205,7 +418,18 @@ def cmd_backup(
     """
     Run a cold backup for selected units (or all).
     """
-    cfg: Config = ctx.obj["config"]
+    # Pre-flight dependency check
+    deps = DependencyManager()
+    missing = deps.get_missing()
+    if missing:
+        typer.echo("⚠ Missing required dependencies. Run: kopi-docka check")
+        raise typer.Exit(code=1)
+    
+    cfg = _load_config(ctx.obj.get("config_path"))
+    if not cfg:
+        typer.echo("❌ No configuration found")
+        typer.echo("Run: kopi-docka new-config")
+        raise typer.Exit(code=1)
 
     try:
         discovery = DockerDiscovery()
@@ -252,7 +476,12 @@ def cmd_restore(ctx: typer.Context):
     """
     Launch the interactive restore wizard.
     """
-    cfg: Config = ctx.obj["config"]
+    cfg = _load_config(ctx.obj.get("config_path"))
+    if not cfg:
+        typer.echo("❌ No configuration found")
+        typer.echo("Run: kopi-docka new-config")
+        raise typer.Exit(code=1)
+    
     try:
         rm = RestoreManager(cfg)
         rm.interactive_restore()
@@ -266,7 +495,12 @@ def cmd_repo_maintenance(ctx: typer.Context):
     """
     Run Kopia repository maintenance.
     """
-    cfg: Config = ctx.obj["config"]
+    cfg = _load_config(ctx.obj.get("config_path"))
+    if not cfg:
+        typer.echo("❌ No configuration found")
+        typer.echo("Run: kopi-docka new-config")
+        raise typer.Exit(code=1)
+    
     try:
         repo = KopiaRepository(cfg)
         repo.maintenance_run()
@@ -336,6 +570,7 @@ def cmd_write_units(
 
 
 def main():
+    """Main entry point for the application."""
     try:
         app()
     except KeyboardInterrupt:
