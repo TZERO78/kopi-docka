@@ -1,0 +1,63 @@
+# GitHub Action Workflow for Kopi-Docka
+# This file defines the automated build, test, and release process.
+
+name: Kopi-Docka CI/CD
+
+# --- TRIGGER ---
+# This workflow runs ONLY when a new version tag (e.g., v1.0.0) is pushed.
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+# --- PERMISSIONS ---
+# Apply the principle of least privilege. The workflow can read code,
+# but can only write content (i.e., create a release).
+permissions:
+  contents: write
+
+# --- JOBS ---
+# A job is a sequence of steps that run on a virtual machine.
+jobs:
+  build-and-release:
+    name: Build and Release Executable
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Get the code from your repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Set up the Python environment
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      # Step 3: Install all dependencies (using your Makefile)
+      - name: Install dependencies
+        run: make install-dev
+
+      # Step 4: Run tests to ensure quality (using your Makefile)
+      - name: Run tests with pytest
+        run: make test
+
+      # Step 5: Build the final, standalone executable (using your Makefile)
+      - name: Build executable with PyInstaller
+        run: make build
+
+      # Step 6: Create the official GitHub Release and upload the executable
+      - name: Create Release and Upload Asset
+        uses: softprops/action-gh-release@v1
+        with:
+          # This tells the action which file to upload. It finds the
+          # 'kopi-docka' file inside the 'dist/' directory.
+          files: dist/kopi-docka
+          
+          # This automatically uses the tag name (e.g., "v1.0.0") as the
+          # name of the release.
+          tag_name: ${{ github.ref_name }}
+          
+          # This automatically generates release notes based on your
+          # commit messages.
+          generate_release_notes: true
