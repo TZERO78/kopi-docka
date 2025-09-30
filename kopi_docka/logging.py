@@ -1,3 +1,23 @@
+################################################################################
+# KOPI-DOCKA
+#
+# @file:        logging.py
+# @module:      kopi_docka.logging
+# @description: Central logging setup with structured journal and colorful console output.
+# @author:      Markus F. (TZERO78) & KI-Assistenten
+# @repository:  https://github.com/TZERO78/kopi-docka
+# @version:     1.0.0
+#
+# ------------------------------------------------------------------------------
+# Copyright (c) 2025 Markus F. (TZERO78)
+# MIT-Lizenz: siehe LICENSE oder https://opensource.org/licenses/MIT
+# ==============================================================================
+# Hinweise:
+# - StructuredFormatter switches between journald key/value and ANSI colors
+# - LogManager.setup wires console, journald, and rotating file handlers
+# - log_manager.operation context measures durations and error counts
+################################################################################
+
 """
 Logging module for Kopi-Docka.
 

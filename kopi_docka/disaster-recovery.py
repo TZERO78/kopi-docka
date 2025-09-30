@@ -1,624 +1,490 @@
+################################################################################
+# KOPI-DOCKA
+#
+# @file:        disaster-recovery.py
+# @module:      kopi_docka.disaster_recovery
+# @description: Creates encrypted disaster recovery bundles and supporting scripts.
+# @author:      Markus F. (TZERO78) & KI-Assistenten
+# @repository:  https://github.com/TZERO78/kopi-docka
+# @version:     1.0.0
+#
+# ------------------------------------------------------------------------------
+# Copyright (c) 2025 Markus F. (TZERO78)
+# MIT-Lizenz: siehe LICENSE oder https://opensource.org/licenses/MIT
+# ==============================================================================
+# Hinweise:
+# - Bundles Kopia status, config, password, and restore instructions
+# - Encrypts archives with openssl AES-256-CBC and PBKDF2 salt
+# - Stores checksum metadata to verify bundle integrity before use
+################################################################################
+
 """
 Disaster Recovery module for Kopi-Docka.
 
-This module creates and manages disaster recovery bundles that contain
-everything needed to restore from a completely fresh system.
+Creates encrypted recovery bundles containing everything needed to
+reconnect to the Kopia repository and bring services back on a fresh host.
 """
 
+from __future__ import annotations
+
 import json
+import hashlib
 import logging
 import subprocess
 import tarfile
-import base64
-import hashlib
-from datetime import datetime
-from pathlib import Path
-from typing import Dict, Any, Optional
 import secrets
 import string
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, Any, Optional, Tuple
 
+from .logging import get_logger
 from .config import Config
 from .repository import KopiaRepository
 from .constants import VERSION
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class DisasterRecoveryManager:
     """
     Creates and manages disaster recovery bundles.
-    
-    These bundles contain everything needed to restore from scratch:
-    - Kopia repository configuration
-    - Encryption keys/passwords
-    - Cloud storage credentials
-    - Docker configuration
-    - Recovery instructions
+
+    Bundle contents:
+      - kopia-repository.json (status dump)
+      - kopia-password.txt (repo password)
+      - kopi-docka.conf (your config)
+      - recover.sh (guided reconnect script)
+      - RECOVERY-INSTRUCTIONS.txt (human steps)
+      - backup-status.json (recent snapshot info)
+    The bundle is packed as tar.gz and encrypted with AES-256 (openssl -pbkdf2).
     """
-    
+
     def __init__(self, config: Config):
-        """
-        Initialize disaster recovery manager.
-        
-        Args:
-            config: Application configuration
-        """
         self.config = config
         self.repo = KopiaRepository(config)
-    
-    def create_recovery_bundle(self, output_path: Optional[Path] = None) -> Path:
+
+    def create_recovery_bundle(
+        self,
+        output_dir: Optional[Path] = None,
+        write_password_file: bool = True,
+    ) -> Path:
         """
-        Create a disaster recovery bundle.
-        
+        Create an encrypted recovery bundle.
+
         Args:
-            output_path: Where to save the bundle (default: current directory)
-            
+            output_dir: Target directory (defaults to [backup] recovery_bundle_path).
+            write_password_file: If True, create a .PASSWORD sidecar next to the archive.
+
         Returns:
-            Path to the created bundle
+            Path to the encrypted archive (<name>.tar.gz.enc)
         """
-        if output_path is None:
-            output_path = Path.cwd()
-        
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        if output_dir is None:
+            output_dir = Path(
+                self.config.get("backup", "recovery_bundle_path", "/backup/recovery")
+            ).expanduser()
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         bundle_name = f"kopi-docka-recovery-{timestamp}"
-        bundle_dir = Path("/tmp") / bundle_name
-        bundle_dir.mkdir(parents=True, exist_ok=True)
-        
+        work_dir = Path("/tmp") / bundle_name
+        work_dir.mkdir(parents=True, exist_ok=True)
+
         try:
-            logger.info("Creating disaster recovery bundle...")
-            
-            # 1. Create recovery info JSON
+            logger.info("Creating disaster recovery bundle...", extra={"bundle": bundle_name})
+
+            # 1) recovery info
             recovery_info = self._create_recovery_info()
-            with open(bundle_dir / 'recovery-info.json', 'w') as f:
-                json.dump(recovery_info, f, indent=2)
-            
-            # 2. Export Kopia repository configuration
-            self._export_kopia_config(bundle_dir)
-            
-            # 3. Save current Kopi-Docka configuration
-            if self.config.config_file.exists():
+            (work_dir / "recovery-info.json").write_text(json.dumps(recovery_info, indent=2))
+
+            # 2) kopia repo status + password
+            self._export_kopia_config(work_dir)
+
+            # 3) kopi-docka.conf
+            if self.config.config_file and Path(self.config.config_file).exists():
                 import shutil
-                shutil.copy(self.config.config_file, bundle_dir / 'kopi-docka.conf')
-            
-            # 4. Create recovery script
-            self._create_recovery_script(bundle_dir, recovery_info)
-            
-            # 5. Create recovery instructions
-            self._create_recovery_instructions(bundle_dir, recovery_info)
-            
-            # 6. Get latest backup status
+                shutil.copy(self.config.config_file, work_dir / "kopi-docka.conf")
+
+            # 4) recover.sh
+            self._create_recovery_script(work_dir, recovery_info)
+
+            # 5) human instructions
+            self._create_recovery_instructions(work_dir, recovery_info)
+
+            # 6) last backup status
             backup_status = self._get_backup_status()
-            with open(bundle_dir / 'backup-status.json', 'w') as f:
-                json.dump(backup_status, f, indent=2)
-            
-            # 7. Create encrypted archive
-            archive_path = output_path / f"{bundle_name}.tar.gz.enc"
-            password = self._create_encrypted_archive(bundle_dir, archive_path)
-            
-            # 8. Create companion file with instructions
-            self._create_companion_file(archive_path, password, recovery_info)
-            
-            logger.info(f"Recovery bundle created: {archive_path}")
-            logger.info(f"Companion file: {archive_path}.README")
-            
+            (work_dir / "backup-status.json").write_text(json.dumps(backup_status, indent=2))
+
+            # 7) archive + encrypt
+            archive_path = output_dir / f"{bundle_name}.tar.gz.enc"
+            password = self._create_encrypted_archive(work_dir, archive_path)
+
+            # 8) sidecar README (+ optional PASSWORD)
+            self._create_companion_files(archive_path, password, recovery_info, write_password_file)
+
+            logger.info("Recovery bundle created",
+                        extra={"archive": str(archive_path), "output_dir": str(output_dir)})
+
+            # Optional retention: rotate old bundles
+            self._rotate_bundles(output_dir,
+                                 keep=self.config.getint("backup", "recovery_bundle_retention", 3))
+
             return archive_path
-            
+
         finally:
-            # Cleanup temp directory
-            import shutil
-            if bundle_dir.exists():
-                shutil.rmtree(bundle_dir)
-    
+            # cleanup temp dir
+            try:
+                import shutil
+                if work_dir.exists():
+                    shutil.rmtree(work_dir)
+            except Exception as e:
+                logger.warning(f"Cleanup failed for {work_dir}: {e}")
+
+    # ---------------- internal helpers ----------------
+
     def _create_recovery_info(self) -> Dict[str, Any]:
-        """
-        Create recovery information document.
-        
-        Returns:
-            Dictionary with all recovery information
-        """
-        # Get repository info
-        repo_status = {}
+        repo_status: Dict[str, Any] = {}
         try:
             result = subprocess.run(
-                ['kopia', 'repository', 'status', '--json'],
+                ["kopia", "repository", "status", "--json"],
                 env=self.repo._get_env(),
                 capture_output=True,
-                text=True
+                text=True,
+                check=False,
             )
-            if result.returncode == 0:
+            if result.returncode == 0 and result.stdout.strip():
                 repo_status = json.loads(result.stdout)
         except Exception as e:
             logger.warning(f"Could not get repository status: {e}")
-        
-        # Determine repository type and connection info
+
         repo_path = str(self.config.kopia_repository_path)
-        repo_type = "filesystem"
-        connection_info = {"path": repo_path}
-        
-        if repo_path.startswith('s3://'):
-            repo_type = "s3"
-            connection_info = {
-                "bucket": repo_path.replace('s3://', ''),
-                "note": "AWS credentials needed (see recovery script)"
-            }
-        elif repo_path.startswith('b2://'):
-            repo_type = "b2"
-            connection_info = {
-                "bucket": repo_path.replace('b2://', ''),
-                "note": "Backblaze credentials needed"
-            }
-        elif repo_path.startswith('azure://'):
-            repo_type = "azure"
-            connection_info = {
-                "container": repo_path.replace('azure://', ''),
-                "note": "Azure credentials needed"
-            }
-        elif repo_path.startswith('gs://'):
-            repo_type = "gcs"
-            connection_info = {
-                "bucket": repo_path.replace('gs://', ''),
-                "note": "Google Cloud credentials needed"
-            }
-        
+        repo_type, connection = self._detect_repo_connection(repo_path)
+
         return {
             "created_at": datetime.now().isoformat(),
             "kopi_docka_version": VERSION,
-            "hostname": subprocess.run(['hostname'], capture_output=True, text=True).stdout.strip(),
+            "hostname": subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip(),
             "repository": {
                 "type": repo_type,
-                "connection": connection_info,
-                "encryption": self.config.get('kopia', 'encryption'),
-                "compression": self.config.get('kopia', 'compression'),
+                "connection": connection,
+                "encryption": self.config.get("kopia", "encryption"),
+                "compression": self.config.get("kopia", "compression"),
+                "status": repo_status,
             },
             "kopia_version": self._get_kopia_version(),
             "docker_version": self._get_docker_version(),
             "python_version": self._get_python_version(),
         }
-    
-    def _export_kopia_config(self, bundle_dir: Path):
-        """
-        Export Kopia repository configuration.
-        
-        Args:
-            bundle_dir: Directory to save configuration
-        """
+
+    def _detect_repo_connection(self, repo_path: str) -> Tuple[str, Dict[str, Any]]:
+        if repo_path.startswith("s3://"):
+            return "s3", {"bucket": repo_path.replace("s3://", "")}
+        if repo_path.startswith("b2://"):
+            return "b2", {"bucket": repo_path.replace("b2://", "")}
+        if repo_path.startswith("azure://"):
+            return "azure", {"container": repo_path.replace("azure://", "")}
+        if repo_path.startswith("gs://"):
+            return "gcs", {"bucket": repo_path.replace("gs://", "")}
+        if "://" in repo_path:
+            # generic remote (sftp, webdav, etc.)
+            scheme = repo_path.split("://", 1)[0]
+            return scheme, {"url": repo_path}
+        return "filesystem", {"path": repo_path}
+
+    def _export_kopia_config(self, out_dir: Path) -> None:
         try:
-            # Export repository config
             result = subprocess.run(
-                ['kopia', 'repository', 'status', '--json'],
+                ["kopia", "repository", "status", "--json"],
                 env=self.repo._get_env(),
                 capture_output=True,
-                text=True
+                text=True,
+                check=False,
             )
-            
-            if result.returncode == 0:
-                with open(bundle_dir / 'kopia-repository.json', 'w') as f:
-                    f.write(result.stdout)
-            
-            # Save password separately (encrypted in main bundle)
-            with open(bundle_dir / 'kopia-password.txt', 'w') as f:
-                f.write(self.config.kopia_password)
-            
+            if result.returncode == 0 and result.stdout.strip():
+                (out_dir / "kopia-repository.json").write_text(result.stdout)
+
+            # Save password (the bundle gets encrypted afterward)
+            (out_dir / "kopia-password.txt").write_text(self.config.kopia_password or "")
         except Exception as e:
             logger.error(f"Could not export Kopia config: {e}")
-    
-    def _create_recovery_script(self, bundle_dir: Path, recovery_info: Dict[str, Any]):
-        """
-        Create automated recovery script.
-        
-        Args:
-            bundle_dir: Directory to save script
-            recovery_info: Recovery information
-        """
-        repo_type = recovery_info['repository']['type']
-        
-        script_content = '''#!/bin/bash
-#
-# Kopi-Docka Disaster Recovery Script
-# Generated: {timestamp}
-#
-# This script helps restore your Docker backup system from scratch
 
-set -e
+    def _create_recovery_script(self, out_dir: Path, info: Dict[str, Any]) -> None:
+        repo_type = info["repository"]["type"]
+        conn = info["repository"]["connection"]
+        created = info["created_at"]
 
-echo "========================================"
-echo "Kopi-Docka Disaster Recovery"
-echo "========================================"
+        lines = [
+            "#!/bin/bash",
+            "#",
+            f"# Kopi-Docka Disaster Recovery Script",
+            f"# Generated: {created}",
+            "#",
+            "set -euo pipefail",
+            "",
+            'echo "========================================"',
+            'echo "Kopi-Docka Disaster Recovery"',
+            'echo "========================================"',
+            "",
+            '# Check root',
+            'if [ "${EUID:-$(id -u)}" -ne 0 ]; then',
+            '  echo "Please run as root (sudo)"; exit 1; fi',
+            "",
+            "# Require docker & kopia",
+            'command -v docker >/dev/null 2>&1 || { echo "ERROR: docker not found"; exit 1; }',
+            'command -v kopia  >/dev/null 2>&1 || { echo "ERROR: kopia not found. Install from https://kopia.io"; exit 1; }',
+            "",
+            "# Install Kopi-Docka if not available (optional hint)",
+            'if ! command -v kopi-docka >/dev/null 2>&1; then',
+            '  echo "NOTE: kopi-docka CLI not found. Install it according to your deployment (package/source).";',
+            'fi',
+            "",
+            "# Restore configuration",
+            'echo "Restoring configuration /etc/kopi-docka.conf..."',
+            'mkdir -p /etc',
+            'cp "$(dirname "$0")/kopi-docka.conf" /etc/kopi-docka.conf',
+            "",
+            "# Read Kopia password",
+            'export KOPIA_PASSWORD="$(cat "$(dirname "$0")/kopia-password.txt")"',
+            'if [ -z "$KOPIA_PASSWORD" ]; then echo "ERROR: Empty KOPIA_PASSWORD"; exit 1; fi',
+            "",
+            'echo "Connecting to Kopia repository..."',
+        ]
 
-# Check if running as root
-if [ "$EUID" -ne 0 ]; then 
-    echo "Please run as root (sudo)"
-    exit 1
-fi
+        # repo connect section
+        if repo_type == "filesystem":
+            lines += [
+                f'kopia repository connect filesystem --path="{conn["path"]}"',
+            ]
+        elif repo_type == "s3":
+            lines += [
+                'read -p "AWS Access Key ID: " AWS_ACCESS_KEY_ID',
+                'read -s -p "AWS Secret Access Key: " AWS_SECRET_ACCESS_KEY; echo',
+                "export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY",
+                f'kopia repository connect s3 --bucket="{conn["bucket"]}" '
+                "--access-key=\"$AWS_ACCESS_KEY_ID\" --secret-access-key=\"$AWS_SECRET_ACCESS_KEY\"",
+            ]
+        elif repo_type == "b2":
+            lines += [
+                'read -p "B2 Account ID: " B2_ACCOUNT_ID',
+                'read -s -p "B2 Account Key: " B2_ACCOUNT_KEY; echo',
+                f'kopia repository connect b2 --bucket="{conn["bucket"]}" '
+                '--key-id="$B2_ACCOUNT_ID" --key="$B2_ACCOUNT_KEY"',
+            ]
+        elif repo_type == "azure":
+            lines += [
+                'read -p "Azure Storage Account: " AZURE_ACCOUNT',
+                'read -s -p "Azure Storage Key: " AZURE_KEY; echo',
+                f'kopia repository connect azure --container="{conn["container"]}" '
+                '--storage-account="$AZURE_ACCOUNT" --storage-key="$AZURE_KEY"',
+            ]
+        elif repo_type == "gcs":
+            lines += [
+                'echo "Place your GCP service account JSON at /root/gcp-sa.json (or set GOOGLE_APPLICATION_CREDENTIALS)"',
+                'read -p "GCS Bucket: " GCS_BUCKET',
+                'export GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-/root/gcp-sa.json}',
+                'test -f "$GOOGLE_APPLICATION_CREDENTIALS" || { echo "Missing service account JSON"; exit 1; }',
+                'kopia repository connect gcs --bucket="$GCS_BUCKET"',
+            ]
+        else:
+            # generic / custom schemes: let user connect manually
+            lines += [
+                'echo "Unsupported auto-connect for this repository scheme. Connect manually, e.g.:"',
+                'echo "  kopia repository connect <provider> <options>"',
+                'exit 1',
+            ]
 
-# Function to check command exists
-command_exists() {{
-    command -v "$1" >/dev/null 2>&1
-}}
+        lines += [
+            "",
+            'echo "Verifying repository connection..."',
+            "kopia repository status || { echo ERROR; exit 1; }",
+            "",
+            'echo ""',
+            'echo "========================================"',
+            'echo "Repository connected. Next steps:"',
+            'echo "  * List units:   kopi-docka list --units"',
+            'echo "  * Run restore:  kopi-docka restore"',
+            'echo "========================================"',
+            "",
+        ]
 
-# Check prerequisites
-echo "Checking prerequisites..."
+        script = "\n".join(lines)
+        path = out_dir / "recover.sh"
+        path.write_text(script)
+        path.chmod(0o755)
 
-if ! command_exists docker; then
-    echo "ERROR: Docker is not installed"
-    echo "Please install Docker first: https://docs.docker.com/engine/install/"
-    exit 1
-fi
+    def _create_recovery_instructions(self, out_dir: Path, info: Dict[str, Any]) -> None:
+        rpt = info["repository"]
+        lines = [
+            "KOPI-DOCKA DISASTER RECOVERY INSTRUCTIONS",
+            "==========================================",
+            "",
+            f"Created: {info['created_at']}",
+            f"System:  {info['hostname']}",
+            "",
+            "REPOSITORY",
+            "----------",
+            f"Type:   {rpt['type']}",
+            f"Config: {json.dumps(rpt['connection'], indent=2)}",
+            f"Enc:    {rpt['encryption']}",
+            f"Comp:   {rpt['compression']}",
+            "",
+            "STEPS",
+            "-----",
+            "1) Prepare a fresh Linux host with Docker and Kopia installed.",
+            "2) Decrypt and extract this bundle (see README next to the archive).",
+            "3) Run: sudo ./recover.sh",
+            "4) Connect to the Kopia repository (guided).",
+            "5) Start the restore wizard: kopi-docka restore",
+            "",
+            "NOTES",
+            "-----",
+            "- This system uses COLD backups of container volumes and compose/inspect data.",
+            "- Databases are restored implicitly via their volumes (no separate DB dumps).",
+            "- Test recovery regularly.",
+            "",
+        ]
+        (out_dir / "RECOVERY-INSTRUCTIONS.txt").write_text("\n".join(lines))
 
-if ! command_exists kopia; then
-    echo "Installing Kopia..."
-    curl -s https://kopia.io/signing-key | apt-key add -
-    echo "deb http://packages.kopia.io/apt/ stable main" | tee /etc/apt/sources.list.d/kopia.list
-    apt update
-    apt install -y kopia
-fi
-
-if ! command_exists python3; then
-    echo "ERROR: Python 3 is not installed"
-    exit 1
-fi
-
-# Install Kopi-Docka
-echo "Installing Kopi-Docka..."
-if [ ! -d "kopi-docka" ]; then
-    git clone https://github.com/yourusername/kopi-docka.git
-fi
-cd kopi-docka
-pip3 install -e .
-
-# Restore configuration
-echo "Restoring configuration..."
-mkdir -p /etc
-cp ../kopi-docka.conf /etc/kopi-docka.conf
-
-# Read Kopia password
-KOPIA_PASSWORD=$(cat ../kopia-password.txt)
-export KOPIA_PASSWORD
-
-# Connect to repository
-echo "Connecting to Kopia repository..."
-'''.format(timestamp=recovery_info['created_at'])
-        
-        # Add repository-specific connection
-        if repo_type == 'filesystem':
-            script_content += '''
-kopia repository connect filesystem \\
-    --path={path}
-'''.format(path=recovery_info['repository']['connection']['path'])
-        
-        elif repo_type == 's3':
-            script_content += '''
-echo "Enter AWS credentials:"
-read -p "AWS Access Key ID: " AWS_ACCESS_KEY_ID
-read -s -p "AWS Secret Access Key: " AWS_SECRET_ACCESS_KEY
-echo
-
-export AWS_ACCESS_KEY_ID
-export AWS_SECRET_ACCESS_KEY
-
-kopia repository connect s3 \\
-    --bucket={bucket} \\
-    --access-key=$AWS_ACCESS_KEY_ID \\
-    --secret-access-key=$AWS_SECRET_ACCESS_KEY
-'''.format(bucket=recovery_info['repository']['connection']['bucket'])
-        
-        elif repo_type == 'b2':
-            script_content += '''
-echo "Enter Backblaze B2 credentials:"
-read -p "B2 Account ID: " B2_ACCOUNT_ID
-read -s -p "B2 Account Key: " B2_ACCOUNT_KEY
-echo
-
-kopia repository connect b2 \\
-    --bucket={bucket} \\
-    --key-id=$B2_ACCOUNT_ID \\
-    --key=$B2_ACCOUNT_KEY
-'''.format(bucket=recovery_info['repository']['connection']['bucket'])
-        
-        script_content += '''
-
-# Verify connection
-echo "Verifying repository connection..."
-kopia repository status
-
-# List available backups
-echo ""
-echo "Available backup units:"
-kopi-docka list --units
-
-echo ""
-echo "========================================"
-echo "Recovery environment ready!"
-echo "========================================"
-echo ""
-echo "Next steps:"
-echo "1. Run: kopi-docka list --units"
-echo "2. Run: kopi-docka restore"
-echo "3. Follow the restoration wizard"
-echo ""
-'''
-        
-        script_path = bundle_dir / 'recover.sh'
-        script_path.write_text(script_content)
-        script_path.chmod(0o755)
-    
-    def _create_recovery_instructions(self, bundle_dir: Path, recovery_info: Dict[str, Any]):
-        """
-        Create human-readable recovery instructions.
-        
-        Args:
-            bundle_dir: Directory to save instructions
-            recovery_info: Recovery information
-        """
-        instructions = f'''
-KOPI-DOCKA DISASTER RECOVERY INSTRUCTIONS
-==========================================
-
-Created: {recovery_info['created_at']}
-System: {recovery_info['hostname']}
-
-CRITICAL INFORMATION:
---------------------
-Repository Type: {recovery_info['repository']['type']}
-Repository Location: {json.dumps(recovery_info['repository']['connection'], indent=2)}
-Encryption: {recovery_info['repository']['encryption']}
-
-RECOVERY STEPS:
----------------
-
-1. PREPARE NEW SYSTEM
-   - Install Ubuntu/Debian Linux
-   - Install Docker: https://docs.docker.com/engine/install/
-   - Ensure you have root/sudo access
-
-2. EXTRACT THIS BUNDLE
-   After decrypting, you'll have:
-   - recovery-info.json: This information
-   - kopi-docka.conf: Your configuration
-   - kopia-password.txt: Repository password (KEEP SECURE!)
-   - recover.sh: Automated recovery script
-   - backup-status.json: Last backup status
-
-3. RUN RECOVERY SCRIPT
-   chmod +x recover.sh
-   sudo ./recover.sh
-
-4. CLOUD STORAGE CREDENTIALS
-   Depending on your repository type, you'll need:
-'''
-        
-        if recovery_info['repository']['type'] == 's3':
-            instructions += '''
-   - AWS Access Key ID
-   - AWS Secret Access Key
-   - Optional: AWS Region
-'''
-        elif recovery_info['repository']['type'] == 'b2':
-            instructions += '''
-   - Backblaze Account ID
-   - Backblaze Application Key
-'''
-        elif recovery_info['repository']['type'] == 'azure':
-            instructions += '''
-   - Azure Storage Account Name
-   - Azure Storage Account Key
-'''
-        elif recovery_info['repository']['type'] == 'gcs':
-            instructions += '''
-   - Google Cloud Service Account JSON
-'''
-        
-        instructions += '''
-
-5. RESTORE YOUR CONTAINERS
-   Once connected to the repository:
-   
-   a) List available backups:
-      kopi-docka list --units
-   
-   b) Start restore wizard:
-      kopi-docka restore
-   
-   c) Select the backup point you want to restore
-   
-   d) The wizard will:
-      - Restore all volumes
-      - Recreate containers with original settings
-      - Restore database contents
-      - Start all services
-
-6. VERIFY RESTORATION
-   docker ps                    # Check running containers
-   docker-compose ps            # Check compose stacks
-   docker volume ls             # Check volumes
-   journalctl -u kopi-docka     # Check logs
-
-SECURITY NOTES:
----------------
-- The kopia-password.txt file contains your encryption key
-- NEVER share this bundle unencrypted
-- Store copies in multiple secure locations
-- Test recovery procedure regularly
-
-SUPPORT:
---------
-Documentation: https://github.com/yourusername/kopi-docka
-Issues: https://github.com/yourusername/kopi-docka/issues
-
-'''
-        
-        (bundle_dir / 'RECOVERY-INSTRUCTIONS.txt').write_text(instructions)
-    
     def _get_backup_status(self) -> Dict[str, Any]:
-        """
-        Get current backup status.
-        
-        Returns:
-            Dictionary with backup status information
-        """
-        status = {
-            "timestamp": datetime.now().isoformat(),
-            "units": [],
-            "snapshots": []
-        }
-        
+        status = {"timestamp": datetime.now().isoformat(), "snapshots": []}
         try:
-            # Get backup units
-            units = self.repo.list_backup_units()
-            status["units"] = units
-            
-            # Get recent snapshots
-            snapshots = self.repo.list_snapshots()
-            status["snapshots"] = snapshots[:10]  # Last 10 snapshots
-            
+            snaps = self.repo.list_snapshots()
+            status["snapshots"] = snaps[:10] if isinstance(snaps, list) else []
         except Exception as e:
             logger.error(f"Could not get backup status: {e}")
-        
         return status
-    
-    def _create_encrypted_archive(self, bundle_dir: Path, output_path: Path) -> str:
+
+    def _create_encrypted_archive(self, src_dir: Path, out_file: Path) -> str:
         """
-        Create encrypted archive of the bundle.
-        
-        Args:
-            bundle_dir: Directory to archive
-            output_path: Output path for encrypted archive
-            
+        Create tar.gz of src_dir and encrypt with openssl AES-256-CBC PBKDF2.
+
         Returns:
-            Encryption password
+            password used for encryption
         """
-        # Generate strong password
-        password = ''.join(secrets.choice(
-            string.ascii_letters + string.digits + string.punctuation
-        ) for _ in range(32))
-        
-        # Create tar.gz
-        tar_path = output_path.with_suffix('')
-        with tarfile.open(tar_path, 'w:gz') as tar:
-            tar.add(bundle_dir, arcname=bundle_dir.name)
-        
-        # Encrypt with openssl
-        subprocess.run([
-            'openssl', 'enc', '-aes-256-cbc', '-salt', '-pbkdf2',
-            '-in', str(tar_path),
-            '-out', str(output_path),
-            '-pass', f'pass:{password}'
-        ], check=True)
-        
-        # Remove unencrypted tar
-        tar_path.unlink()
-        
+        # Random strong password (printable, shell-safe)
+        alphabet = string.ascii_letters + string.digits + "_-"
+        password = "".join(secrets.choice(alphabet) for _ in range(48))
+
+        tar_path = out_file.with_suffix("")  # remove .enc
+        with tarfile.open(tar_path, "w:gz") as tar:
+            tar.add(src_dir, arcname=src_dir.name)
+
+        subprocess.run(
+            [
+                "openssl",
+                "enc",
+                "-aes-256-cbc",
+                "-salt",
+                "-pbkdf2",
+                "-in",
+                str(tar_path),
+                "-out",
+                str(out_file),
+                "-pass",
+                f"pass:{password}",
+            ],
+            check=True,
+        )
+
+        tar_path.unlink(missing_ok=True)
         return password
-    
-    def _create_companion_file(self, archive_path: Path, password: str, recovery_info: Dict[str, Any]):
-        """
-        Create companion file with decryption instructions.
-        
-        Args:
-            archive_path: Path to encrypted archive
-            password: Encryption password
-            recovery_info: Recovery information
-        """
-        companion_content = f'''
-KOPI-DOCKA DISASTER RECOVERY BUNDLE
+
+    def _create_companion_files(
+        self,
+        archive_path: Path,
+        password: str,
+        info: Dict[str, Any],
+        write_password_file: bool,
+    ) -> None:
+        checksum = self._sha256(archive_path)
+
+        readme = f"""KOPI-DOCKA DISASTER RECOVERY BUNDLE
 ====================================
 
-This is your disaster recovery bundle for Docker backups.
-Created: {recovery_info['created_at']}
-System: {recovery_info['hostname']}
+Archive:  {archive_path.name}
+SHA256:   {checksum}
 
-FILE INFORMATION:
------------------
-Encrypted Archive: {archive_path.name}
-SHA256 Checksum: {self._calculate_checksum(archive_path)}
-
-DECRYPTION PASSWORD:
---------------------
-{password}
-
-⚠️  STORE THIS PASSWORD SECURELY!
-⚠️  Without it, recovery is impossible!
-
-DECRYPTION COMMAND:
--------------------
+DECRYPTION
+----------
+# Store the password securely (password is NOT inside this file)
+# Example:
 openssl enc -aes-256-cbc -salt -pbkdf2 -d \\
-    -in {archive_path.name} \\
-    -out {archive_path.stem} \\
-    -pass pass:'{password}'
+  -in {archive_path.name} \\
+  -out {archive_path.stem} \\
+  -pass pass:'<YOUR_PASSWORD>'
 
 tar -xzf {archive_path.stem}
 
-QUICK RECOVERY:
----------------
-1. Decrypt the archive (command above)
-2. Enter the extracted directory
-3. Run: sudo ./recover.sh
-4. Follow the prompts
+NEXT
+----
+cd {archive_path.stem.replace('.tar.gz', '')}
+sudo ./recover.sh
 
-WHAT'S INCLUDED:
-----------------
-✓ Kopia repository configuration
-✓ Encryption keys and passwords  
-✓ Cloud storage connection details
-✓ Docker configuration
-✓ Automated recovery script
-✓ Step-by-step instructions
+INFO
+----
+Repo Type: {info['repository']['type']}
+Repo Conn: {json.dumps(info['repository']['connection'], indent=2)}
 
-IMPORTANT:
-----------
-Store this bundle in multiple secure locations:
-- Password manager (recommended)
-- Encrypted USB drive
-- Secure cloud storage
-- Physical safe (printed)
-
-Repository Type: {recovery_info['repository']['type']}
-Repository: {json.dumps(recovery_info['repository']['connection'], indent=2)}
-
-For detailed instructions, decrypt the bundle and read
-RECOVERY-INSTRUCTIONS.txt
-
-====================================
 Generated by Kopi-Docka v{VERSION}
-'''
-        
-        companion_path = Path(str(archive_path) + '.README')
-        companion_path.write_text(companion_content)
-        
-        # Also create a minimal version with just the password
-        password_path = Path(str(archive_path) + '.PASSWORD')
-        password_path.write_text(f"Decryption Password: {password}\n")
-        password_path.chmod(0o600)
-    
-    def _calculate_checksum(self, file_path: Path) -> str:
-        """Calculate SHA256 checksum of a file."""
-        sha256 = hashlib.sha256()
-        with open(file_path, 'rb') as f:
-            for chunk in iter(lambda: f.read(4096), b''):
-                sha256.update(chunk)
-        return sha256.hexdigest()
-    
-    def _get_kopia_version(self) -> str:
-        """Get Kopia version."""
-        try:
-            result = subprocess.run(['kopia', 'version'], capture_output=True, text=True)
-            return result.stdout.strip().split('\n')[0]
-        except:
-            return "unknown"
-    
-    def _get_docker_version(self) -> str:
-        """Get Docker version."""
-        try:
-            result = subprocess.run(
-                ['docker', 'version', '--format', '{{.Server.Version}}'],
-                capture_output=True, text=True
+"""
+        (archive_path.parent / f"{archive_path.name}.README").write_text(readme)
+
+        if write_password_file:
+            pw_path = archive_path.parent / f"{archive_path.name}.PASSWORD"
+            pw_path.write_text(f"{password}\n")
+            pw_path.chmod(0o600)
+            logger.warning(
+                "Recovery password written to sidecar file. Store it in a secure place and consider moving it away from the archive.",
+                extra={"password_file": str(pw_path)},
             )
-            return result.stdout.strip()
-        except:
+        else:
+            # Log a reminder without exposing the password
+            logger.warning("Recovery password NOT written to disk. Store it securely NOW.")
+
+    def _rotate_bundles(self, directory: Path, keep: int) -> None:
+        try:
+            bundles = sorted(directory.glob("kopi-docka-recovery-*.tar.gz.enc"))
+            if keep > 0 and len(bundles) > keep:
+                for old in bundles[:-keep]:
+                    logger.info(f"Removing old recovery bundle: {old}")
+                    old.unlink(missing_ok=True)
+                    for suffix in (".README", ".PASSWORD"):
+                        p = Path(str(old) + suffix)
+                        if p.exists():
+                            p.unlink(missing_ok=True)
+        except Exception as e:
+            logger.warning(f"Bundle rotation failed: {e}")
+
+    # --------------- small utils ---------------
+
+    def _sha256(self, file_path: Path) -> str:
+        h = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                h.update(chunk)
+        return h.hexdigest()
+
+    def _get_kopia_version(self) -> str:
+        try:
+            r = subprocess.run(["kopia", "version"], capture_output=True, text=True, check=False)
+            return (r.stdout or "").strip().split("\n")[0] or "unknown"
+        except Exception:
             return "unknown"
-    
+
+    def _get_docker_version(self) -> str:
+        try:
+            r = subprocess.run(
+                ["docker", "version", "--format", "{{.Server.Version}}"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return (r.stdout or "").strip() or "unknown"
+        except Exception:
+            return "unknown"
+
     def _get_python_version(self) -> str:
-        """Get Python version."""
         import sys
         return f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"

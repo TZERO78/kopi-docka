@@ -1,3 +1,23 @@
+################################################################################
+# KOPI-DOCKA
+#
+# @file:        dependencies.py
+# @module:      kopi_docka.dependencies
+# @description: Checks, reports, and installs system dependencies required by Kopi-Docka.
+# @author:      Markus F. (TZERO78) & KI-Assistenten
+# @repository:  https://github.com/TZERO78/kopi-docka
+# @version:     1.0.0
+#
+# ------------------------------------------------------------------------------
+# Copyright (c) 2025 Markus F. (TZERO78)
+# MIT-Lizenz: siehe LICENSE oder https://opensource.org/licenses/MIT
+# ==============================================================================
+# Hinweise:
+# - DEPENDENCIES map captures check commands, packages, and metadata
+# - Detects distro family to assemble install commands dynamically
+# - get_missing separates required versus optional components
+################################################################################
+
 """
 Dependency management for Kopi-Docka.
 

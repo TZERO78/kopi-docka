@@ -1,475 +1,326 @@
-"""
-System utilities module for Kopi-Docka.
+################################################################################
+# KOPI-DOCKA
+#
+# @file:        main.py
+# @module:      kopi_docka.main
+# @description: Typer-based CLI entry point orchestrating Kopi-Docka operations.
+# @author:      Markus F. (TZERO78) & KI-Assistenten
+# @repository:  https://github.com/TZERO78/kopi-docka
+# @version:     1.0.0
+#
+# ------------------------------------------------------------------------------
+# Copyright (c) 2025 Markus F. (TZERO78)
+# MIT-Lizenz: siehe LICENSE oder https://opensource.org/licenses/MIT
+# ==============================================================================
+# Hinweise:
+# - Implements commands for version, init, list, backup, restore, and maintenance
+# - Centralizes config loading via _load_config helper
+# - Integrates service helpers to manage systemd daemon and unit files
+################################################################################
 
-This module provides system-level utilities including resource monitoring
-and optimization calculations.
+"""
+Kopi-Docka — main CLI
+
+English CLI that exposes backup, restore, listing, repo maintenance,
+and integrates the systemd-friendly daemon (service.py).
 """
 
-import logging
-import os
-import subprocess
+from __future__ import annotations
+
+import sys
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Optional, List
 
-import psutil
+import typer
 
-from .constants import RAM_WORKER_THRESHOLDS
+from .constants import VERSION
+from .config import Config
+from .logging import get_logger, log_manager
+from .discovery import DockerDiscovery
+from .backup import BackupManager
+from .restore import RestoreManager
+from .repository import KopiaRepository
+from .dry_run import DryRunReport
+from .service import (
+    KopiDockaService,
+    ServiceConfig,
+    write_systemd_units,
+)
+
+app = typer.Typer(add_completion=False, help="Kopi-Docka – Backup & Restore for Docker using Kopia.")
+logger = get_logger(__name__)
 
 
-logger = logging.getLogger(__name__)
+# -------------------------
+# Helpers
+# -------------------------
+
+def _load_config(config_path: Optional[Path]) -> Config:
+    # If your Config supports an explicit path, use it; otherwise rely on its defaults.
+    if config_path:
+        return Config(config_path)
+    return Config()
 
 
-class SystemUtils:
+def _filter_units(all_units, names: Optional[List[str]]):
+    if not names:
+        return all_units
+    wanted = set(names)
+    return [u for u in all_units if u.name in wanted]
+
+
+# -------------------------
+# Global options via callback
+# -------------------------
+
+@app.callback()
+def _entry(
+    ctx: typer.Context,
+    config: Optional[Path] = typer.Option(
+        None, "--config", "-c", help="Path to configuration file."
+    ),
+    log_level: str = typer.Option(
+        "INFO", "--log-level", help="Log level (DEBUG, INFO, WARNING, ERROR)."
+    ),
+):
     """
-    System utilities for resource management.
-    
-    Provides methods for checking system resources and calculating 
-    optimal configurations based on system capabilities.
+    Initialize logging and configuration before running a subcommand.
     """
-    
-    @staticmethod
-    def get_available_ram() -> float:
-        """
-        Get available system RAM in gigabytes.
-        
-        Returns:
-            Available RAM in GB
-        """
+    # Configure logging early
+    try:
+        log_manager.configure(level=log_level.upper())
+    except Exception:
+        # Fallback if custom manager errors
+        pass
+
+    ctx.obj = {"config": _load_config(config)}
+
+
+# -------------------------
+# Commands
+# -------------------------
+
+@app.command("version")
+def cmd_version():
+    """Show Kopi-Docka version."""
+    typer.echo(f"Kopi-Docka {VERSION}")
+
+
+@app.command("init")
+def cmd_init(ctx: typer.Context):
+    """
+    Initialize (or connect to) the Kopia repository.
+    """
+    cfg: Config = ctx.obj["config"]
+    repo = KopiaRepository(cfg)
+
+    if repo.is_initialized():
+        typer.echo("Repository already initialized. Connecting…")
         try:
-            memory = psutil.virtual_memory()
-            return memory.total / (1024 ** 3)  # Convert to GB
+            repo.connect()
+            typer.echo("Connected to repository.")
         except Exception as e:
-            logger.error(f"Failed to get RAM info: {e}")
-            return 2.0  # Conservative default
-    
-    @staticmethod
-    def get_available_disk_space(path: str = '/') -> float:
-        """
-        Get available disk space in gigabytes.
-        
-        Args:
-            path: Path to check disk space for
-            
-        Returns:
-            Available disk space in GB
-        """
+            typer.echo(f"Failed to connect: {e}")
+            raise typer.Exit(code=1)
+        return
+
+    typer.echo("Initializing repository…")
+    try:
+        repo.initialize()
+        typer.echo("Repository initialized successfully.")
+    except Exception as e:
+        typer.echo(f"Failed to initialize repository: {e}")
+        raise typer.Exit(code=1)
+
+
+@app.command("list")
+def cmd_list(
+    ctx: typer.Context,
+    units: bool = typer.Option(True, "--units", help="List discovered backup units."),
+    snapshots: bool = typer.Option(False, "--snapshots", help="List recent snapshots."),
+):
+    """
+    List backup units or repository snapshots.
+    """
+    cfg: Config = ctx.obj["config"]
+    if not (units or snapshots):
+        units = True  # default behavior
+
+    if units:
+        typer.echo("Discovering Docker backup units…")
         try:
-            usage = psutil.disk_usage(path)
-            return usage.free / (1024 ** 3)  # Convert to GB
-        except Exception as e:
-            logger.error(f"Failed to get disk space for {path}: {e}")
-            return 0.0
-    
-    @staticmethod
-    def get_total_disk_space(path: str = '/') -> float:
-        """
-        Get total disk space in gigabytes.
-        
-        Args:
-            path: Path to check disk space for
-            
-        Returns:
-            Total disk space in GB
-        """
-        try:
-            usage = psutil.disk_usage(path)
-            return usage.total / (1024 ** 3)  # Convert to GB
-        except Exception as e:
-            logger.error(f"Failed to get total disk space for {path}: {e}")
-            return 0.0
-    
-    @staticmethod
-    def get_disk_usage_percent(path: str = '/') -> float:
-        """
-        Get disk usage percentage.
-        
-        Args:
-            path: Path to check disk usage for
-            
-        Returns:
-            Disk usage percentage (0-100)
-        """
-        try:
-            usage = psutil.disk_usage(path)
-            return usage.percent
-        except Exception as e:
-            logger.error(f"Failed to get disk usage for {path}: {e}")
-            return 0.0
-    
-    @staticmethod
-    def get_cpu_count() -> int:
-        """
-        Get number of CPU cores.
-        
-        Returns:
-            Number of CPU cores
-        """
-        try:
-            return psutil.cpu_count(logical=True) or 1
-        except Exception:
-            return 1
-    
-    @staticmethod
-    def get_optimal_workers() -> int:
-        """
-        Calculate optimal number of parallel workers based on system resources.
-        
-        Returns:
-            Recommended number of workers
-        """
-        ram_gb = SystemUtils.get_available_ram()
-        cpu_count = SystemUtils.get_cpu_count()
-        
-        # Determine workers based on RAM thresholds
-        ram_workers = 1
-        for threshold_gb, workers in RAM_WORKER_THRESHOLDS:
-            if ram_gb <= threshold_gb:
-                ram_workers = workers
-                break
-        
-        # Don't exceed CPU count
-        optimal = min(ram_workers, cpu_count)
-        
-        logger.debug(f"System has {ram_gb:.1f}GB RAM, {cpu_count} CPUs. "
-                    f"Recommending {optimal} workers.")
-        
-        return optimal
-    
-    @staticmethod
-    def estimate_backup_size(path: str) -> int:
-        """
-        Estimate size of path for backup.
-        
-        Args:
-            path: Path to estimate
-            
-        Returns:
-            Estimated size in bytes
-        """
-        try:
-            if os.path.isfile(path):
-                return os.path.getsize(path)
-            
-            total_size = 0
-            for dirpath, dirnames, filenames in os.walk(path):
-                for filename in filenames:
-                    filepath = os.path.join(dirpath, filename)
-                    try:
-                        total_size += os.path.getsize(filepath)
-                    except (OSError, IOError):
-                        continue
-            
-            return total_size
-            
-        except Exception as e:
-            logger.error(f"Failed to estimate size of {path}: {e}")
-            return 0
-    
-    @staticmethod
-    def format_bytes(size_bytes: int) -> str:
-        """
-        Format bytes into human-readable string.
-        
-        Args:
-            size_bytes: Size in bytes
-            
-        Returns:
-            Formatted string (e.g., "1.5 GB")
-        """
-        if size_bytes < 0:
-            return "0 B"
-        
-        for unit in ['B', 'KB', 'MB', 'GB', 'TB', 'PB']:
-            if size_bytes < 1024.0:
-                return f"{size_bytes:.2f} {unit}"
-            size_bytes /= 1024.0
-        return f"{size_bytes:.2f} EB"
-    
-    @staticmethod
-    def format_duration(seconds: float) -> str:
-        """
-        Format duration into human-readable string.
-        
-        Args:
-            seconds: Duration in seconds
-            
-        Returns:
-            Formatted string (e.g., "2h 15m 30s")
-        """
-        if seconds < 0:
-            return "0s"
-        
-        days = int(seconds // 86400)
-        hours = int((seconds % 86400) // 3600)
-        minutes = int((seconds % 3600) // 60)
-        secs = int(seconds % 60)
-        
-        parts = []
-        if days > 0:
-            parts.append(f"{days}d")
-        if hours > 0:
-            parts.append(f"{hours}h")
-        if minutes > 0:
-            parts.append(f"{minutes}m")
-        if secs > 0 or not parts:
-            parts.append(f"{secs}s")
-        
-        return " ".join(parts)
-    
-    @staticmethod
-    def is_root() -> bool:
-        """
-        Check if running as root.
-        
-        Returns:
-            True if running as root
-        """
-        return os.geteuid() == 0
-    
-    @staticmethod
-    def get_current_user() -> str:
-        """
-        Get current username.
-        
-        Returns:
-            Current username
-        """
-        import pwd
-        try:
-            return pwd.getpwuid(os.getuid()).pw_name
-        except Exception:
-            return os.environ.get('USER', 'unknown')
-    
-    @staticmethod
-    def ensure_directory(path: Path, mode: int = 0o755):
-        """
-        Ensure directory exists with proper permissions.
-        
-        Args:
-            path: Directory path
-            mode: Permission mode
-        """
-        path.mkdir(parents=True, exist_ok=True)
-        path.chmod(mode)
-    
-    @staticmethod
-    def check_port_available(port: int, host: str = '127.0.0.1') -> bool:
-        """
-        Check if a network port is available.
-        
-        Args:
-            port: Port number
-            host: Host address
-            
-        Returns:
-            True if port is available
-        """
-        import socket
-        
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(1)
-                result = s.connect_ex((host, port))
-                return result != 0  # Returns True if port is NOT in use
-        except Exception:
-            return False
-    
-    @staticmethod
-    def get_system_info() -> Dict[str, any]:
-        """
-        Get comprehensive system information.
-        
-        Returns:
-            Dictionary with system information
-        """
-        import platform
-        
-        try:
-            info = {
-                'platform': platform.system(),
-                'platform_release': platform.release(),
-                'platform_version': platform.version(),
-                'architecture': platform.machine(),
-                'hostname': platform.node(),
-                'processor': platform.processor(),
-                'python_version': platform.python_version(),
-                'cpu_count': SystemUtils.get_cpu_count(),
-                'ram_gb': SystemUtils.get_available_ram(),
-                'disk_free_gb': SystemUtils.get_available_disk_space(),
-            }
-            
-            # Add Docker info if available
-            try:
-                docker_version = SystemUtils.get_docker_version()
-                if docker_version:
-                    info['docker_version'] = '.'.join(map(str, docker_version))
-            except Exception:
-                pass
-            
-            # Add Kopia info if available
-            try:
-                kopia_version = SystemUtils.get_kopia_version()
-                if kopia_version:
-                    info['kopia_version'] = kopia_version
-            except Exception:
-                pass
-            
-            return info
-            
-        except Exception as e:
-            logger.error(f"Failed to get system info: {e}")
-            return {}
-    
-    @staticmethod
-    def get_docker_version() -> Optional[Tuple[int, int, int]]:
-        """
-        Get Docker version.
-        
-        Returns:
-            Version tuple (major, minor, patch) or None
-        """
-        try:
-            result = subprocess.run(
-                ['docker', 'version', '--format', '{{.Server.Version}}'],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if result.returncode == 0:
-                version_str = result.stdout.strip()
-                # Parse version like "20.10.21" or "24.0.5"
-                parts = version_str.split('.')
-                if len(parts) >= 3:
-                    return (int(parts[0]), int(parts[1]), int(parts[2]))
-                elif len(parts) == 2:
-                    return (int(parts[0]), int(parts[1]), 0)
-        except Exception as e:
-            logger.debug(f"Failed to get Docker version: {e}")
-        
-        return None
-    
-    @staticmethod
-    def get_kopia_version() -> Optional[str]:
-        """
-        Get Kopia version.
-        
-        Returns:
-            Version string or None
-        """
-        try:
-            result = subprocess.run(
-                ['kopia', '--version'],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if result.returncode == 0:
-                # Parse version from output
-                # Format is usually: "kopia version X.Y.Z"
-                for line in result.stdout.split('\n'):
-                    if 'version' in line.lower():
-                        parts = line.split()
-                        for part in parts:
-                            if part[0].isdigit():
-                                return part
-        except Exception as e:
-            logger.debug(f"Failed to get Kopia version: {e}")
-        
-        return None
-    
-    @staticmethod
-    def get_load_average() -> Tuple[float, float, float]:
-        """
-        Get system load average.
-        
-        Returns:
-            Tuple of (1min, 5min, 15min) load averages
-        """
-        try:
-            return os.getloadavg()
-        except Exception:
-            return (0.0, 0.0, 0.0)
-    
-    @staticmethod
-    def get_memory_info() -> Dict[str, float]:
-        """
-        Get detailed memory information.
-        
-        Returns:
-            Dictionary with memory stats in GB
-        """
-        try:
-            mem = psutil.virtual_memory()
-            return {
-                'total_gb': mem.total / (1024 ** 3),
-                'available_gb': mem.available / (1024 ** 3),
-                'used_gb': mem.used / (1024 ** 3),
-                'free_gb': mem.free / (1024 ** 3),
-                'percent_used': mem.percent
-            }
-        except Exception as e:
-            logger.error(f"Failed to get memory info: {e}")
-            return {}
-    
-    @staticmethod
-    def check_writable(path: str) -> bool:
-        """
-        Check if path is writable.
-        
-        Args:
-            path: Path to check
-            
-        Returns:
-            True if path is writable
-        """
-        try:
-            test_path = Path(path)
-            if test_path.is_dir():
-                # Test directory writability
-                test_file = test_path / '.kopi_docka_write_test'
-                try:
-                    test_file.touch()
-                    test_file.unlink()
-                    return True
-                except Exception:
-                    return False
+            discovery = DockerDiscovery()
+            found = discovery.discover_backup_units()
+            if not found:
+                typer.echo("No units found.")
             else:
-                # Test parent directory writability
-                return os.access(test_path.parent, os.W_OK)
-        except Exception:
-            return False
-    
-    # Backward compatibility methods that now use DependencyManager
-    
-    @staticmethod
-    def check_docker() -> bool:
-        """
-        Check if Docker is installed and accessible.
-        
-        Returns:
-            True if Docker is available
-        """
-        from .dependencies import DependencyManager
-        return DependencyManager.check_docker()
-    
-    @staticmethod
-    def check_kopia() -> bool:
-        """
-        Check if Kopia is installed and accessible.
-        
-        Returns:
-            True if Kopia is available
-        """
-        from .dependencies import DependencyManager
-        return DependencyManager.check_kopia()
-    
-    @staticmethod
-    def check_tar() -> bool:
-        """
-        Check if tar is installed and accessible.
-        
-        Returns:
-            True if tar is available
-        """
-        from .dependencies import DependencyManager
-        return DependencyManager.check_tar()
+                for u in found:
+                    typer.echo(f"- {u.name} ({u.type}): {len(u.containers)} containers, {len(u.volumes)} volumes")
+        except Exception as e:
+            typer.echo(f"Discovery failed: {e}")
+            raise typer.Exit(code=1)
+
+    if snapshots:
+        typer.echo("\nListing snapshots (repository)…")
+        try:
+            repo = KopiaRepository(cfg)
+            snaps = repo.list_snapshots()
+            if not snaps:
+                typer.echo("No snapshots found.")
+            else:
+                for s in snaps:
+                    unit = s.get("tags", {}).get("unit", "-")
+                    ts = s.get("timestamp", "-")
+                    sid = s.get("id", "")
+                    typer.echo(f"- {sid} | unit={unit} | {ts} | path={s.get('path','')}")
+        except Exception as e:
+            typer.echo(f"Unable to list snapshots: {e}")
+            raise typer.Exit(code=1)
+
+
+@app.command("backup")
+def cmd_backup(
+    ctx: typer.Context,
+    unit: List[str] = typer.Option(
+        None, "--unit", "-u", help="Backup only these units (repeatable)."
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Simulate backup without making changes."
+    ),
+    update_recovery_bundle: Optional[bool] = typer.Option(
+        None,
+        "--update-recovery/--no-update-recovery",
+        help="Override config: update disaster recovery bundle after backup.",
+    ),
+):
+    """
+    Run a cold backup for selected units (or all).
+    """
+    cfg: Config = ctx.obj["config"]
+
+    try:
+        discovery = DockerDiscovery()
+        units = discovery.discover_backup_units()
+        selected = _filter_units(units, unit)
+        if not selected:
+            typer.echo("Nothing to back up (no units selected/found).")
+            raise typer.Exit(code=0)
+
+        if dry_run:
+            report = DryRunReport(cfg)
+            report.generate(selected, update_recovery_bundle)
+            raise typer.Exit(code=0)
+
+        bm = BackupManager(cfg)
+        overall_ok = True
+
+        for u in selected:
+            typer.echo(f"==> Backing up unit: {u.name}")
+            meta = bm.backup_unit(u, update_recovery_bundle=update_recovery_bundle)
+            if meta.success:
+                typer.echo(f"✓ {u.name} completed in {int(meta.duration_seconds)}s")
+                if meta.kopia_snapshot_ids:
+                    typer.echo(f"   Snapshots: {', '.join(meta.kopia_snapshot_ids)}")
+            else:
+                overall_ok = False
+                typer.echo(f"✗ {u.name} finished with errors in {int(meta.duration_seconds)}s")
+                for err in meta.errors or ([] if meta.error_message is None else [meta.error_message]):
+                    typer.echo(f"   - {err}")
+
+        raise typer.Exit(code=0 if overall_ok else 1)
+
+    except Exception as e:
+        typer.echo(f"Backup failed: {e}")
+        raise typer.Exit(code=1)
+
+
+@app.command("restore")
+def cmd_restore(ctx: typer.Context):
+    """
+    Launch the interactive restore wizard.
+    """
+    cfg: Config = ctx.obj["config"]
+    try:
+        rm = RestoreManager(cfg)
+        rm.interactive_restore()
+    except Exception as e:
+        typer.echo(f"Restore failed: {e}")
+        raise typer.Exit(code=1)
+
+
+@app.command("repo-maintenance")
+def cmd_repo_maintenance(ctx: typer.Context):
+    """
+    Run Kopia repository maintenance.
+    """
+    cfg: Config = ctx.obj["config"]
+    try:
+        repo = KopiaRepository(cfg)
+        repo.maintenance_run()
+        typer.echo("Maintenance completed.")
+    except Exception as e:
+        typer.echo(f"Maintenance failed: {e}")
+        raise typer.Exit(code=1)
+
+
+# -------------------------
+# Service / systemd helpers
+# -------------------------
+
+@app.command("daemon")
+def cmd_daemon(
+    interval_minutes: Optional[int] = typer.Option(
+        None, "--interval-minutes", help="Run internal backup every N minutes (else idle; prefer systemd timer)."
+    ),
+    backup_cmd: str = typer.Option(
+        "/usr/bin/env kopi-docka backup", "--backup-cmd", help="Command to start a backup run."
+    ),
+    log_level: str = typer.Option("INFO", "--log-level", help="Log level used by the service."),
+):
+    """
+    Run the systemd-friendly daemon (service). Prefer using a systemd timer for scheduling.
+    """
+    cfg = ServiceConfig(
+        backup_cmd=backup_cmd,
+        interval_minutes=interval_minutes,
+        log_level=log_level,
+    )
+    svc = KopiDockaService(cfg)
+    rc = svc.start()
+    raise typer.Exit(code=rc)
+
+
+@app.command("write-units")
+def cmd_write_units(
+    output_dir: Path = typer.Option(
+        Path("/etc/systemd/system"),
+        "--output-dir",
+        help="Where to write example systemd unit files.",
+    )
+):
+    """
+    Write example systemd service and timer units.
+    """
+    try:
+        write_systemd_units(output_dir)
+        typer.echo(f"Wrote unit files into: {output_dir}")
+        typer.echo("Enable with:  sudo systemctl enable --now kopi-docka.timer")
+    except Exception as e:
+        typer.echo(f"Failed to write units: {e}")
+        raise typer.Exit(code=1)
+
+
+# -------------------------
+# Entrypoint
+# -------------------------
+
+def main():
+    try:
+        app()
+    except KeyboardInterrupt:
+        typer.echo("Interrupted.")
+        sys.exit(130)
+
+
+if __name__ == "__main__":
+    main()

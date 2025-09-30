@@ -1,730 +1,294 @@
+################################################################################
+# KOPI-DOCKA
+#
+# @file:        restore.py
+# @module:      kopi_docka.restore
+# @description: Interactive wizard for restoring recipes and volumes from Kopia snapshots.
+# @author:      Markus F. (TZERO78) & KI-Assistenten
+# @repository:  https://github.com/TZERO78/kopi-docka
+# @version:     1.0.0
+#
+# ------------------------------------------------------------------------------
+# Copyright (c) 2025 Markus F. (TZERO78)
+# MIT-Lizenz: siehe LICENSE oder https://opensource.org/licenses/MIT
+# ==============================================================================
+# Hinweise:
+# - Enforces pairing by unit name and shared backup_id across snapshots
+# - Guides operators through container stop, volume restore, and restart
+# - Uses KopiaRepository utilities for listing and extraction operations
+################################################################################
+
 """
 Restore management module for Kopi-Docka.
 
-This module handles interactive restoration of Docker containers and volumes
-from Kopia backups.
+Interactive restoration of Docker containers/volumes from Kopia snapshots.
+(No database dump logic – cold backups restore via volumes.)
 """
 
 import json
-import logging
 import subprocess
 import tempfile
-import time
+import re
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Optional, Any
+from typing import List
 
-from .types import RestorePoint, BackupUnit
+from .logging import get_logger
+from .types import RestorePoint
 from .config import Config
 from .repository import KopiaRepository
-from .restore_db import DatabaseRestoreManager
 from .constants import (
     RECIPE_BACKUP_DIR,
     VOLUME_BACKUP_DIR,
-    DATABASE_BACKUP_DIR
+    CONTAINER_START_TIMEOUT
 )
 
-
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class RestoreManager:
-    """
-    Manages restoration of Docker containers and volumes from backups.
-    
-    This class provides an interactive wizard for selecting and restoring
-    backup units from Kopia snapshots.
-    """
-    
+    """Interactive restore wizard for cold backups (recipes + volumes)."""
+
     def __init__(self, config: Config):
-        """
-        Initialize restore manager.
-        
-        Args:
-            config: Application configuration
-        """
         self.config = config
         self.repo = KopiaRepository(config)
-        self.db_manager = DatabaseRestoreManager()
-    
+        self.start_timeout = self.config.getint('backup', 'start_timeout', CONTAINER_START_TIMEOUT)
+
     def interactive_restore(self):
-        """
-        Launch interactive restore wizard.
-        
-        This guides the user through selecting a backup to restore
-        and provides commands to restore the service.
-        """
+        """Run interactive wizard."""
         print("\n" + "=" * 60)
-        print("Kopi-Docka Restore Wizard")
+        print("🔄 Kopi-Docka Restore Wizard")
         print("=" * 60)
-        
-        # List available restore points
-        restore_points = self._find_restore_points()
-        
-        if not restore_points:
-            print("\nNo backups found to restore.")
+
+        logger.info("Starting interactive restore wizard")
+
+        points = self._find_restore_points()
+        if not points:
+            print("\n❌ No backups found to restore.")
+            logger.warning("No restore points found")
             return
-        
-        # Display available restore points
-        print("\nAvailable restore points:\n")
-        for idx, point in enumerate(restore_points, 1):
-            print(f"{idx}. {point.unit_name} - {point.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
-            print(f"   Volumes: {len(point.volume_snapshots)}, "
-                  f"Databases: {len(point.database_snapshots)}")
-        
-        # Select restore point
+
+        print("\n📋 Available restore points:\n")
+        for idx, p in enumerate(points, 1):
+            print(f"{idx}. 📦 {p.unit_name}  ({p.timestamp.strftime('%Y-%m-%d %H:%M:%S')})  "
+                  f"💾 Volumes: {len(p.volume_snapshots)}")
+
+        # selection
         while True:
             try:
-                choice = input("\nSelect restore point (number): ").strip()
-                idx = int(choice) - 1
-                if 0 <= idx < len(restore_points):
-                    selected = restore_points[idx]
+                choice = input("\n🎯 Select restore point (number): ").strip()
+                i = int(choice) - 1
+                if 0 <= i < len(points):
+                    sel = points[i]
                     break
-                print("Invalid selection. Please try again.")
+                print("❌ Invalid selection. Please try again.")
             except (ValueError, KeyboardInterrupt):
-                print("\nRestore cancelled.")
+                print("\n⚠️ Restore cancelled.")
+                logger.info("Restore cancelled by user")
                 return
-        
-        print(f"\nSelected: {selected.unit_name} from {selected.timestamp}")
-        
-        # Confirm restoration
-        print("\nThis will guide you through restoring:")
+
+        logger.info(f"Selected restore point: {sel.unit_name} from {sel.timestamp}",
+                    extra={'unit_name': sel.unit_name, 'timestamp': sel.timestamp.isoformat()})
+
+        print(f"\n✅ Selected: {sel.unit_name} from {sel.timestamp}")
+        print("\n📝 This will guide you through restoring:")
         print(f"  - Recipe/configuration files")
-        print(f"  - {len(selected.volume_snapshots)} volumes")
-        print(f"  - {len(selected.database_snapshots)} database dumps")
-        
-        confirm = input("\nProceed with restore? (yes/no): ").strip().lower()
+        print(f"  - {len(sel.volume_snapshots)} volumes")
+
+        confirm = input("\n⚠️ Proceed with restore? (yes/no): ").strip().lower()
         if confirm != 'yes':
-            print("Restore cancelled.")
+            print("❌ Restore cancelled.")
+            logger.info("Restore cancelled at confirmation")
             return
-        
-        # Perform restore
-        self._restore_unit(selected)
-    
+
+        self._restore_unit(sel)
+
     def _find_restore_points(self) -> List[RestorePoint]:
-        """
-        Find all available restore points.
-        
-        Returns:
-            List of restore points
-        """
-        restore_points = []
-        
-        # Get all recipe snapshots (they define restore points)
-        snapshots = self.repo.list_snapshots(tag_filter={'type': 'recipe'})
-        
-        for snap in snapshots:
-            tags = snap.get('tags', {})
-            unit_name = tags.get('unit')
-            timestamp_str = tags.get('timestamp')
-            
-            if not unit_name or not timestamp_str:
-                continue
-            
-            try:
-                timestamp = datetime.fromisoformat(timestamp_str)
-            except ValueError:
-                continue
-            
-            # Find associated volume and database snapshots
-            point = RestorePoint(
-                unit_name=unit_name,
-                timestamp=timestamp,
-                recipe_snapshot=snap['id']
-            )
-            
-            # Find volume snapshots
-            volume_snaps = self.repo.list_snapshots(
-                tag_filter={
-                    'type': 'volume',
-                    'unit': unit_name
-                }
-            )
-            for vol_snap in volume_snaps:
-                vol_tags = vol_snap.get('tags', {})
-                vol_timestamp = vol_tags.get('timestamp')
-                if vol_timestamp and self._timestamps_match(timestamp_str, vol_timestamp):
-                    volume_name = vol_tags.get('volume')
-                    if volume_name:
-                        point.volume_snapshots[volume_name] = vol_snap['id']
-            
-            # Find database snapshots
-            db_snaps = self.repo.list_snapshots(
-                tag_filter={
-                    'type': 'database',
-                    'unit': unit_name
-                }
-            )
-            for db_snap in db_snaps:
-                db_tags = db_snap.get('tags', {})
-                db_timestamp = db_tags.get('timestamp')
-                if db_timestamp and self._timestamps_match(timestamp_str, db_timestamp):
-                    container_name = db_tags.get('container')
-                    if container_name:
-                        point.database_snapshots[container_name] = db_snap['id']
-            
-            restore_points.append(point)
-        
-        # Sort by timestamp (newest first)
-        restore_points.sort(key=lambda p: p.timestamp, reverse=True)
-        
-        return restore_points
-    
-    def _timestamps_match(self, ts1: str, ts2: str, tolerance_seconds: int = 300) -> bool:
-        """
-        Check if two timestamps are close enough to be from the same backup.
-        
-        Args:
-            ts1: First timestamp string
-            ts2: Second timestamp string
-            tolerance_seconds: Maximum difference in seconds
-            
-        Returns:
-            True if timestamps match within tolerance
-        """
+        """Find available restore points grouped by unit + REQUIRED backup_id."""
+        out: List[RestorePoint] = []
         try:
-            dt1 = datetime.fromisoformat(ts1)
-            dt2 = datetime.fromisoformat(ts2)
-            diff = abs((dt1 - dt2).total_seconds())
-            return diff <= tolerance_seconds
-        except ValueError:
-            return False
-    
-    def _restore_unit(self, restore_point: RestorePoint):
-        """
-        Restore a backup unit.
-        
-        Args:
-            restore_point: Restore point to restore
-        """
-        print("\n" + "-" * 60)
-        print("Starting restoration process...")
-        print("-" * 60)
-        
-        # Create restore directory
-        restore_dir = Path(tempfile.mkdtemp(prefix='kopi-docka-restore-'))
-        print(f"\nRestore directory: {restore_dir}")
-        
-        try:
-            # Step 1: Restore recipes
-            print("\n1. Restoring configuration files...")
-            recipe_dir = self._restore_recipe(restore_point, restore_dir)
-            
-            # Check if it's a compose stack or standalone
-            compose_file = recipe_dir / 'recipes' / restore_point.unit_name / 'docker-compose.yml'
-            is_stack = compose_file.exists()
-            
-            if is_stack:
-                print(f"\n✓ Found Docker Compose stack: {restore_point.unit_name}")
-                print(f"  Compose file: {compose_file}")
-            else:
-                print(f"\n✓ Found standalone container(s)")
-            
-            # Step 2: Stop existing containers if they exist
-            print("\n2. Checking for existing containers...")
-            self._stop_existing_containers(restore_point, recipe_dir)
-            
-            # Step 3: Restore volumes
-            if restore_point.volume_snapshots:
-                print("\n3. Restoring volumes...")
-                self._restore_volumes(restore_point, restore_dir)
-            
-            # Step 4: Restore databases (if needed later)
-            if restore_point.database_snapshots:
-                print("\n4. Database dumps available for restore after container start")
-                db_restore_dir = restore_dir / 'databases'
-                db_restore_dir.mkdir(parents=True, exist_ok=True)
-                for container_name, snapshot_id in restore_point.database_snapshots.items():
-                    print(f"   - {container_name}: Will restore after container starts")
-            
-            # Step 5: Start containers/stack
-            print("\n5. Starting services...")
-            if is_stack:
-                self._start_compose_stack(compose_file, restore_point)
-            else:
-                self._start_standalone_containers(recipe_dir, restore_point)
-            
-            # Wait a moment for containers to initialize
-            if restore_point.database_snapshots:
-                print("\n   Waiting for containers to initialize...")
-                time.sleep(10)
-            
-            # Step 6: Restore databases after containers are running
-            if restore_point.database_snapshots:
-                self._restore_databases(restore_point, restore_dir)
-            
-            print("\n" + "=" * 60)
-            print("✓ Restoration complete!")
-            print("=" * 60)
-            print(f"\nRestore data kept in: {restore_dir}")
-            print("You can delete this directory after verifying everything works.")
-            
+            snaps = self.repo.list_snapshots()
+            groups = {}
+
+            for s in snaps:
+                path = s.get('path', '')
+                tags = s.get('tags', {})
+                unit = tags.get('unit')
+                backup_id = tags.get('backup_id')  # REQUIRED
+                ts_str = tags.get('timestamp')
+
+                if not unit or not backup_id:
+                    continue  # enforce backup_id
+
+                try:
+                    ts = datetime.fromisoformat(ts_str) if ts_str else datetime.now()
+                except ValueError:
+                    ts = datetime.now()
+
+                key = f"{unit}:{backup_id}"
+                if key not in groups:
+                    # keep compatibility: RestorePoint may include fields we don't use (e.g., database_snapshots)
+                    groups[key] = RestorePoint(
+                        unit_name=unit,
+                        timestamp=ts,
+                        backup_id=backup_id,
+                        recipe_snapshots=[],
+                        volume_snapshots=[],
+                        database_snapshots=[]  # kept empty for type-compat
+                    )
+
+                if RECIPE_BACKUP_DIR in path:
+                    groups[key].recipe_snapshots.append(s)
+                elif VOLUME_BACKUP_DIR in path:
+                    groups[key].volume_snapshots.append(s)
+
+            out = list(groups.values())
+            out.sort(key=lambda x: x.timestamp, reverse=True)
+            logger.debug(f"Found {len(out)} restore points")
         except Exception as e:
-            logger.error(f"Restore failed: {e}")
-            print(f"\n✗ Error during restore: {e}")
-            print(f"Restore directory kept for debugging: {restore_dir}")
-    
-    def _stop_existing_containers(self, restore_point: RestorePoint, recipe_dir: Path):
-        """
-        Stop existing containers that will be replaced.
-        
-        Args:
-            restore_point: Restore point
-            recipe_dir: Directory with recipes
-        """
-        # Load container names from inspect files
-        inspect_files = list((recipe_dir / 'recipes' / restore_point.unit_name).glob('*_inspect.json'))
-        
-        for inspect_file in inspect_files:
-            try:
-                with open(inspect_file) as f:
-                    inspect_data = json.load(f)
-                    container_name = inspect_data.get('Name', '').lstrip('/')
-                    
-                    if container_name:
-                        # Check if container exists
-                        result = subprocess.run(
-                            ['docker', 'ps', '-a', '--filter', f'name={container_name}', '--format', '{{.Names}}'],
-                            capture_output=True,
-                            text=True
-                        )
-                        
-                        if container_name in result.stdout:
-                            print(f"   Stopping existing container: {container_name}")
-                            subprocess.run(['docker', 'stop', container_name], capture_output=True)
-                            subprocess.run(['docker', 'rm', container_name], capture_output=True)
-            except Exception as e:
-                logger.debug(f"Could not process {inspect_file}: {e}")
-    
-    def _restore_volumes(self, restore_point: RestorePoint, restore_dir: Path):
-        """
-        Actually restore the volumes.
-        
-        Args:
-            restore_point: Restore point
-            restore_dir: Directory for restoration
-        """
-        for volume_name, snapshot_id in restore_point.volume_snapshots.items():
-            try:
-                print(f"\n   Restoring volume: {volume_name}")
-                
-                # Create temporary directory for volume data
-                volume_restore_dir = restore_dir / 'volumes' / volume_name
-                volume_restore_dir.mkdir(parents=True, exist_ok=True)
-                
-                # Restore snapshot from Kopia
-                print(f"     - Extracting from Kopia...")
-                self.repo.restore_snapshot(snapshot_id, str(volume_restore_dir))
-                
-                # Check if volume exists, if yes remove it
-                result = subprocess.run(
-                    ['docker', 'volume', 'ls', '--format', '{{.Name}}'],
-                    capture_output=True,
-                    text=True
-                )
-                
-                if volume_name in result.stdout:
-                    print(f"     - Removing existing volume")
-                    subprocess.run(['docker', 'volume', 'rm', '-f', volume_name], check=True, capture_output=True)
-                
-                # Create new volume
-                print(f"     - Creating new volume")
-                subprocess.run(['docker', 'volume', 'create', volume_name], check=True, capture_output=True)
-                
-                # Copy data to volume
-                print(f"     - Copying data to volume")
-                subprocess.run([
-                    'docker', 'run', '--rm',
-                    '-v', f'{volume_name}:/restore',
-                    '-v', f'{volume_restore_dir}:/backup:ro',
-                    'alpine',
-                    'sh', '-c', 'cd /backup && cp -a . /restore/'
-                ], check=True, capture_output=True)
-                
-                print(f"     ✓ Volume {volume_name} restored")
-                
-            except Exception as e:
-                print(f"     ✗ Failed to restore volume {volume_name}: {e}")
-                logger.error(f"Volume restore failed for {volume_name}: {e}")
-    
-    def _start_compose_stack(self, compose_file: Path, restore_point: RestorePoint):
-        """
-        Start a Docker Compose stack.
-        
-        Args:
-            compose_file: Path to docker-compose.yml
-            restore_point: Restore point
-        """
-        print(f"\n   Starting Docker Compose stack: {restore_point.unit_name}")
-        
-        compose_dir = compose_file.parent
-        
+            logger.error(f"Failed to find restore points: {e}")
+
+        return out
+
+    def _restore_unit(self, rp: RestorePoint):
+        """Restore a selected backup unit."""
+        print("\n" + "-" * 60)
+        print("🚀 Starting restoration process...")
+        print("-" * 60)
+
+        logger.info(f"Starting restore for unit: {rp.unit_name}", extra={'unit_name': rp.unit_name})
+
+        safe_unit = re.sub(r'[^A-Za-z0-9._-]+', '_', rp.unit_name)
+        restore_dir = Path(tempfile.mkdtemp(prefix=f'kopia-docka-restore-{safe_unit}-'))
+        print(f"\n📂 Restore directory: {restore_dir}")
+
         try:
-            # Use docker-compose up
-            result = subprocess.run(
-                ['docker-compose', 'up', '-d'],
-                cwd=compose_dir,
-                capture_output=True,
-                text=True
-            )
-            
-            if result.returncode == 0:
-                print(f"   ✓ Stack {restore_point.unit_name} started successfully")
-                
-                # Show running containers
-                subprocess.run(['docker-compose', 'ps'], cwd=compose_dir)
-            else:
-                print(f"   ✗ Failed to start stack: {result.stderr}")
-                
-        except FileNotFoundError:
-            # Try docker compose (newer version)
-            try:
-                result = subprocess.run(
-                    ['docker', 'compose', 'up', '-d'],
-                    cwd=compose_dir,
-                    capture_output=True,
-                    text=True
-                )
-                
-                if result.returncode == 0:
-                    print(f"   ✓ Stack {restore_point.unit_name} started successfully")
-                    subprocess.run(['docker', 'compose', 'ps'], cwd=compose_dir)
-                else:
-                    print(f"   ✗ Failed to start stack: {result.stderr}")
-                    
-            except Exception as e:
-                print(f"   ✗ Could not start compose stack: {e}")
-                print(f"   Manual command: cd {compose_dir} && docker-compose up -d")
-    
-    def _start_standalone_containers(self, recipe_dir: Path, restore_point: RestorePoint):
-        """
-        Start standalone containers from inspect data.
-        
-        Args:
-            recipe_dir: Directory with recipes
-            restore_point: Restore point
-        """
-        inspect_files = list((recipe_dir / 'recipes' / restore_point.unit_name).glob('*_inspect.json'))
-        
-        for inspect_file in inspect_files:
-            try:
-                with open(inspect_file) as f:
-                    inspect_data = json.load(f)
-                
-                container_name = inspect_data.get('Name', '').lstrip('/')
-                print(f"\n   Starting container: {container_name}")
-                
-                # Build docker run command
-                docker_cmd = RestoreHelper.build_docker_run_command(inspect_data)
-                
-                # Execute
-                result = subprocess.run(docker_cmd, capture_output=True, text=True, shell=True)
-                
-                if result.returncode == 0:
-                    print(f"   ✓ Container {container_name} started")
-                else:
-                    print(f"   ✗ Failed to start {container_name}: {result.stderr}")
-                    print(f"   Manual command: {docker_cmd}")
-                    
-            except Exception as e:
-                print(f"   ✗ Could not restore from {inspect_file}: {e}")
-    
-    def _restore_databases(self, restore_point: RestorePoint, restore_dir: Path):
-        """
-        Restore database dumps into running containers.
-        
-        Args:
-            restore_point: Restore point
-            restore_dir: Directory with restore data
-        """
-        if not restore_point.database_snapshots:
-            return
-            
-        print("\n" + "=" * 60)
-        print("DATABASE RESTORATION")
-        print("=" * 60)
-        
-        print("\n⚠️  Important: Databases need special handling!")
-        print("   Containers must be fully initialized before importing dumps.")
-        print("   This process will guide you through it.\n")
-        
-        for container_name, snapshot_id in restore_point.database_snapshots.items():
-            try:
-                print(f"\n━━━ Database: {container_name} ━━━")
-                
-                # Extract dump and metadata
-                db_file = restore_dir / 'databases' / f'{container_name}.dump'
-                db_file.parent.mkdir(parents=True, exist_ok=True)
-                
-                print(f"1. Extracting dump from backup...")
-                
-                # Get snapshot info to extract metadata
-                snapshots = self.repo.list_snapshots()
-                metadata = None
-                for snap in snapshots:
-                    if snap['id'] == snapshot_id:
-                        metadata_str = snap.get('tags', {}).get('metadata')
-                        if metadata_str:
-                            try:
-                                metadata = json.loads(metadata_str)
-                            except json.JSONDecodeError:
-                                pass
-                        break
-                
-                # Restore dump file
-                self.repo.restore_snapshot(snapshot_id, str(db_file))
-                print(f"   ✓ Dump saved to: {db_file}")
-                
-                # Check container status
-                print(f"\n2. Checking container status...")
-                result = subprocess.run(
-                    ['docker', 'ps', '--filter', f'name={container_name}', '--format', '{{.Status}}'],
-                    capture_output=True,
-                    text=True
-                )
-                
-                if not result.stdout:
-                    print(f"   ✗ Container {container_name} is not running!")
-                    print(f"   Please start it first and retry.")
-                    print(f"\n   Manual restore commands:")
-                    print(self.db_manager.get_manual_restore_commands(
-                        container_name, 
-                        metadata.get('database_type', 'unknown') if metadata else 'unknown',
-                        db_file,
-                        metadata
-                    ))
-                    continue
-                
-                status = result.stdout.strip()
-                print(f"   ✓ Container is running: {status}")
-                
-                # Detect database type
-                result = subprocess.run(
-                    ['docker', 'inspect', container_name, '--format', '{{.Config.Image}}'],
-                    capture_output=True,
-                    text=True
-                )
-                image = result.stdout.strip().lower()
-                
-                # Use metadata if available, otherwise detect from image
-                if metadata and 'database_type' in metadata:
-                    db_type = metadata['database_type']
-                else:
-                    db_type = self._detect_database_type(image)
-                
-                print(f"   ✓ Database type: {db_type}")
-                
-                # Restore using the new DatabaseRestoreManager
-                print(f"\n3. Starting restore process...")
-                success = self.db_manager.restore_database(
-                    container_name,
-                    db_type,
-                    db_file,
-                    metadata
-                )
-                
-                if success:
-                    print(f"   ✓ Database restored successfully!")
-                else:
-                    print(f"   ✗ Automatic restore failed.")
-                    print(f"\n   Manual restore commands:")
-                    print(self.db_manager.get_manual_restore_commands(
-                        container_name,
-                        db_type,
-                        db_file,
-                        metadata
-                    ))
-                    
-            except Exception as e:
-                print(f"   ✗ Error: {e}")
-                logger.error(f"Database restore failed for {container_name}: {e}")
-                print(f"\n   Dump file kept at: {db_file}")
-                print(f"   You can manually restore it later.")
-        
-        print("\n" + "=" * 60)
-        print("Database restoration phase complete.")
-        print("Please verify your databases are working correctly!")
-        print("=" * 60)
-    
-    def _detect_database_type(self, image: str) -> str:
-        """Detect database type from image name."""
-        image_lower = image.lower()
-        
-        if 'postgres' in image_lower or 'postgis' in image_lower:
-            return 'postgresql'
-        elif 'mariadb' in image_lower:
-            return 'mariadb'
-        elif 'mysql' in image_lower:
-            return 'mysql'
-        elif 'mongo' in image_lower:
-            return 'mongodb'
-        elif 'redis' in image_lower:
-            return 'redis'
-        else:
-            return 'unknown'
-    
-    def _restore_recipe(self, restore_point: RestorePoint, restore_dir: Path) -> Path:
-        """
-        Restore recipe files.
-        
-        Args:
-            restore_point: Restore point
-            restore_dir: Directory to restore to
-            
-        Returns:
-            Path to restored recipe directory
-        """
+            # 1) Recipes
+            print("\n1️⃣ Restoring recipes...")
+            recipe_dir = self._restore_recipe(rp, restore_dir)
+
+            # 2) Volume instructions
+            if rp.volume_snapshots:
+                print("\n2️⃣ Volume restoration:")
+                self._display_volume_restore_instructions(rp, restore_dir)
+
+            # 3) Restart instructions (only modern docker compose)
+            print("\n3️⃣ Service restart instructions:")
+            self._display_restart_instructions(recipe_dir)
+
+            print("\n" + "=" * 60)
+            print("✅ Restoration guide complete!")
+            print("📋 Follow the instructions above to restore your service.")
+            print("=" * 60)
+
+            logger.info(f"Restore guide completed for {rp.unit_name}",
+                        extra={'unit_name': rp.unit_name, 'restore_dir': str(restore_dir)})
+
+        except Exception as e:
+            logger.error(f"Restore failed: {e}", extra={'unit_name': rp.unit_name})
+            print(f"\n❌ Error during restore: {e}")
+
+    def _restore_recipe(self, rp: RestorePoint, restore_dir: Path) -> Path:
+        """Restore recipe snapshots into a folder."""
+        if not rp.recipe_snapshots:
+            logger.warning("No recipe snapshots found", extra={'unit_name': rp.unit_name})
+            return restore_dir
+
         recipe_dir = restore_dir / 'recipes'
         recipe_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Restore recipe snapshot
-        self.repo.restore_snapshot(restore_point.recipe_snapshot, str(recipe_dir))
-        
-        print(f"   ✓ Recipes restored to: {recipe_dir}")
-        
-        # List restored files
-        for file in recipe_dir.rglob('*'):
-            if file.is_file():
-                print(f"     - {file.relative_to(recipe_dir)}")
-        
+
+        for snap in rp.recipe_snapshots:
+            mount_point = None
+            try:
+                snapshot_id = snap['id']
+                print(f"   📥 Restoring recipe snapshot: {snapshot_id[:12]}...")
+
+                # Mount snapshot (repo provides mount + unmount helpers)
+                mount_point = self.repo.mount_snapshot(snapshot_id)
+
+                subprocess.run(['cp', '-r', f'{mount_point}/.', str(recipe_dir)],
+                               check=True, capture_output=True)
+
+                self.repo.unmount_snapshot(mount_point)
+                mount_point = None
+
+                print(f"   ✅ Recipe files restored to: {recipe_dir}")
+                self._check_for_secrets(recipe_dir)
+
+                logger.info("Recipes restored",
+                            extra={'unit_name': rp.unit_name, 'recipe_dir': str(recipe_dir)})
+
+            except Exception as e:
+                logger.error(f"Failed to restore recipe snapshot: {e}", extra={'unit_name': rp.unit_name})
+                print(f"   ⚠️ Warning: Could not restore recipe: {e}")
+            finally:
+                if mount_point:
+                    try:
+                        self.repo.unmount_snapshot(mount_point)
+                    except Exception as e:
+                        logger.warning(f"Failed to unmount: {e}")
+
         return recipe_dir
-    
-    def _display_volume_restore_instructions(self, restore_point: RestorePoint, restore_dir: Path):
-        """
-        Display instructions for restoring volumes.
-        
-        Args:
-            restore_point: Restore point
-            restore_dir: Directory for restoration
-        """
-        print("\n   To restore volumes, run these commands:\n")
-        
-        for volume_name, snapshot_id in restore_point.volume_snapshots.items():
-            volume_restore_dir = restore_dir / 'volumes' / volume_name
-            
-            print(f"   # Restore volume: {volume_name}")
-            print(f"   mkdir -p {volume_restore_dir}")
-            print(f"   kopia snapshot restore {snapshot_id} {volume_restore_dir}")
-            print(f"   docker volume create {volume_name}")
-            print(f"   docker run --rm -v {volume_name}:/restore -v {volume_restore_dir}:/backup \\")
-            print(f"          alpine sh -c 'cd /restore && tar -xzf /backup/*.tar.gz'")
-            print()
-    
-    def _display_database_restore_instructions(self, restore_point: RestorePoint, restore_dir: Path):
-        """
-        Display instructions for restoring databases.
-        
-        Args:
-            restore_point: Restore point
-            restore_dir: Directory for restoration
-        """
-        print("\n   Database restore commands:\n")
-        
-        for container_name, snapshot_id in restore_point.database_snapshots.items():
-            db_restore_file = restore_dir / 'databases' / f"{container_name}.sql"
-            
-            print(f"   # Restore database dump for: {container_name}")
-            print(f"   mkdir -p {db_restore_file.parent}")
-            print(f"   kopia snapshot restore {snapshot_id} {db_restore_file}")
-            print(f"   # Then import into running container:")
-            print(f"   docker exec -i {container_name} sh -c 'cat > /tmp/restore.sql'")
-            print(f"   # Run appropriate restore command based on database type")
-            print()
-    
+
+    def _check_for_secrets(self, recipe_dir: Path):
+        """Warn if redacted secrets are present in inspect JSONs."""
+        for f in recipe_dir.glob('*_inspect.json'):
+            try:
+                content = f.read_text()
+                if '***REDACTED***' in content:
+                    print(f"   ⚠ Note: {f.name} contains redacted secrets")
+                    print("     Restore actual values manually if needed.")
+                    logger.info("Found redacted secrets in restore", extra={'file': f.name})
+            except Exception:
+                pass
+
+    def _display_volume_restore_instructions(self, rp: RestorePoint, restore_dir: Path):
+        """Print safe commands for restoring each volume."""
+        print("\n   📦 Volume Restore Commands:")
+        print("   " + "-" * 40)
+
+        for snap in rp.volume_snapshots:
+            tags = snap.get('tags', {})
+            vol = tags.get('volume', 'unknown')
+            snap_id = snap['id']
+
+            print(f"\n   Volume: {vol}")
+            print(f"   Snapshot: {snap_id[:12]}...")
+            print("\n   Commands:")
+            print(f"""
+   VOLUME_NAME="{vol}"
+   SNAP_ID="{snap_id}"
+
+   # 1. Stop containers using this volume
+   echo "Stopping containers using volume $VOLUME_NAME..."
+   docker ps -q --filter "volume=$VOLUME_NAME" | xargs -r docker stop
+
+   # 2. Safety backup of current volume
+   echo "Creating safety backup..."
+   docker run --rm -v "$VOLUME_NAME":/src -v /tmp:/backup alpine \\
+     sh -c 'tar -czf /backup/$VOLUME_NAME-backup-$(date +%Y%m%d-%H%M%S).tar.gz -C /src .'
+
+   # 3. Restore from Kopia (stream into volume; keep ACLs/xattrs)
+   echo "Restoring volume from backup..."
+   kopia snapshot restore "$SNAP_ID" - | \\
+     docker run --rm -i -v "$VOLUME_NAME":/target debian:bookworm-slim \\
+     bash -c 'set -euo pipefail; rm -rf /target/*; tar -xpf - --numeric-owner --xattrs --acls -C /target'
+
+   # 4. Restart containers
+   echo "Restarting containers..."
+   docker ps -a -q --filter "volume=$VOLUME_NAME" | xargs -r docker start
+
+   echo "Volume $VOLUME_NAME restored successfully!"
+""")
+
     def _display_restart_instructions(self, recipe_dir: Path):
-        """
-        Display instructions for restarting services.
-        
-        Args:
-            recipe_dir: Directory containing restored recipes
-        """
+        """Show modern docker compose restart steps (no legacy fallback)."""
         compose_file = recipe_dir / 'docker-compose.yml'
-        
+        print("\n   🐳 Service Restart:")
+        print("   " + "-" * 40)
         if compose_file.exists():
-            print("\n   To restart using Docker Compose:")
             print(f"   cd {recipe_dir}")
-            print(f"   docker-compose up -d")
+            print(f"   docker compose up -d  # ensure volumes are restored BEFORE this")
         else:
-            print("\n   To restart containers manually:")
-            print("   Review the inspect JSON files in the recipe directory")
-            print("   and use 'docker run' with the appropriate parameters.")
-            print(f"   Inspect files location: {recipe_dir}")
-
-
-class RestoreHelper:
-    """
-    Helper class for restoration operations.
-    
-    Provides utility methods for reconstructing Docker commands
-    from inspect data.
-    """
-    
-    @staticmethod
-    def build_docker_run_command(inspect_data: Dict[str, Any]) -> str:
-        """
-        Build docker run command from inspect data.
-        
-        Args:
-            inspect_data: Docker inspect JSON data
-            
-        Returns:
-            Docker run command string
-        """
-        cmd_parts = ['docker run -d']
-        
-        config = inspect_data.get('Config', {})
-        host_config = inspect_data.get('HostConfig', {})
-        
-        # Name
-        name = inspect_data.get('Name', '').lstrip('/')
-        if name:
-            cmd_parts.append(f'--name {name}')
-        
-        # Environment variables
-        for env in config.get('Env', []):
-            if '=' in env and not env.startswith('PATH='):
-                cmd_parts.append(f'-e "{env}"')
-        
-        # Ports
-        for container_port, host_bindings in host_config.get('PortBindings', {}).items():
-            if host_bindings:
-                for binding in host_bindings:
-                    host_port = binding.get('HostPort')
-                    if host_port:
-                        port_num = container_port.split('/')[0]
-                        cmd_parts.append(f'-p {host_port}:{port_num}')
-        
-        # Volumes
-        for mount in inspect_data.get('Mounts', []):
-            if mount['Type'] == 'volume':
-                cmd_parts.append(f'-v {mount["Name"]}:{mount["Destination"]}')
-            elif mount['Type'] == 'bind':
-                cmd_parts.append(f'-v {mount["Source"]}:{mount["Destination"]}')
-        
-        # Network mode
-        network_mode = host_config.get('NetworkMode')
-        if network_mode and network_mode != 'default':
-            cmd_parts.append(f'--network {network_mode}')
-        
-        # Restart policy
-        restart = host_config.get('RestartPolicy', {})
-        if restart.get('Name'):
-            if restart['Name'] == 'always':
-                cmd_parts.append('--restart always')
-            elif restart['Name'] == 'unless-stopped':
-                cmd_parts.append('--restart unless-stopped')
-            elif restart['Name'] == 'on-failure':
-                max_retry = restart.get('MaximumRetryCount', 0)
-                cmd_parts.append(f'--restart on-failure:{max_retry}')
-        
-        # Image (must be last before command)
-        image = config.get('Image')
-        if image:
-            cmd_parts.append(image)
-        
-        # Command
-        cmd = config.get('Cmd')
-        if cmd:
-            cmd_parts.extend(cmd)
-        
-        return ' '.join(cmd_parts)
+            print(f"   Review the inspect files in: {recipe_dir}")
+            print(f"   Recreate containers with appropriate 'docker run' options")
