@@ -3,7 +3,7 @@
 #
 # @file:        backup.py
 # @module:      kopi_docka.backup
-# @description: Coordinates cold backups: stop containers, snapshot artifacts, restart services.
+# @description: Orchestriert Cold-Backups: Stop -> Rezepte -> Volumes -> Start.
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
 # @version:     1.0.0
@@ -13,11 +13,10 @@
 # MIT-Lizenz: siehe LICENSE oder https://opensource.org/licenses/MIT
 # ==============================================================================
 # Hinweise:
-# - All snapshots in a run share 'backup_id' and an ISO UTC timestamp
-# - Recipes redact sensitive environment variables before snapshotting
-# - Volumes stream via tar; databases use stdin snapshots when enabled
+# - Alle Snapshots eines Laufs teilen sich dieselbe 'backup_id' (Pflicht-Tag)
+# - Rezepte: Compose + docker inspect (ENV-Secrets redacted)
+# - Volumes: tar-Stream mit Owner/ACLs/xattrs, deterministische mtimes
 ################################################################################
-
 """
 Backup management module for Kopi-Docka.
 

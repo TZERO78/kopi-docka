@@ -1,23 +1,3 @@
-################################################################################
-# KOPI-DOCKA
-#
-# @file:        restore.py
-# @module:      kopi_docka.restore
-# @description: Interactive wizard for restoring recipes and volumes from Kopia snapshots.
-# @author:      Markus F. (TZERO78) & KI-Assistenten
-# @repository:  https://github.com/TZERO78/kopi-docka
-# @version:     1.0.0
-#
-# ------------------------------------------------------------------------------
-# Copyright (c) 2025 Markus F. (TZERO78)
-# MIT-Lizenz: siehe LICENSE oder https://opensource.org/licenses/MIT
-# ==============================================================================
-# Hinweise:
-# - Enforces pairing by unit name and shared backup_id across snapshots
-# - Guides operators through container stop, volume restore, and restart
-# - Uses KopiaRepository utilities for listing and extraction operations
-################################################################################
-
 """
 Restore management module for Kopi-Docka.
 
