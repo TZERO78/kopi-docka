@@ -1,0 +1,3 @@
+[console_scripts]
+kopi-docka = kopi_docka.__main__:main
+kopi-docka-service = kopi_docka.service:main

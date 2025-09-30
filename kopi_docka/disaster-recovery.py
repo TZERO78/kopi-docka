@@ -93,11 +93,15 @@ class DisasterRecoveryManager:
         work_dir.mkdir(parents=True, exist_ok=True)
 
         try:
-            logger.info("Creating disaster recovery bundle...", extra={"bundle": bundle_name})
+            logger.info(
+                "Creating disaster recovery bundle...", extra={"bundle": bundle_name}
+            )
 
             # 1) recovery info
             recovery_info = self._create_recovery_info()
-            (work_dir / "recovery-info.json").write_text(json.dumps(recovery_info, indent=2))
+            (work_dir / "recovery-info.json").write_text(
+                json.dumps(recovery_info, indent=2)
+            )
 
             # 2) kopia repo status + password
             self._export_kopia_config(work_dir)
@@ -105,6 +109,7 @@ class DisasterRecoveryManager:
             # 3) kopi-docka.conf
             if self.config.config_file and Path(self.config.config_file).exists():
                 import shutil
+
                 shutil.copy(self.config.config_file, work_dir / "kopi-docka.conf")
 
             # 4) recover.sh
@@ -115,21 +120,29 @@ class DisasterRecoveryManager:
 
             # 6) last backup status
             backup_status = self._get_backup_status()
-            (work_dir / "backup-status.json").write_text(json.dumps(backup_status, indent=2))
+            (work_dir / "backup-status.json").write_text(
+                json.dumps(backup_status, indent=2)
+            )
 
             # 7) archive + encrypt
             archive_path = output_dir / f"{bundle_name}.tar.gz.enc"
             password = self._create_encrypted_archive(work_dir, archive_path)
 
             # 8) sidecar README (+ optional PASSWORD)
-            self._create_companion_files(archive_path, password, recovery_info, write_password_file)
+            self._create_companion_files(
+                archive_path, password, recovery_info, write_password_file
+            )
 
-            logger.info("Recovery bundle created",
-                        extra={"archive": str(archive_path), "output_dir": str(output_dir)})
+            logger.info(
+                "Recovery bundle created",
+                extra={"archive": str(archive_path), "output_dir": str(output_dir)},
+            )
 
             # Optional retention: rotate old bundles
-            self._rotate_bundles(output_dir,
-                                 keep=self.config.getint("backup", "recovery_bundle_retention", 3))
+            self._rotate_bundles(
+                output_dir,
+                keep=self.config.getint("backup", "recovery_bundle_retention", 3),
+            )
 
             return archive_path
 
@@ -137,6 +150,7 @@ class DisasterRecoveryManager:
             # cleanup temp dir
             try:
                 import shutil
+
                 if work_dir.exists():
                     shutil.rmtree(work_dir)
             except Exception as e:
@@ -165,7 +179,9 @@ class DisasterRecoveryManager:
         return {
             "created_at": datetime.now().isoformat(),
             "kopi_docka_version": VERSION,
-            "hostname": subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip(),
+            "hostname": subprocess.run(
+                ["hostname"], capture_output=True, text=True
+            ).stdout.strip(),
             "repository": {
                 "type": repo_type,
                 "connection": connection,
@@ -206,7 +222,9 @@ class DisasterRecoveryManager:
                 (out_dir / "kopia-repository.json").write_text(result.stdout)
 
             # Save password (the bundle gets encrypted afterward)
-            (out_dir / "kopia-password.txt").write_text(self.config.kopia_password or "")
+            (out_dir / "kopia-password.txt").write_text(
+                self.config.kopia_password or ""
+            )
         except Exception as e:
             logger.error(f"Could not export Kopia config: {e}")
 
@@ -227,7 +245,7 @@ class DisasterRecoveryManager:
             'echo "Kopi-Docka Disaster Recovery"',
             'echo "========================================"',
             "",
-            '# Check root',
+            "# Check root",
             'if [ "${EUID:-$(id -u)}" -ne 0 ]; then',
             '  echo "Please run as root (sudo)"; exit 1; fi',
             "",
@@ -236,13 +254,13 @@ class DisasterRecoveryManager:
             'command -v kopia  >/dev/null 2>&1 || { echo "ERROR: kopia not found. Install from https://kopia.io"; exit 1; }',
             "",
             "# Install Kopi-Docka if not available (optional hint)",
-            'if ! command -v kopi-docka >/dev/null 2>&1; then',
+            "if ! command -v kopi-docka >/dev/null 2>&1; then",
             '  echo "NOTE: kopi-docka CLI not found. Install it according to your deployment (package/source).";',
-            'fi',
+            "fi",
             "",
             "# Restore configuration",
             'echo "Restoring configuration /etc/kopi-docka.conf..."',
-            'mkdir -p /etc',
+            "mkdir -p /etc",
             'cp "$(dirname "$0")/kopi-docka.conf" /etc/kopi-docka.conf',
             "",
             "# Read Kopia password",
@@ -263,7 +281,7 @@ class DisasterRecoveryManager:
                 'read -s -p "AWS Secret Access Key: " AWS_SECRET_ACCESS_KEY; echo',
                 "export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY",
                 f'kopia repository connect s3 --bucket="{conn["bucket"]}" '
-                "--access-key=\"$AWS_ACCESS_KEY_ID\" --secret-access-key=\"$AWS_SECRET_ACCESS_KEY\"",
+                '--access-key="$AWS_ACCESS_KEY_ID" --secret-access-key="$AWS_SECRET_ACCESS_KEY"',
             ]
         elif repo_type == "b2":
             lines += [
@@ -283,7 +301,7 @@ class DisasterRecoveryManager:
             lines += [
                 'echo "Place your GCP service account JSON at /root/gcp-sa.json (or set GOOGLE_APPLICATION_CREDENTIALS)"',
                 'read -p "GCS Bucket: " GCS_BUCKET',
-                'export GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-/root/gcp-sa.json}',
+                "export GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-/root/gcp-sa.json}",
                 'test -f "$GOOGLE_APPLICATION_CREDENTIALS" || { echo "Missing service account JSON"; exit 1; }',
                 'kopia repository connect gcs --bucket="$GCS_BUCKET"',
             ]
@@ -292,7 +310,7 @@ class DisasterRecoveryManager:
             lines += [
                 'echo "Unsupported auto-connect for this repository scheme. Connect manually, e.g.:"',
                 'echo "  kopia repository connect <provider> <options>"',
-                'exit 1',
+                "exit 1",
             ]
 
         lines += [
@@ -314,7 +332,9 @@ class DisasterRecoveryManager:
         path.write_text(script)
         path.chmod(0o755)
 
-    def _create_recovery_instructions(self, out_dir: Path, info: Dict[str, Any]) -> None:
+    def _create_recovery_instructions(
+        self, out_dir: Path, info: Dict[str, Any]
+    ) -> None:
         rpt = info["repository"]
         lines = [
             "KOPI-DOCKA DISASTER RECOVERY INSTRUCTIONS",
@@ -441,7 +461,9 @@ Generated by Kopi-Docka v{VERSION}
             )
         else:
             # Log a reminder without exposing the password
-            logger.warning("Recovery password NOT written to disk. Store it securely NOW.")
+            logger.warning(
+                "Recovery password NOT written to disk. Store it securely NOW."
+            )
 
     def _rotate_bundles(self, directory: Path, keep: int) -> None:
         try:
@@ -468,7 +490,9 @@ Generated by Kopi-Docka v{VERSION}
 
     def _get_kopia_version(self) -> str:
         try:
-            r = subprocess.run(["kopia", "version"], capture_output=True, text=True, check=False)
+            r = subprocess.run(
+                ["kopia", "version"], capture_output=True, text=True, check=False
+            )
             return (r.stdout or "").strip().split("\n")[0] or "unknown"
         except Exception:
             return "unknown"
@@ -487,4 +511,5 @@ Generated by Kopi-Docka v{VERSION}
 
     def _get_python_version(self) -> str:
         import sys
+
         return f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"

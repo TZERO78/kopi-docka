@@ -51,7 +51,9 @@ class KopiaRepository:
 
     def __init__(self, config: Config):
         self.config = config
-        self.repo_path: Union[str, Path] = config.kopia_repository_path  # str for remote, Path for local
+        self.repo_path: Union[str, Path] = (
+            config.kopia_repository_path
+        )  # str for remote, Path for local
         self.password: str = config.kopia_password
 
     # ---------------------------------------------------------------------
@@ -166,7 +168,9 @@ class KopiaRepository:
             data = self._parse_single_json_line(result.stdout)
             snap_id = data.get("snapshotID") or data.get("id") or ""
             if not snap_id:
-                raise ValueError(f"Could not determine snapshot ID from: {result.stdout[:200]}")
+                raise ValueError(
+                    f"Could not determine snapshot ID from: {result.stdout[:200]}"
+                )
             logger.info(f"Created snapshot: {snap_id}")
             return snap_id
         except subprocess.CalledProcessError as e:
@@ -201,17 +205,19 @@ class KopiaRepository:
         try:
             result = subprocess.run(
                 cmd,
-                stdin=stdin,           # binary stream
+                stdin=stdin,  # binary stream
                 env=self._get_env(),
                 capture_output=True,
                 check=True,
-                text=False,            # IMPORTANT: binary-safe
+                text=False,  # IMPORTANT: binary-safe
             )
             stdout = result.stdout.decode("utf-8", errors="replace")
             data = self._parse_single_json_line(stdout)
             snap_id = data.get("snapshotID") or data.get("id") or ""
             if not snap_id:
-                raise ValueError(f"Could not determine snapshot ID from: {stdout[:200]}")
+                raise ValueError(
+                    f"Could not determine snapshot ID from: {stdout[:200]}"
+                )
             logger.info(f"Created snapshot from stdin: {snap_id}")
             return snap_id
         except subprocess.CalledProcessError as e:
@@ -222,7 +228,9 @@ class KopiaRepository:
             logger.error(f"Failed to parse Kopia output: {e}")
             raise
 
-    def list_snapshots(self, tag_filter: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
+    def list_snapshots(
+        self, tag_filter: Optional[Dict[str, str]] = None
+    ) -> List[Dict[str, Any]]:
         """
         List snapshots as dictionaries (id, path, timestamp, tags, size).
         """
@@ -281,7 +289,13 @@ class KopiaRepository:
         """Run a partial verify for a snapshot."""
         try:
             res = subprocess.run(
-                ["kopia", "snapshot", "verify", "--verify-files-percent=10", snapshot_id],
+                [
+                    "kopia",
+                    "snapshot",
+                    "verify",
+                    "--verify-files-percent=10",
+                    snapshot_id,
+                ],
                 env=self._get_env(),
                 capture_output=True,
                 text=True,
@@ -294,7 +308,9 @@ class KopiaRepository:
     # Portable "mount" (restore-to-temp) helpers
     # ---------------------------------------------------------------------
 
-    def mount_snapshot(self, snapshot_id: str, mount_path: Optional[str] = None) -> Path:
+    def mount_snapshot(
+        self, snapshot_id: str, mount_path: Optional[str] = None
+    ) -> Path:
         """
         Provide a portable 'mount' by restoring to a temp dir.
 
@@ -343,7 +359,11 @@ class KopiaRepository:
             if not unit:
                 continue
             if unit not in units or s["timestamp"] > units[unit]["timestamp"]:
-                units[unit] = {"name": unit, "timestamp": s["timestamp"], "snapshot_id": s["id"]}
+                units[unit] = {
+                    "name": unit,
+                    "timestamp": s["timestamp"],
+                    "snapshot_id": s["id"],
+                }
         return list(units.values())
 
     def maintenance_run(self, full: bool = True):
@@ -379,7 +399,9 @@ class KopiaRepository:
             env["KOPIA_CACHE_DIRECTORY"] = str(Path(cache_dir).expanduser())
         return env
 
-    def _detect_backend(self, repo_path: Union[str, Path]) -> Tuple[str, Dict[str, str]]:
+    def _detect_backend(
+        self, repo_path: Union[str, Path]
+    ) -> Tuple[str, Dict[str, str]]:
         """
         Detect Kopia backend & parse connection args from repo_path.
 
@@ -428,7 +450,9 @@ class KopiaRepository:
             return "gcs", args
 
         # Fallback: treat as filesystem path if unknown scheme
-        logger.warning(f"Unrecognized repository scheme for '{rp}', assuming filesystem")
+        logger.warning(
+            f"Unrecognized repository scheme for '{rp}', assuming filesystem"
+        )
         return "filesystem", {"path": rp}
 
     def _backend_args(self, backend: str, args: Dict[str, str]) -> List[str]:

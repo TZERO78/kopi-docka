@@ -28,12 +28,15 @@ from typing import List, Dict, Any, Optional
 
 # ---- Core DTOs used by backup/restore ----
 
+
 @dataclass
 class ContainerInfo:
     id: str
     name: str
     is_running: bool = False
-    database_type: Optional[str] = None  # e.g. "postgres", "mysql", "mariadb", "mongo", "redis"
+    database_type: Optional[str] = (
+        None  # e.g. "postgres", "mysql", "mariadb", "mongo", "redis"
+    )
 
 
 @dataclass
@@ -55,6 +58,7 @@ class BackupUnit:
 
 
 # ---- Metadata & Restore points ----
+
 
 @dataclass
 class BackupMetadata:

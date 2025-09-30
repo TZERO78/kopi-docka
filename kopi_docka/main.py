@@ -47,13 +47,16 @@ from .service import (
     write_systemd_units,
 )
 
-app = typer.Typer(add_completion=False, help="Kopi-Docka – Backup & Restore for Docker using Kopia.")
+app = typer.Typer(
+    add_completion=False, help="Kopi-Docka – Backup & Restore for Docker using Kopia."
+)
 logger = get_logger(__name__)
 
 
 # -------------------------
 # Helpers
 # -------------------------
+
 
 def _load_config(config_path: Optional[Path]) -> Config:
     # If your Config supports an explicit path, use it; otherwise rely on its defaults.
@@ -72,6 +75,7 @@ def _filter_units(all_units, names: Optional[List[str]]):
 # -------------------------
 # Global options via callback
 # -------------------------
+
 
 @app.callback()
 def _entry(
@@ -99,6 +103,7 @@ def _entry(
 # -------------------------
 # Commands
 # -------------------------
+
 
 @app.command("version")
 def cmd_version():
@@ -155,7 +160,9 @@ def cmd_list(
                 typer.echo("No units found.")
             else:
                 for u in found:
-                    typer.echo(f"- {u.name} ({u.type}): {len(u.containers)} containers, {len(u.volumes)} volumes")
+                    typer.echo(
+                        f"- {u.name} ({u.type}): {len(u.containers)} containers, {len(u.volumes)} volumes"
+                    )
         except Exception as e:
             typer.echo(f"Discovery failed: {e}")
             raise typer.Exit(code=1)
@@ -172,7 +179,9 @@ def cmd_list(
                     unit = s.get("tags", {}).get("unit", "-")
                     ts = s.get("timestamp", "-")
                     sid = s.get("id", "")
-                    typer.echo(f"- {sid} | unit={unit} | {ts} | path={s.get('path','')}")
+                    typer.echo(
+                        f"- {sid} | unit={unit} | {ts} | path={s.get('path','')}"
+                    )
         except Exception as e:
             typer.echo(f"Unable to list snapshots: {e}")
             raise typer.Exit(code=1)
@@ -223,8 +232,12 @@ def cmd_backup(
                     typer.echo(f"   Snapshots: {', '.join(meta.kopia_snapshot_ids)}")
             else:
                 overall_ok = False
-                typer.echo(f"✗ {u.name} finished with errors in {int(meta.duration_seconds)}s")
-                for err in meta.errors or ([] if meta.error_message is None else [meta.error_message]):
+                typer.echo(
+                    f"✗ {u.name} finished with errors in {int(meta.duration_seconds)}s"
+                )
+                for err in meta.errors or (
+                    [] if meta.error_message is None else [meta.error_message]
+                ):
                     typer.echo(f"   - {err}")
 
         raise typer.Exit(code=0 if overall_ok else 1)
@@ -267,15 +280,22 @@ def cmd_repo_maintenance(ctx: typer.Context):
 # Service / systemd helpers
 # -------------------------
 
+
 @app.command("daemon")
 def cmd_daemon(
     interval_minutes: Optional[int] = typer.Option(
-        None, "--interval-minutes", help="Run internal backup every N minutes (else idle; prefer systemd timer)."
+        None,
+        "--interval-minutes",
+        help="Run internal backup every N minutes (else idle; prefer systemd timer).",
     ),
     backup_cmd: str = typer.Option(
-        "/usr/bin/env kopi-docka backup", "--backup-cmd", help="Command to start a backup run."
+        "/usr/bin/env kopi-docka backup",
+        "--backup-cmd",
+        help="Command to start a backup run.",
     ),
-    log_level: str = typer.Option("INFO", "--log-level", help="Log level used by the service."),
+    log_level: str = typer.Option(
+        "INFO", "--log-level", help="Log level used by the service."
+    ),
 ):
     """
     Run the systemd-friendly daemon (service). Prefer using a systemd timer for scheduling.
@@ -313,6 +333,7 @@ def cmd_write_units(
 # -------------------------
 # Entrypoint
 # -------------------------
+
 
 def main():
     try:

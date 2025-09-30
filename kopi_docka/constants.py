@@ -75,11 +75,11 @@ DATABASE_IMAGES = {
 # System thresholds
 # (available RAM → default parallel workers upper bound)
 RAM_WORKER_THRESHOLDS = [
-    (2, 1),            # <= 2GB: 1 worker
-    (4, 2),            # <= 4GB: 2 workers
-    (8, 4),            # <= 8GB: 4 workers
-    (16, 8),           # <= 16GB: 8 workers
-    (float("inf"), 12) # > 16GB: 12 workers
+    (2, 1),  # <= 2GB: 1 worker
+    (4, 2),  # <= 4GB: 2 workers
+    (8, 4),  # <= 8GB: 4 workers
+    (16, 8),  # <= 16GB: 8 workers
+    (float("inf"), 12),  # > 16GB: 12 workers
 ]
 
 # Timeouts (in seconds)

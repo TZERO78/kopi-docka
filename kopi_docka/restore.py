@@ -17,11 +17,7 @@ from .logging import get_logger
 from .types import RestorePoint
 from .config import Config
 from .repository import KopiaRepository
-from .constants import (
-    RECIPE_BACKUP_DIR,
-    VOLUME_BACKUP_DIR,
-    CONTAINER_START_TIMEOUT
-)
+from .constants import RECIPE_BACKUP_DIR, VOLUME_BACKUP_DIR, CONTAINER_START_TIMEOUT
 
 logger = get_logger(__name__)
 
@@ -32,7 +28,9 @@ class RestoreManager:
     def __init__(self, config: Config):
         self.config = config
         self.repo = KopiaRepository(config)
-        self.start_timeout = self.config.getint('backup', 'start_timeout', CONTAINER_START_TIMEOUT)
+        self.start_timeout = self.config.getint(
+            "backup", "start_timeout", CONTAINER_START_TIMEOUT
+        )
 
     def interactive_restore(self):
         """Run interactive wizard."""
@@ -50,8 +48,10 @@ class RestoreManager:
 
         print("\n📋 Available restore points:\n")
         for idx, p in enumerate(points, 1):
-            print(f"{idx}. 📦 {p.unit_name}  ({p.timestamp.strftime('%Y-%m-%d %H:%M:%S')})  "
-                  f"💾 Volumes: {len(p.volume_snapshots)}")
+            print(
+                f"{idx}. 📦 {p.unit_name}  ({p.timestamp.strftime('%Y-%m-%d %H:%M:%S')})  "
+                f"💾 Volumes: {len(p.volume_snapshots)}"
+            )
 
         # selection
         while True:
@@ -67,8 +67,10 @@ class RestoreManager:
                 logger.info("Restore cancelled by user")
                 return
 
-        logger.info(f"Selected restore point: {sel.unit_name} from {sel.timestamp}",
-                    extra={'unit_name': sel.unit_name, 'timestamp': sel.timestamp.isoformat()})
+        logger.info(
+            f"Selected restore point: {sel.unit_name} from {sel.timestamp}",
+            extra={"unit_name": sel.unit_name, "timestamp": sel.timestamp.isoformat()},
+        )
 
         print(f"\n✅ Selected: {sel.unit_name} from {sel.timestamp}")
         print("\n📝 This will guide you through restoring:")
@@ -76,7 +78,7 @@ class RestoreManager:
         print(f"  - {len(sel.volume_snapshots)} volumes")
 
         confirm = input("\n⚠️ Proceed with restore? (yes/no): ").strip().lower()
-        if confirm != 'yes':
+        if confirm != "yes":
             print("❌ Restore cancelled.")
             logger.info("Restore cancelled at confirmation")
             return
@@ -91,11 +93,11 @@ class RestoreManager:
             groups = {}
 
             for s in snaps:
-                path = s.get('path', '')
-                tags = s.get('tags', {})
-                unit = tags.get('unit')
-                backup_id = tags.get('backup_id')  # REQUIRED
-                ts_str = tags.get('timestamp')
+                path = s.get("path", "")
+                tags = s.get("tags", {})
+                unit = tags.get("unit")
+                backup_id = tags.get("backup_id")  # REQUIRED
+                ts_str = tags.get("timestamp")
 
                 if not unit or not backup_id:
                     continue  # enforce backup_id
@@ -114,7 +116,7 @@ class RestoreManager:
                         backup_id=backup_id,
                         recipe_snapshots=[],
                         volume_snapshots=[],
-                        database_snapshots=[]  # kept empty for type-compat
+                        database_snapshots=[],  # kept empty for type-compat
                     )
 
                 if RECIPE_BACKUP_DIR in path:
@@ -136,10 +138,13 @@ class RestoreManager:
         print("🚀 Starting restoration process...")
         print("-" * 60)
 
-        logger.info(f"Starting restore for unit: {rp.unit_name}", extra={'unit_name': rp.unit_name})
+        logger.info(
+            f"Starting restore for unit: {rp.unit_name}",
+            extra={"unit_name": rp.unit_name},
+        )
 
-        safe_unit = re.sub(r'[^A-Za-z0-9._-]+', '_', rp.unit_name)
-        restore_dir = Path(tempfile.mkdtemp(prefix=f'kopia-docka-restore-{safe_unit}-'))
+        safe_unit = re.sub(r"[^A-Za-z0-9._-]+", "_", rp.unit_name)
+        restore_dir = Path(tempfile.mkdtemp(prefix=f"kopia-docka-restore-{safe_unit}-"))
         print(f"\n📂 Restore directory: {restore_dir}")
 
         try:
@@ -161,33 +166,40 @@ class RestoreManager:
             print("📋 Follow the instructions above to restore your service.")
             print("=" * 60)
 
-            logger.info(f"Restore guide completed for {rp.unit_name}",
-                        extra={'unit_name': rp.unit_name, 'restore_dir': str(restore_dir)})
+            logger.info(
+                f"Restore guide completed for {rp.unit_name}",
+                extra={"unit_name": rp.unit_name, "restore_dir": str(restore_dir)},
+            )
 
         except Exception as e:
-            logger.error(f"Restore failed: {e}", extra={'unit_name': rp.unit_name})
+            logger.error(f"Restore failed: {e}", extra={"unit_name": rp.unit_name})
             print(f"\n❌ Error during restore: {e}")
 
     def _restore_recipe(self, rp: RestorePoint, restore_dir: Path) -> Path:
         """Restore recipe snapshots into a folder."""
         if not rp.recipe_snapshots:
-            logger.warning("No recipe snapshots found", extra={'unit_name': rp.unit_name})
+            logger.warning(
+                "No recipe snapshots found", extra={"unit_name": rp.unit_name}
+            )
             return restore_dir
 
-        recipe_dir = restore_dir / 'recipes'
+        recipe_dir = restore_dir / "recipes"
         recipe_dir.mkdir(parents=True, exist_ok=True)
 
         for snap in rp.recipe_snapshots:
             mount_point = None
             try:
-                snapshot_id = snap['id']
+                snapshot_id = snap["id"]
                 print(f"   📥 Restoring recipe snapshot: {snapshot_id[:12]}...")
 
                 # Mount snapshot (repo provides mount + unmount helpers)
                 mount_point = self.repo.mount_snapshot(snapshot_id)
 
-                subprocess.run(['cp', '-r', f'{mount_point}/.', str(recipe_dir)],
-                               check=True, capture_output=True)
+                subprocess.run(
+                    ["cp", "-r", f"{mount_point}/.", str(recipe_dir)],
+                    check=True,
+                    capture_output=True,
+                )
 
                 self.repo.unmount_snapshot(mount_point)
                 mount_point = None
@@ -195,11 +207,16 @@ class RestoreManager:
                 print(f"   ✅ Recipe files restored to: {recipe_dir}")
                 self._check_for_secrets(recipe_dir)
 
-                logger.info("Recipes restored",
-                            extra={'unit_name': rp.unit_name, 'recipe_dir': str(recipe_dir)})
+                logger.info(
+                    "Recipes restored",
+                    extra={"unit_name": rp.unit_name, "recipe_dir": str(recipe_dir)},
+                )
 
             except Exception as e:
-                logger.error(f"Failed to restore recipe snapshot: {e}", extra={'unit_name': rp.unit_name})
+                logger.error(
+                    f"Failed to restore recipe snapshot: {e}",
+                    extra={"unit_name": rp.unit_name},
+                )
                 print(f"   ⚠️ Warning: Could not restore recipe: {e}")
             finally:
                 if mount_point:
@@ -212,13 +229,15 @@ class RestoreManager:
 
     def _check_for_secrets(self, recipe_dir: Path):
         """Warn if redacted secrets are present in inspect JSONs."""
-        for f in recipe_dir.glob('*_inspect.json'):
+        for f in recipe_dir.glob("*_inspect.json"):
             try:
                 content = f.read_text()
-                if '***REDACTED***' in content:
+                if "***REDACTED***" in content:
                     print(f"   ⚠ Note: {f.name} contains redacted secrets")
                     print("     Restore actual values manually if needed.")
-                    logger.info("Found redacted secrets in restore", extra={'file': f.name})
+                    logger.info(
+                        "Found redacted secrets in restore", extra={"file": f.name}
+                    )
             except Exception:
                 pass
 
@@ -228,14 +247,15 @@ class RestoreManager:
         print("   " + "-" * 40)
 
         for snap in rp.volume_snapshots:
-            tags = snap.get('tags', {})
-            vol = tags.get('volume', 'unknown')
-            snap_id = snap['id']
+            tags = snap.get("tags", {})
+            vol = tags.get("volume", "unknown")
+            snap_id = snap["id"]
 
             print(f"\n   Volume: {vol}")
             print(f"   Snapshot: {snap_id[:12]}...")
             print("\n   Commands:")
-            print(f"""
+            print(
+                f"""
    VOLUME_NAME="{vol}"
    SNAP_ID="{snap_id}"
 
@@ -259,11 +279,12 @@ class RestoreManager:
    docker ps -a -q --filter "volume=$VOLUME_NAME" | xargs -r docker start
 
    echo "Volume $VOLUME_NAME restored successfully!"
-""")
+"""
+            )
 
     def _display_restart_instructions(self, recipe_dir: Path):
         """Show modern docker compose restart steps (no legacy fallback)."""
-        compose_file = recipe_dir / 'docker-compose.yml'
+        compose_file = recipe_dir / "docker-compose.yml"
         print("\n   🐳 Service Restart:")
         print("   " + "-" * 40)
         if compose_file.exists():

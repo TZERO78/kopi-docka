@@ -72,13 +72,13 @@ class SystemUtils:
         """
         try:
             memory = psutil.virtual_memory()
-            return memory.available / (1024 ** 3)  # Available, not total
+            return memory.available / (1024**3)  # Available, not total
         except Exception as e:
             logger.error(f"Failed to get RAM info: {e}")
             return 2.0  # Conservative default
 
     @staticmethod
-    def get_available_disk_space(path: str = '/') -> float:
+    def get_available_disk_space(path: str = "/") -> float:
         """
         Get available disk space in gigabytes.
 
@@ -91,13 +91,13 @@ class SystemUtils:
         try:
             probe = _disk_probe_base(path)
             usage = psutil.disk_usage(probe)
-            return usage.free / (1024 ** 3)
+            return usage.free / (1024**3)
         except Exception as e:
             logger.error(f"Failed to get disk space for {path}: {e}")
             return 0.0
 
     @staticmethod
-    def get_total_disk_space(path: str = '/') -> float:
+    def get_total_disk_space(path: str = "/") -> float:
         """
         Get total disk space in gigabytes.
 
@@ -110,13 +110,13 @@ class SystemUtils:
         try:
             probe = _disk_probe_base(path)
             usage = psutil.disk_usage(probe)
-            return usage.total / (1024 ** 3)
+            return usage.total / (1024**3)
         except Exception as e:
             logger.error(f"Failed to get total disk space for {path}: {e}")
             return 0.0
 
     @staticmethod
-    def get_disk_usage_percent(path: str = '/') -> float:
+    def get_disk_usage_percent(path: str = "/") -> float:
         """
         Get disk usage percentage.
 
@@ -219,7 +219,7 @@ class SystemUtils:
         if size_bytes <= 0:
             return "0 B"
 
-        for unit in ['B', 'KB', 'MB', 'GB', 'TB', 'PB']:
+        for unit in ["B", "KB", "MB", "GB", "TB", "PB"]:
             if size_bytes < 1024.0:
                 return f"{size_bytes:.2f} {unit}"
             size_bytes /= 1024.0
@@ -275,10 +275,11 @@ class SystemUtils:
             Current username
         """
         import pwd
+
         try:
             return pwd.getpwuid(os.getuid()).pw_name
         except Exception:
-            return os.environ.get('USER', 'unknown')
+            return os.environ.get("USER", "unknown")
 
     @staticmethod
     def ensure_directory(path: Path, mode: int = 0o755):
@@ -297,7 +298,7 @@ class SystemUtils:
             pass
 
     @staticmethod
-    def check_port_available(port: int, host: str = '127.0.0.1') -> bool:
+    def check_port_available(port: int, host: str = "127.0.0.1") -> bool:
         """
         Check if a network port is available.
 
@@ -330,23 +331,23 @@ class SystemUtils:
 
         try:
             info: Dict[str, object] = {
-                'platform': platform.system(),
-                'platform_release': platform.release(),
-                'platform_version': platform.version(),
-                'architecture': platform.machine(),
-                'hostname': platform.node(),
-                'processor': platform.processor(),
-                'python_version': platform.python_version(),
-                'cpu_count': SystemUtils.get_cpu_count(),
-                'ram_gb': SystemUtils.get_available_ram(),
-                'disk_free_gb': SystemUtils.get_available_disk_space(),
+                "platform": platform.system(),
+                "platform_release": platform.release(),
+                "platform_version": platform.version(),
+                "architecture": platform.machine(),
+                "hostname": platform.node(),
+                "processor": platform.processor(),
+                "python_version": platform.python_version(),
+                "cpu_count": SystemUtils.get_cpu_count(),
+                "ram_gb": SystemUtils.get_available_ram(),
+                "disk_free_gb": SystemUtils.get_available_disk_space(),
             }
 
             # Add Docker info if available
             try:
                 docker_version = SystemUtils.get_docker_version()
                 if docker_version:
-                    info['docker_version'] = '.'.join(map(str, docker_version))
+                    info["docker_version"] = ".".join(map(str, docker_version))
             except Exception:
                 pass
 
@@ -354,7 +355,7 @@ class SystemUtils:
             try:
                 kopia_version = SystemUtils.get_kopia_version()
                 if kopia_version:
-                    info['kopia_version'] = kopia_version
+                    info["kopia_version"] = kopia_version
             except Exception:
                 pass
 
@@ -374,15 +375,15 @@ class SystemUtils:
         """
         try:
             result = subprocess.run(
-                ['docker', 'version', '--format', '{{.Server.Version}}'],
+                ["docker", "version", "--format", "{{.Server.Version}}"],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
             )
             if result.returncode == 0:
                 version_str = result.stdout.strip()
                 # Parse version like "20.10.21" or "24.0.5"
-                parts = version_str.split('.')
+                parts = version_str.split(".")
                 if len(parts) >= 3:
                     return (int(parts[0]), int(parts[1]), int(parts[2]))
                 elif len(parts) == 2:
@@ -401,19 +402,14 @@ class SystemUtils:
             Version string or None
         """
         # Try common variants for compatibility across distributions
-        for args in (['kopia', '--version'], ['kopia', 'version']):
+        for args in (["kopia", "--version"], ["kopia", "version"]):
             try:
-                result = subprocess.run(
-                    args,
-                    capture_output=True,
-                    text=True,
-                    timeout=5
-                )
+                result = subprocess.run(args, capture_output=True, text=True, timeout=5)
                 if result.returncode == 0:
-                    for line in (result.stdout or result.stderr).split('\n'):
-                        if 'version' in line.lower() or line.strip():
+                    for line in (result.stdout or result.stderr).split("\n"):
+                        if "version" in line.lower() or line.strip():
                             # Return first token that looks like a semver
-                            for token in line.replace(',', ' ').split():
+                            for token in line.replace(",", " ").split():
                                 if token and token[0].isdigit():
                                     return token
                     # Fallback: whole trimmed line
@@ -448,11 +444,11 @@ class SystemUtils:
         try:
             mem = psutil.virtual_memory()
             return {
-                'total_gb': mem.total / (1024 ** 3),
-                'available_gb': mem.available / (1024 ** 3),
-                'used_gb': mem.used / (1024 ** 3),
-                'free_gb': mem.free / (1024 ** 3),
-                'percent_used': float(mem.percent),
+                "total_gb": mem.total / (1024**3),
+                "available_gb": mem.available / (1024**3),
+                "used_gb": mem.used / (1024**3),
+                "free_gb": mem.free / (1024**3),
+                "percent_used": float(mem.percent),
             }
         except Exception as e:
             logger.error(f"Failed to get memory info: {e}")
@@ -473,7 +469,7 @@ class SystemUtils:
             test_path = Path(path)
             if test_path.is_dir():
                 # Test directory writability
-                test_file = test_path / '.kopi_docka_write_test'
+                test_file = test_path / ".kopi_docka_write_test"
                 try:
                     test_file.touch()
                     test_file.unlink()
@@ -497,6 +493,7 @@ class SystemUtils:
             True if Docker is available
         """
         from .dependencies import DependencyManager
+
         return DependencyManager.check_docker()
 
     @staticmethod
@@ -508,6 +505,7 @@ class SystemUtils:
             True if Kopia is available
         """
         from .dependencies import DependencyManager
+
         return DependencyManager.check_kopia()
 
     @staticmethod
@@ -519,4 +517,5 @@ class SystemUtils:
             True if tar is available
         """
         from .dependencies import DependencyManager
+
         return DependencyManager.check_tar()

@@ -145,8 +145,8 @@ class DryRunReport:
         print("\n### BACKUP UNITS SUMMARY ###")
         print(f"Total Units: {len(units)}")
 
-        stacks = [u for u in units if u.type == 'stack']
-        standalone = [u for u in units if u.type == 'standalone']
+        stacks = [u for u in units if u.type == "stack"]
+        standalone = [u for u in units if u.type == "standalone"]
 
         print(f"  - Stacks: {len(stacks)}")
         print(f"  - Standalone Containers: {len(standalone)}")
@@ -220,11 +220,15 @@ class DryRunReport:
         for unit in units:
             base_time = timedelta(seconds=30)  # overhead per unit
             # Assume ~100 MB/s effective throughput per worker (conservative)
-            volume_gb = unit.total_volume_size / (1024 ** 3)
-            stream_time = timedelta(seconds=max(0.0, volume_gb) * (1024 / 100))  # ~10.24 s per GB
+            volume_gb = unit.total_volume_size / (1024**3)
+            stream_time = timedelta(
+                seconds=max(0.0, volume_gb) * (1024 / 100)
+            )  # ~10.24 s per GB
             estimated_total += base_time + stream_time
 
-        print(f"Estimated Total Time: {self.utils.format_duration(estimated_total.total_seconds())}")
+        print(
+            f"Estimated Total Time: {self.utils.format_duration(estimated_total.total_seconds())}"
+        )
         print(f"Estimated Downtime per Unit: ~20–60 seconds")
 
         # Disk space requirements (compression estimate)
@@ -232,7 +236,9 @@ class DryRunReport:
         required_space = int(total_size * compression_ratio)
 
         if required_space > 0:
-            print(f"Estimated Repository Space Required: {self.utils.format_bytes(required_space)}")
+            print(
+                f"Estimated Repository Space Required: {self.utils.format_bytes(required_space)}"
+            )
 
         # Check if enough local space (proxy for remote: use backup base path)
         repo_parent_path_str: Optional[str] = None
@@ -243,7 +249,7 @@ class DryRunReport:
             repo_parent_path_str = str(self.config.backup_base_path)
 
         available_space_gb = self.utils.get_available_disk_space(repo_parent_path_str)
-        if required_space > 0 and available_space_gb * (1024 ** 3) < required_space:
+        if required_space > 0 and available_space_gb * (1024**3) < required_space:
             print("⚠️  WARNING: Insufficient disk space for estimated backup size!")
 
     def _print_config_review(self):
@@ -256,9 +262,12 @@ class DryRunReport:
             ("Parallel Workers", self.config.parallel_workers),
             ("Stop Timeout", f"{self.config.get('backup', 'stop_timeout')}s"),
             ("Start Timeout", f"{self.config.get('backup', 'start_timeout')}s"),
-            ("Compression", self.config.get('kopia', 'compression')),
-            ("Encryption", self.config.get('kopia', 'encryption')),
-            ("Exclude Patterns", ", ".join(self.config.getlist('backup', 'exclude_patterns')) or "—"),
+            ("Compression", self.config.get("kopia", "compression")),
+            ("Encryption", self.config.get("kopia", "encryption")),
+            (
+                "Exclude Patterns",
+                ", ".join(self.config.getlist("backup", "exclude_patterns")) or "—",
+            ),
         ]
 
         for name, value in config_items:
@@ -276,23 +285,30 @@ class DryRunReport:
         # Determine if bundle would be updated
         if update_recovery_bundle is None:
             update_recovery_bundle = self.config.getboolean(
-                'backup', 'update_recovery_bundle', fallback=False
+                "backup", "update_recovery_bundle", fallback=False
             )
 
         if update_recovery_bundle:
             print("Recovery Bundle: WILL BE UPDATED")
 
             # Show bundle settings
-            bundle_path = self.config.get('backup', 'recovery_bundle_path', fallback='/backup/recovery')
-            retention = self.config.getint('backup', 'recovery_bundle_retention', fallback=3)
+            bundle_path = self.config.get(
+                "backup", "recovery_bundle_path", fallback="/backup/recovery"
+            )
+            retention = self.config.getint(
+                "backup", "recovery_bundle_retention", fallback=3
+            )
 
             print(f"  Location: {bundle_path}")
             print(f"  Retention: Keep last {retention} bundles")
 
             from pathlib import Path
+
             bundle_dir = Path(bundle_path)
             if bundle_dir.exists():
-                existing_bundles = list(bundle_dir.glob('kopi-docka-recovery-*.tar.gz.enc'))
+                existing_bundles = list(
+                    bundle_dir.glob("kopi-docka-recovery-*.tar.gz.enc")
+                )
                 print(f"  Existing Bundles: {len(existing_bundles)}")
 
                 if existing_bundles:
@@ -308,7 +324,9 @@ class DryRunReport:
 
                     if len(existing_bundles) >= retention:
                         will_remove = len(existing_bundles) - retention + 1
-                        print(f"  ⚠ Rotation: {will_remove} old bundle(s) will be removed")
+                        print(
+                            f"  ⚠ Rotation: {will_remove} old bundle(s) will be removed"
+                        )
             else:
                 print(f"  ⚠ Bundle directory does not exist: {bundle_dir}")
                 print(f"    Will be created during backup")
@@ -322,12 +340,17 @@ class DryRunReport:
             print("    - Current backup status")
 
             repo_path_str = str(self.config.kopia_repository_path)
-            if any(repo_path_str.startswith(prefix) for prefix in ('s3://', 'b2://', 'azure://', 'gs://')):
+            if any(
+                repo_path_str.startswith(prefix)
+                for prefix in ("s3://", "b2://", "azure://", "gs://")
+            ):
                 print(f"\n  ✓ Cloud Repository Detected: {repo_path_str}")
                 print("    Bundle will include reconnection guidance")
         else:
             print("Recovery Bundle: WILL NOT BE UPDATED")
-            print("  To enable: --update-recovery or set update_recovery_bundle=true in config")
+            print(
+                "  To enable: --update-recovery or set update_recovery_bundle=true in config"
+            )
 
             print("\n  Manual Creation:")
             print("    kopi-docka disaster-recovery")

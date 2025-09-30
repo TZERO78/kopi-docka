@@ -78,42 +78,37 @@ class Config:
     def _get_defaults(self) -> Dict[str, Dict[str, Any]]:
         """Default configuration values."""
         return {
-            'kopia': {
-                'repository_path': '/backup/kopia-repository',
-                'password': None,  # will be generated on first run if needed
-                'compression': 'zstd',
-                'encryption': 'AES256-GCM-HMAC-SHA256',
-                'cache_directory': '/var/cache/kopi-docka',
+            "kopia": {
+                "repository_path": "/backup/kopia-repository",
+                "password": None,  # will be generated on first run if needed
+                "compression": "zstd",
+                "encryption": "AES256-GCM-HMAC-SHA256",
+                "cache_directory": "/var/cache/kopi-docka",
             },
-            'backup': {
-                'base_path': str(DEFAULT_BACKUP_BASE),
-                'parallel_workers': 'auto',
-                'stop_timeout': 30,
-                'start_timeout': 60,
-                'update_recovery_bundle': 'false',
-                'recovery_bundle_path': '/backup/recovery',
-                'recovery_bundle_retention': 3,
-                'exclude_patterns': '',  # comma-separated
-                'pre_backup_hook': '',
-                'post_backup_hook': ''
+            "backup": {
+                "base_path": str(DEFAULT_BACKUP_BASE),
+                "parallel_workers": "auto",
+                "stop_timeout": 30,
+                "start_timeout": 60,
+                "update_recovery_bundle": "false",
+                "recovery_bundle_path": "/backup/recovery",
+                "recovery_bundle_retention": 3,
+                "exclude_patterns": "",  # comma-separated
+                "pre_backup_hook": "",
+                "post_backup_hook": "",
             },
-            'docker': {
-                'socket': '/var/run/docker.sock',
-                'compose_timeout': 300,
-                'prune_stopped_containers': 'false'
+            "docker": {
+                "socket": "/var/run/docker.sock",
+                "compose_timeout": 300,
+                "prune_stopped_containers": "false",
             },
-            'retention': {
-                'daily': 7,
-                'weekly': 4,
-                'monthly': 12,
-                'yearly': 5
+            "retention": {"daily": 7, "weekly": 4, "monthly": 12, "yearly": 5},
+            "logging": {
+                "level": "INFO",
+                "file": "/var/log/kopi-docka.log",
+                "max_size_mb": 100,
+                "backup_count": 5,
             },
-            'logging': {
-                'level': 'INFO',
-                'file': '/var/log/kopi-docka.log',
-                'max_size_mb': 100,
-                'backup_count': 5
-            }
         }
 
     def _find_config_file(self, config_path: Optional[Path] = None) -> Path:
@@ -125,14 +120,13 @@ class Config:
             try:
                 config_path.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
             except PermissionError as e:
-                logger.error(f"Cannot create config directory {config_path.parent}: {e}")
+                logger.error(
+                    f"Cannot create config directory {config_path.parent}: {e}"
+                )
                 raise
             return config_path
 
-        search_order = [
-            DEFAULT_CONFIG_PATHS['user'],
-            DEFAULT_CONFIG_PATHS['root']
-        ]
+        search_order = [DEFAULT_CONFIG_PATHS["user"], DEFAULT_CONFIG_PATHS["root"]]
 
         for location in search_order:
             p = Path(location).expanduser()
@@ -143,8 +137,11 @@ class Config:
                 else:
                     logger.warning(f"Config file exists but not readable: {p}")
 
-        path = Path(DEFAULT_CONFIG_PATHS['root'] if os.geteuid() == 0
-                    else DEFAULT_CONFIG_PATHS['user']).expanduser()
+        path = Path(
+            DEFAULT_CONFIG_PATHS["root"]
+            if os.geteuid() == 0
+            else DEFAULT_CONFIG_PATHS["user"]
+        ).expanduser()
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
         logger.debug(f"Using default config path: {path}")
         return path
@@ -152,7 +149,7 @@ class Config:
     def _load_config(self):
         """Load configuration from file with UTF-8 encoding."""
         try:
-            with open(self.config_file, 'r', encoding='utf-8') as f:
+            with open(self.config_file, "r", encoding="utf-8") as f:
                 self._config.read_file(f)
             logger.info(f"Configuration loaded from {self.config_file}")
         except UnicodeDecodeError as e:
@@ -170,12 +167,16 @@ class Config:
         modified = False
 
         # Kopia password
-        kopia_pass = self.get('kopia', 'password')
-        if not kopia_pass or kopia_pass == 'CHANGE_ME_TO_A_SECURE_PASSWORD':
+        kopia_pass = self.get("kopia", "password")
+        if not kopia_pass or kopia_pass == "CHANGE_ME_TO_A_SECURE_PASSWORD":
             new_password = generate_secure_password()
-            self.set('kopia', 'password', new_password)
-            logger.warning(f"Generated new Kopia password and saved to {self.config_file}")
-            logger.warning("⚠️  IMPORTANT: Save this password securely for disaster recovery!")
+            self.set("kopia", "password", new_password)
+            logger.warning(
+                f"Generated new Kopia password and saved to {self.config_file}"
+            )
+            logger.warning(
+                "⚠️  IMPORTANT: Save this password securely for disaster recovery!"
+            )
             modified = True
 
         if modified:
@@ -185,8 +186,8 @@ class Config:
         """
         Get configuration value with environment override support.
         """
-        if section == 'kopia' and option == 'password':
-            env_password = os.environ.get('KOPIA_PASSWORD')
+        if section == "kopia" and option == "password":
+            env_password = os.environ.get("KOPIA_PASSWORD")
             if env_password:
                 return env_password
 
@@ -198,16 +199,22 @@ class Config:
 
         try:
             value = self._config.get(section, option)
-            if value and ('path' in option.lower() or 'file' in option.lower() or 'directory' in option.lower()):
-                if '://' not in value:
+            if value and (
+                "path" in option.lower()
+                or "file" in option.lower()
+                or "directory" in option.lower()
+            ):
+                if "://" not in value:
                     value = str(Path(value).expanduser())
             return value
         except (configparser.NoSectionError, configparser.NoOptionError):
             if section in self._defaults and option in self._defaults[section]:
                 default_value = self._defaults[section][option]
                 if default_value is not None:
-                    if isinstance(default_value, str) and ('path' in option.lower() or 'file' in option.lower()):
-                        if '://' not in default_value:
+                    if isinstance(default_value, str) and (
+                        "path" in option.lower() or "file" in option.lower()
+                    ):
+                        if "://" not in default_value:
                             default_value = str(Path(default_value).expanduser())
                     return default_value
             return fallback
@@ -216,7 +223,7 @@ class Config:
         """Get integer configuration value."""
         value = self.get(section, option, fallback)
         if isinstance(value, str):
-            if value.lower() == 'auto':
+            if value.lower() == "auto":
                 return -1
             try:
                 return int(value)
@@ -231,14 +238,16 @@ class Config:
         if isinstance(value, bool):
             return value
         if isinstance(value, str):
-            return value.lower() in ('true', 'yes', '1', 'on')
+            return value.lower() in ("true", "yes", "1", "on")
         return fallback
 
-    def getlist(self, section: str, option: str, fallback: List[str] = None) -> List[str]:
+    def getlist(
+        self, section: str, option: str, fallback: List[str] = None
+    ) -> List[str]:
         """Get list configuration value (comma-separated)."""
         value = self.get(section, option)
         if value:
-            items = [i.strip() for i in value.split(',') if i.strip()]
+            items = [i.strip() for i in value.split(",") if i.strip()]
             return list(dict.fromkeys(items))
         return fallback or []
 
@@ -251,12 +260,10 @@ class Config:
     def save(self):
         """Save configuration to file atomically with proper permissions."""
         temp_fd, temp_path = tempfile.mkstemp(
-            dir=self.config_file.parent,
-            prefix='.kopi-docka-config-',
-            suffix='.tmp'
+            dir=self.config_file.parent, prefix=".kopi-docka-config-", suffix=".tmp"
         )
         try:
-            with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
+            with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
                 self._config.write(f)
             os.replace(temp_path, self.config_file)
             os.chmod(self.config_file, 0o600)
@@ -275,9 +282,9 @@ class Config:
         print(f"Configuration file: {self.config_file}")
         print("=" * 60)
         sensitive_patterns = re.compile(
-            r'(password|secret|key|token|credential|auth|api_key|client_secret|'
-            r'access_key|private_key|webhook|smtp_pass)',
-            re.IGNORECASE
+            r"(password|secret|key|token|credential|auth|api_key|client_secret|"
+            r"access_key|private_key|webhook|smtp_pass)",
+            re.IGNORECASE,
         )
         for section in self._config.sections():
             print(f"\n[{section}]")
@@ -286,7 +293,7 @@ class Config:
                     if value and len(value) > 3:
                         value = f"{value[:3]}***MASKED***"
                     else:
-                        value = '***MASKED***'
+                        value = "***MASKED***"
                 print(f"  {option} = {value}")
 
     def validate(self) -> List[str]:
@@ -295,24 +302,35 @@ class Config:
         warnings = []
 
         # Repository path
-        repo_path = self.get('kopia', 'repository_path')
-        if repo_path and '://' not in repo_path:
-            if repo_path.startswith('/'):
+        repo_path = self.get("kopia", "repository_path")
+        if repo_path and "://" not in repo_path:
+            if repo_path.startswith("/"):
                 repo_path = Path(repo_path).expanduser()
                 parent = repo_path.parent
                 if not parent.exists():
-                    errors.append(f"Repository parent directory does not exist: {parent}")
+                    errors.append(
+                        f"Repository parent directory does not exist: {parent}"
+                    )
                 elif not os.access(parent, os.W_OK):
                     errors.append(f"No write access to repository parent: {parent}")
             else:
                 errors.append(f"Local repository path must be absolute: {repo_path}")
-        elif repo_path and '://' in repo_path:
-            valid_schemes = ['s3://', 'b2://', 'azure://', 'gs://', 'sftp://', 'webdav://']
+        elif repo_path and "://" in repo_path:
+            valid_schemes = [
+                "s3://",
+                "b2://",
+                "azure://",
+                "gs://",
+                "sftp://",
+                "webdav://",
+            ]
             if not any(repo_path.startswith(s) for s in valid_schemes):
-                warnings.append(f"Unusual repository scheme: {repo_path.split('://')[0]}://")
+                warnings.append(
+                    f"Unusual repository scheme: {repo_path.split('://')[0]}://"
+                )
 
         # Docker socket
-        docker_socket_path = self.get('docker', 'socket')
+        docker_socket_path = self.get("docker", "socket")
         docker_socket = Path(docker_socket_path).expanduser()
         if not docker_socket.exists():
             errors.append(f"Docker socket not found: {docker_socket}")
@@ -322,10 +340,12 @@ class Config:
             if not os.access(docker_socket, os.W_OK):
                 errors.append(f"No write access to Docker socket: {docker_socket}")
                 if os.geteuid() != 0:
-                    warnings.append("Hint: Add your user to the 'docker' group: sudo usermod -aG docker $USER")
+                    warnings.append(
+                        "Hint: Add your user to the 'docker' group: sudo usermod -aG docker $USER"
+                    )
 
         # Backup base path
-        base_path_str = self.get('backup', 'base_path')
+        base_path_str = self.get("backup", "base_path")
         base_path = Path(base_path_str).expanduser()
         if not base_path.exists():
             try:
@@ -337,37 +357,45 @@ class Config:
             errors.append(f"No write access to backup base path: {base_path}")
 
         # Numeric ranges
-        stop_timeout = self.getint('backup', 'stop_timeout')
+        stop_timeout = self.getint("backup", "stop_timeout")
         if not 0 < stop_timeout <= 300:
             errors.append(f"stop_timeout out of range (1-300): {stop_timeout}")
 
-        start_timeout = self.getint('backup', 'start_timeout')
+        start_timeout = self.getint("backup", "start_timeout")
         if not 0 < start_timeout <= 600:
             errors.append(f"start_timeout out of range (1-600): {start_timeout}")
 
-        compose_timeout = self.getint('docker', 'compose_timeout')
+        compose_timeout = self.getint("docker", "compose_timeout")
         if not 0 < compose_timeout <= 3600:
             errors.append(f"compose_timeout out of range (1-3600): {compose_timeout}")
 
-        parallel_workers = self.getint('backup', 'parallel_workers')
+        parallel_workers = self.getint("backup", "parallel_workers")
         if parallel_workers != -1 and not 1 <= parallel_workers <= 32:
-            errors.append(f"parallel_workers out of range (1-32 or 'auto'): {parallel_workers}")
+            errors.append(
+                f"parallel_workers out of range (1-32 or 'auto'): {parallel_workers}"
+            )
 
-        retention = self.getint('backup', 'recovery_bundle_retention')
+        retention = self.getint("backup", "recovery_bundle_retention")
         if not 0 < retention <= 100:
-            errors.append(f"recovery_bundle_retention out of range (1-100): {retention}")
+            errors.append(
+                f"recovery_bundle_retention out of range (1-100): {retention}"
+            )
 
-        valid_compression = ['zstd', 'gzip', 's2', 'none']
-        compression = self.get('kopia', 'compression')
+        valid_compression = ["zstd", "gzip", "s2", "none"]
+        compression = self.get("kopia", "compression")
         if compression not in valid_compression:
-            errors.append(f"Invalid compression algorithm: {compression}. Valid: {', '.join(valid_compression)}")
+            errors.append(
+                f"Invalid compression algorithm: {compression}. Valid: {', '.join(valid_compression)}"
+            )
 
-        valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
-        log_level = self.get('logging', 'level', 'INFO').upper()
+        valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+        log_level = self.get("logging", "level", "INFO").upper()
         if log_level not in valid_levels:
-            errors.append(f"Invalid log level: {log_level}. Valid: {', '.join(valid_levels)}")
+            errors.append(
+                f"Invalid log level: {log_level}. Valid: {', '.join(valid_levels)}"
+            )
 
-        log_file_str = self.get('logging', 'file')
+        log_file_str = self.get("logging", "file")
         if log_file_str:
             log_file = Path(log_file_str).expanduser()
             log_dir = log_file.parent
@@ -380,8 +408,8 @@ class Config:
             elif not os.access(log_dir, os.W_OK):
                 warnings.append(f"No write access to log directory: {log_dir}")
 
-        for hook in ['pre_backup_hook', 'post_backup_hook']:
-            hook_path = self.get('backup', hook)
+        for hook in ["pre_backup_hook", "post_backup_hook"]:
+            hook_path = self.get("backup", hook)
             if hook_path:
                 hook_file = Path(hook_path).expanduser()
                 if not hook_file.exists():
@@ -390,15 +418,17 @@ class Config:
                     errors.append(f"{hook} script not executable: {hook_file}")
 
         retention_settings = [
-            ('daily', 1, 365),
-            ('weekly', 0, 52),
-            ('monthly', 0, 120),
-            ('yearly', 0, 100)
+            ("daily", 1, 365),
+            ("weekly", 0, 52),
+            ("monthly", 0, 120),
+            ("yearly", 0, 100),
         ]
         for setting, min_val, max_val in retention_settings:
-            value = self.getint('retention', setting, -1)
+            value = self.getint("retention", setting, -1)
             if value != -1 and not min_val <= value <= max_val:
-                errors.append(f"retention.{setting} out of range ({min_val}-{max_val}): {value}")
+                errors.append(
+                    f"retention.{setting} out of range ({min_val}-{max_val}): {value}"
+                )
 
         for warning in warnings:
             logger.warning(warning)
@@ -408,41 +438,42 @@ class Config:
     @property
     def kopia_repository_path(self) -> Union[str, Path]:
         """Get Kopia repository path."""
-        path = self.get('kopia', 'repository_path')
-        if '://' in path:
+        path = self.get("kopia", "repository_path")
+        if "://" in path:
             return path
         return Path(path).expanduser()
 
     @property
     def kopia_password(self) -> str:
-        return self.get('kopia', 'password')
+        return self.get("kopia", "password")
 
     @property
     def backup_base_path(self) -> Path:
-        path = self.get('backup', 'base_path')
+        path = self.get("backup", "base_path")
         return Path(path).expanduser()
 
     @property
     def parallel_workers(self) -> int:
-        workers = self.getint('backup', 'parallel_workers', -1)
+        workers = self.getint("backup", "parallel_workers", -1)
         if workers == -1:
             from .system_utils import SystemUtils
+
             workers = SystemUtils().get_optimal_workers()
             logger.debug(f"Auto-detected {workers} parallel workers")
         return max(1, min(32, workers))
 
     @property
     def docker_socket(self) -> str:
-        socket = self.get('docker', 'socket', '/var/run/docker.sock')
+        socket = self.get("docker", "socket", "/var/run/docker.sock")
         return str(Path(socket).expanduser())
 
     @property
     def retention_config(self) -> Dict[str, int]:
         return {
-            'daily': self.getint('retention', 'daily', 7),
-            'weekly': self.getint('retention', 'weekly', 4),
-            'monthly': self.getint('retention', 'monthly', 12),
-            'yearly': self.getint('retention', 'yearly', 5)
+            "daily": self.getint("retention", "daily", 7),
+            "weekly": self.getint("retention", "weekly", 4),
+            "monthly": self.getint("retention", "monthly", 12),
+            "yearly": self.getint("retention", "yearly", 5),
         }
 
 
@@ -453,17 +484,17 @@ def generate_secure_password(length: int = 32) -> str:
     """
     if length < 12:
         length = 12
-    alphabet = string.ascii_letters + string.digits + '_-'
+    alphabet = string.ascii_letters + string.digits + "_-"
     password = [
         secrets.choice(string.ascii_uppercase),
         secrets.choice(string.ascii_lowercase),
         secrets.choice(string.digits),
-        secrets.choice('_-')
+        secrets.choice("_-"),
     ]
     for _ in range(length - 4):
         password.append(secrets.choice(alphabet))
     secrets.SystemRandom().shuffle(password)
-    return ''.join(password)
+    return "".join(password)
 
 
 def create_default_config(path: Optional[Path] = None, force: bool = False):
@@ -475,8 +506,11 @@ def create_default_config(path: Optional[Path] = None, force: bool = False):
         force: Overwrite existing file if True
     """
     if path is None:
-        path = Path(DEFAULT_CONFIG_PATHS['root'] if os.geteuid() == 0
-                    else DEFAULT_CONFIG_PATHS['user'])
+        path = Path(
+            DEFAULT_CONFIG_PATHS["root"]
+            if os.geteuid() == 0
+            else DEFAULT_CONFIG_PATHS["user"]
+        )
 
     if isinstance(path, str):
         path = Path(path)
@@ -491,23 +525,23 @@ def create_default_config(path: Optional[Path] = None, force: bool = False):
     config = configparser.ConfigParser(interpolation=None)
 
     # Build defaults from _get_defaults()
-    defaults = Config().__class__._get_defaults(Config())  # call unbound on temp instance
+    defaults = Config().__class__._get_defaults(
+        Config()
+    )  # call unbound on temp instance
     for section, options in defaults.items():
         config.add_section(section)
         for option, value in options.items():
             if value is not None:
                 config.set(section, option, str(value))
             else:
-                if option == 'password':
-                    config.set(section, option, 'CHANGE_ME_TO_A_SECURE_PASSWORD')
+                if option == "password":
+                    config.set(section, option, "CHANGE_ME_TO_A_SECURE_PASSWORD")
 
     temp_fd, temp_path = tempfile.mkstemp(
-        dir=path.parent,
-        prefix='.kopi-docka-config-',
-        suffix='.tmp'
+        dir=path.parent, prefix=".kopi-docka-config-", suffix=".tmp"
     )
     try:
-        with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
+        with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
             f.write("# Kopi-Docka Configuration File\n")
             f.write("# =============================\n")
             f.write("# Generated automatically\n")

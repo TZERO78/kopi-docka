@@ -27,6 +27,7 @@ reliability.
 """
 
 from .constants import VERSION
+
 __version__ = VERSION
 __author__ = "Kopi-Docka Development Team"
 

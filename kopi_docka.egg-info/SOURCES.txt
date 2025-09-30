@@ -1,0 +1,9 @@
+LICENSE
+setup.py
+kopi_docka.egg-info/PKG-INFO
+kopi_docka.egg-info/SOURCES.txt
+kopi_docka.egg-info/dependency_links.txt
+kopi_docka.egg-info/entry_points.txt
+kopi_docka.egg-info/not-zip-safe
+kopi_docka.egg-info/requires.txt
+kopi_docka.egg-info/top_level.txt

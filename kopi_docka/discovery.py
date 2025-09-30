@@ -70,9 +70,13 @@ class DockerDiscovery:
                 timeout=8,
             )
             if result.returncode != 0:
-                raise RuntimeError(f"Docker daemon not accessible: {result.stderr.strip()}")
+                raise RuntimeError(
+                    f"Docker daemon not accessible: {result.stderr.strip()}"
+                )
         except Exception as e:
-            logger.error(f"Failed to access Docker: {e}", extra={"operation": "discover"})
+            logger.error(
+                f"Failed to access Docker: {e}", extra={"operation": "discover"}
+            )
             raise
 
     def _run_docker(self, args: List[str]) -> str:
@@ -84,7 +88,11 @@ class DockerDiscovery:
         except subprocess.CalledProcessError as e:
             logger.error(
                 "Docker command failed",
-                extra={"operation": "discover", "cmd": " ".join(cmd), "stderr": e.stderr.strip()},
+                extra={
+                    "operation": "discover",
+                    "cmd": " ".join(cmd),
+                    "stderr": e.stderr.strip(),
+                },
             )
             raise
 
@@ -122,7 +130,9 @@ class DockerDiscovery:
         """
         out = self._run_docker(["ps", "-q"])
         if not out.strip():
-            logger.warning("No running containers found", extra={"operation": "discover"})
+            logger.warning(
+                "No running containers found", extra={"operation": "discover"}
+            )
             return []
 
         ids = [c for c in out.strip().split("\n") if c]
@@ -164,7 +174,9 @@ class DockerDiscovery:
         # Compose-Datei (Label kann mehrere Dateien enthalten)
         compose_file: Optional[Path] = None
         if DOCKER_COMPOSE_CONFIG_LABEL in labels:
-            first = (labels.get(DOCKER_COMPOSE_CONFIG_LABEL) or "").split(",")[0].strip()
+            first = (
+                (labels.get(DOCKER_COMPOSE_CONFIG_LABEL) or "").split(",")[0].strip()
+            )
             if first:
                 compose_file = Path(first).expanduser()
 
@@ -234,11 +246,15 @@ class DockerDiscovery:
     def _estimate_volume_size(self, mountpoint: str) -> Optional[int]:
         """Schätzt die Größe via 'du -sb' (best effort)."""
         try:
-            r = subprocess.run(["du", "-sb", mountpoint], capture_output=True, text=True, timeout=30)
+            r = subprocess.run(
+                ["du", "-sb", mountpoint], capture_output=True, text=True, timeout=30
+            )
             if r.returncode == 0 and r.stdout:
                 return int(r.stdout.split("\t", 1)[0])
         except Exception as e:
-            logger.debug(f"Could not estimate volume size: {e}", extra={"operation": "discover"})
+            logger.debug(
+                f"Could not estimate volume size: {e}", extra={"operation": "discover"}
+            )
         return None
 
     # ---------------------------- grouping ----------------------------
