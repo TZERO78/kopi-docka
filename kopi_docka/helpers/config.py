@@ -258,6 +258,62 @@ class Config:
         except (configparser.NoSectionError, configparser.NoOptionError):
             return fallback
     
+    def getint(self, section: str, option: str, fallback: int = 0) -> int:
+        """
+        Get configuration value as integer.
+        
+        Args:
+            section: Config section
+            option: Config option
+            fallback: Fallback value if not found
+            
+        Returns:
+            Integer value
+        """
+        value = self.get(section, option, fallback=fallback)
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return fallback
+    
+    def getboolean(self, section: str, option: str, fallback: bool = False) -> bool:
+        """
+        Get configuration value as boolean.
+        
+        Args:
+            section: Config section
+            option: Config option
+            fallback: Fallback value if not found
+            
+        Returns:
+            Boolean value
+        """
+        value = self.get(section, option, fallback=fallback)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.lower() in ('true', '1', 'yes', 'on')
+        return fallback
+    
+    def getlist(self, section: str, option: str, fallback: Any = None) -> List[str]:
+        """
+        Get configuration value as list (comma-separated).
+        
+        Args:
+            section: Config section
+            option: Config option
+            fallback: Fallback value if not found
+            
+        Returns:
+            List of strings
+        """
+        value = self.get(section, option, fallback=fallback)
+        if not value:
+            return []
+        
+        # Split by comma and strip whitespace
+        return [item.strip() for item in str(value).split(',') if item.strip()]
+    
     def set(self, section: str, option: str, value: Any) -> None:
         """Set configuration value."""
         if not self._config.has_section(section):
