@@ -6,6 +6,7 @@ from . import (
     repository_commands,
     backup_commands,
     service_commands,
+    dry_run_commands,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     'repository_commands',
     'backup_commands',
     'service_commands',
+    'dry_run_commands',
 ]

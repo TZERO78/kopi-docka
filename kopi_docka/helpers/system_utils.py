@@ -1,8 +1,8 @@
 ################################################################################
 # KOPI-DOCKA
 #
-# @file:        system-utils.py
-# @module:      kopi_docka.system_utils
+# @file:        system_utils.py
+# @module:      kopi_docka.helpers.system_utils
 # @description: System-level helpers for resource probing and scheduling decisions.
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
@@ -33,7 +33,7 @@ from typing import Dict, Optional, Tuple
 
 import psutil
 
-from ..helpers.constants import RAM_WORKER_THRESHOLDS
+from .constants import RAM_WORKER_THRESHOLDS
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,33 @@ class SystemUtils:
     Provides methods for checking system resources and calculating
     optimal configurations based on system capabilities.
     """
+    
+    def __init__(self):
+        """Initialize SystemUtils with DependencyManager instance."""
+        self._dep_manager = None
+    
+    def _get_dep_manager(self):
+        """Lazy-load DependencyManager instance."""
+        if self._dep_manager is None:
+            from ..cores.dependency_manager import DependencyManager
+            self._dep_manager = DependencyManager()
+        return self._dep_manager
+    
+    # Dependency checks (delegate to DependencyManager)
+    
+    def check_docker(self) -> bool:
+        """Check if Docker is installed and accessible."""
+        return self._get_dep_manager().check_docker()
+    
+    def check_kopia(self) -> bool:
+        """Check if Kopia is installed and accessible."""
+        return self._get_dep_manager().check_kopia()
+    
+    def check_tar(self) -> bool:
+        """Check if tar is installed and accessible."""
+        return self._get_dep_manager().check_tar()
+
+    # Resource monitoring methods
 
     @staticmethod
     def get_available_ram() -> float:
@@ -481,41 +508,3 @@ class SystemUtils:
                 return os.access(test_path.parent, os.W_OK)
         except Exception:
             return False
-
-    # Backward compatibility methods that now use DependencyManager
-
-    @staticmethod
-    def check_docker() -> bool:
-        """
-        Check if Docker is installed and accessible.
-
-        Returns:
-            True if Docker is available
-        """
-        from .dependencies import DependencyManager
-
-        return DependencyManager.check_docker()
-
-    @staticmethod
-    def check_kopia() -> bool:
-        """
-        Check if Kopia is installed and accessible.
-
-        Returns:
-            True if Kopia is available
-        """
-        from .dependencies import DependencyManager
-
-        return DependencyManager.check_kopia()
-
-    @staticmethod
-    def check_tar() -> bool:
-        """
-        Check if tar is installed and accessible.
-
-        Returns:
-            True if tar is available
-        """
-        from .dependencies import DependencyManager
-
-        return DependencyManager.check_tar()

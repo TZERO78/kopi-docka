@@ -17,7 +17,7 @@
 Configuration management for Kopi-Docka.
 
 Handles loading, validation, and access to configuration settings.
-Supports secure password storage via systemd-creds or password files.
+Supports secure password storage via password files or direct plaintext.
 """
 
 from __future__ import annotations
@@ -104,63 +104,150 @@ class Config:
         except ValueError:
             return ''
     
+    # Backup configuration properties
+    
+    @property
+    def backup_base_path(self) -> str:
+        """Get backup base path."""
+        return self.get('backup', 'base_path', fallback='/backup/kopi-docka')
+    
+    @property
+    def parallel_workers(self) -> str:
+        """Get parallel workers setting (returns 'auto' or integer as string)."""
+        return self.get('backup', 'parallel_workers', fallback='auto')
+    
+    @property
+    def stop_timeout(self) -> int:
+        """Get container stop timeout in seconds."""
+        return int(self.get('backup', 'stop_timeout', fallback=30))
+    
+    @property
+    def start_timeout(self) -> int:
+        """Get container start timeout in seconds."""
+        return int(self.get('backup', 'start_timeout', fallback=60))
+    
+    @property
+    def database_backup(self) -> bool:
+        """Check if database backup is enabled."""
+        val = self.get('backup', 'database_backup', fallback='true')
+        return val.lower() in ('true', '1', 'yes', 'on')
+    
+    @property
+    def update_recovery_bundle(self) -> bool:
+        """Check if recovery bundle should be updated."""
+        val = self.get('backup', 'update_recovery_bundle', fallback='false')
+        return val.lower() in ('true', '1', 'yes', 'on')
+    
+    @property
+    def recovery_bundle_path(self) -> str:
+        """Get recovery bundle path."""
+        return self.get('backup', 'recovery_bundle_path', fallback='/backup/recovery')
+    
+    @property
+    def recovery_bundle_retention(self) -> int:
+        """Get recovery bundle retention count."""
+        return int(self.get('backup', 'recovery_bundle_retention', fallback=3))
+    
+    # Kopia settings properties
+    
+    @property
+    def kopia_compression(self) -> str:
+        """Get Kopia compression algorithm."""
+        return self.get('kopia', 'compression', fallback='zstd')
+    
+    @property
+    def kopia_encryption(self) -> str:
+        """Get Kopia encryption algorithm."""
+        return self.get('kopia', 'encryption', fallback='AES256-GCM-HMAC-SHA256')
+    
     # --------------- Password Management ---------------
+    
+    def set_password(self, password: str, use_file: bool = False) -> None:
+        """
+        Set repository password in config.
+        
+        Args:
+            password: The password to store
+            use_file: If True, store in external file; if False, store directly in config
+        """
+        if use_file:
+            # Store in external password file
+            password_file = self.config_file.parent / f".{self.config_file.stem}.password"
+            
+            # Backup existing password file if present
+            if password_file.exists():
+                import shutil
+                from datetime import datetime
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                backup_file = self.config_file.parent / f".{self.config_file.stem}.password.{timestamp}.backup"
+                shutil.copy2(password_file, backup_file)
+                logger.info(f"Previous password backed up: {backup_file}")
+            
+            # Write new password
+            password_file.write_text(password + "\n", encoding='utf-8')
+            password_file.chmod(0o600)
+            logger.info(f"Password stored in: {password_file}")
+            
+            # Update config to reference the file
+            self.set('kopia', 'password_file', str(password_file))
+            self.set('kopia', 'password', '')  # Clear direct password
+        else:
+            # Store directly in config (plaintext)
+            self.set('kopia', 'password', password)
+            self.set('kopia', 'password_file', '')  # Clear file reference
+            logger.info("Password stored in config file")
+        
+        # Save config
+        self.save()
     
     def get_password(self) -> str:
         """
         Get repository password from config.
         
-        Supports multiple password sources:
-        1. Direct password in config (e.g., "kopia-docka")
-        2. Reference to systemd-creds: ${CREDENTIALS_DIRECTORY}/name
-        3. Reference to password file: password_file setting
+        Supports two password sources (priority order):
+        1. password_file - External file (für spätere Verschlüsselung)
+        2. password - Direct plaintext in config (Standard)
         
         Returns:
             Repository password
             
         Raises:
-            ValueError: If password not accessible
+            ValueError: If password not found or accessible
         """
-        password = self.get('kopia', 'password', fallback='')
-        
-        # Check for systemd-creds reference
-        if password.startswith('${CREDENTIALS_DIRECTORY}/'):
-            cred_name = password.replace('${CREDENTIALS_DIRECTORY}/', '')
-            # In systemd service: /run/credentials/kopi-docka.service/
-            cred_path = Path(f"/run/credentials/kopi-docka.service/{cred_name}")
-            
-            if cred_path.exists():
-                return cred_path.read_text().strip()
-            else:
-                # Fallback: Try credstore.encrypted (needs manual decrypt)
-                encrypted_path = Path(f"/etc/credstore.encrypted/{cred_name}")
-                if encrypted_path.exists():
-                    raise ValueError(
-                        f"Credential exists but not loaded: {encrypted_path}\n"
-                        "Run as systemd service or manually decrypt with:\n"
-                        f"  systemd-creds decrypt {encrypted_path}"
-                    )
-                raise ValueError(f"Credential not found: {cred_name}")
-        
-        # Check for password_file reference
+        # PRIORITY 1: Check for password_file (für spätere Verschlüsselung)
         password_file_str = self.get('kopia', 'password_file', fallback='')
         if password_file_str:
             password_file = Path(password_file_str).expanduser()
             if password_file.exists():
-                return password_file.read_text().strip()
+                try:
+                    pwd = password_file.read_text(encoding='utf-8').strip()
+                    if pwd:
+                        logger.debug(f"Using password from file: {password_file}")
+                        return pwd
+                    else:
+                        raise ValueError(f"Password file is empty: {password_file}")
+                except Exception as e:
+                    raise ValueError(f"Cannot read password file {password_file}: {e}")
             else:
-                raise ValueError(f"Password file not found: {password_file}")
+                raise ValueError(
+                    f"Password file not found: {password_file}\n"
+                    f"Either create the file or remove 'password_file' setting."
+                )
         
-        # Direct password in config (including "kopia-docka")
+        # PRIORITY 2: Direct password in config (Plaintext - Standard)
+        password = self.get('kopia', 'password', fallback='')
         if password:
+            logger.debug("Using password from config file")
             return password
         
+        # No password configured at all
         raise ValueError(
             "No password configured.\n"
             "Options:\n"
-            "  1. Use default: password = kopia-docka\n"
-            "  2. Change with: kopi-docka change-password"
-            )
+            "  1. Set in config: password = your-secure-password\n"
+            "  2. Use external file: password_file = /path/to/password\n"
+            "  3. Run: kopi-docka change-password"
+        )
     
     # --------------- Core Methods ---------------
     
@@ -289,8 +376,8 @@ class Config:
         return {
             'kopia': {
                 'repository_path': '/backup/kopia-repository',
-                'password': 'kopia-docka',  # Standard-Passwort
-                'password_file': '',  # Leer = nicht verwendet
+                'password': 'kopia-docka',  # Standard-Passwort (ändern nach init!)
+                'password_file': '',  # Optional: Pfad zu Passwort-Datei
                 'profile': 'kopi-docka',
                 'compression': 'zstd',
                 'encryption': 'AES256-GCM-HMAC-SHA256',

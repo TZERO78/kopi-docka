@@ -7,15 +7,15 @@
 # @description: Kopia CLI wrapper with profile-specific config handling.
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
-# @version:     1.2.0
+# @version:     2.0.0
 #
 # ------------------------------------------------------------------------------ 
 # MIT-Lizenz: siehe LICENSE oder https://opensource.org/licenses/MIT
 # ==============================================================================
-# Changelog v1.2.0:
-# - Password handling via Config.get_password() method
-# - Support for systemd-creds and password_file references
-# - Fallback to default password for initial setup
+# Changelog v2.0.0:
+# - Simplified password handling (plaintext in config or password_file)
+# - Added set_repo_password() and verify_password() methods
+# - Removed systemd-creds complexity
 ################################################################################
 
 """
@@ -337,6 +337,89 @@ class KopiaRepository:
         except Exception:
             copy2(src, dst)
             logger.info("Default kopia config copied to %s", dst)
+
+    # --------------- Password Management ---------------
+
+    def set_repo_password(self, new_password: str) -> None:
+        """
+        Change the Kopia repository password.
+        
+        This updates the password in the Kopia repository itself.
+        You must also update the password in your config file separately
+        using Config.set_password().
+        
+        Args:
+            new_password: The new password to set
+            
+        Raises:
+            RuntimeError: If password change fails
+            
+        Example:
+            >>> repo = KopiaRepository(config)
+            >>> repo.set_repo_password("new-secure-password")
+            >>> config.set_password("new-secure-password", use_file=True)
+        """
+        if not self.is_connected():
+            raise RuntimeError(
+                "Not connected to repository. "
+                "Cannot change password without active connection."
+            )
+        
+        logger.info("Changing repository password...")
+        
+        # Build environment with NEW password
+        env = self._get_env().copy()
+        env["KOPIA_NEW_PASSWORD"] = new_password
+        
+        # Call kopia repository change-password
+        cmd = [
+            "kopia", "repository", "change-password",
+            "--config-file", self._get_config_file()
+        ]
+        
+        proc = subprocess.run(
+            cmd,
+            env=env,
+            text=True,
+            capture_output=True
+        )
+        
+        if proc.returncode != 0:
+            err_msg = (proc.stderr or proc.stdout or "").strip()
+            raise RuntimeError(f"Failed to change repository password: {err_msg}")
+        
+        logger.info("Repository password changed successfully")
+    
+    def verify_password(self, password: str) -> bool:
+        """
+        Verify if a password works with the repository.
+        
+        Args:
+            password: Password to test
+            
+        Returns:
+            True if password is correct, False otherwise
+        """
+        # Temporarily override password in env
+        env = os.environ.copy()
+        env["KOPIA_PASSWORD"] = password
+        
+        cache_dir = self.config.kopia_cache_directory
+        if cache_dir:
+            env["KOPIA_CACHE_DIRECTORY"] = str(cache_dir)
+        
+        # Try a simple status check
+        proc = subprocess.run(
+            [
+                "kopia", "repository", "status", "--json",
+                "--config-file", self._get_config_file()
+            ],
+            env=env,
+            text=True,
+            capture_output=True
+        )
+        
+        return proc.returncode == 0
 
     # --------------- Snapshots ---------------
 

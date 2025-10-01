@@ -31,31 +31,72 @@ from typing import List, Dict, Any, Optional
 
 @dataclass
 class ContainerInfo:
+    """Container information."""
     id: str
     name: str
-    is_running: bool = False
-    database_type: Optional[str] = (
-        None  # e.g. "postgres", "mysql", "mariadb", "mongo", "redis"
-    )
+    image: str
+    status: str
+    labels: Dict[str, str] = field(default_factory=dict)
+    environment: Dict[str, str] = field(default_factory=dict)
+    volumes: List[str] = field(default_factory=list)
+    compose_file: Optional[Path] = None
+    inspect_data: Optional[Dict[str, Any]] = None
+    database_type: Optional[str] = None
+    
+    @property
+    def is_running(self) -> bool:
+        """Check if container is running."""
+        return self.status.lower().startswith('running')
+    
+    @property
+    def is_database(self) -> bool:
+        """Check if container is a database."""
+        return self.database_type is not None
+    
+    @property
+    def stack_name(self) -> Optional[str]:
+        """Get stack name from labels."""
+        from .helpers.constants import DOCKER_COMPOSE_PROJECT_LABEL
+        return self.labels.get(DOCKER_COMPOSE_PROJECT_LABEL)
 
 
 @dataclass
 class VolumeInfo:
+    """Volume information."""
     name: str
+    driver: str
     mountpoint: str
+    labels: Dict[str, str] = field(default_factory=dict)
     size_bytes: Optional[int] = None
+    container_ids: List[str] = field(default_factory=list)
 
 
 @dataclass
 class BackupUnit:
     name: str
+    type: str  # ← WICHTIG: "stack" oder "standalone"
     containers: List[ContainerInfo] = field(default_factory=list)
     volumes: List[VolumeInfo] = field(default_factory=list)
-    compose_file: Optional[Path] = None  # path to docker-compose.yml (optional)
-
+    compose_file: Optional[Path] = None
+    
+    @property
+    def has_databases(self) -> bool:
+        """Check if unit contains database containers."""
+        return any(c.database_type for c in self.containers)
+    
+    @property
+    def running_containers(self) -> List[ContainerInfo]:
+        """Get list of running containers."""
+        return [c for c in self.containers if c.is_running]
+    
+    @property
+    def total_volume_size(self) -> int:
+        """Get total size of all volumes."""
+        return sum(v.size_bytes or 0 for v in self.volumes)
+    
     def get_database_containers(self) -> List[ContainerInfo]:
+        """Get containers with database_type set."""
         return [c for c in self.containers if c.database_type]
-
 
 # ---- Metadata & Restore points ----
 

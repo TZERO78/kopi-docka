@@ -2,7 +2,6 @@
 
 import os
 import subprocess
-import configparser
 from pathlib import Path
 from typing import Optional
 
@@ -35,19 +34,9 @@ def ensure_config(ctx: typer.Context) -> Config:
 def cmd_config(ctx: typer.Context, show: bool = True):
     """Show current configuration."""
     cfg = ensure_config(ctx)
-
-    typer.echo(f"Configuration file: {cfg.config_file}")
-    typer.echo("=" * 60)
-
-    config = configparser.ConfigParser(interpolation=None)
-    config.read(cfg.config_file)
-
-    for section in config.sections():
-        typer.echo(f"\n[{section}]")
-        for option, value in config.items(section):
-            if 'password' in option.lower() or 'token' in option.lower():
-                value = '***MASKED***'
-            typer.echo(f"  {option} = {value}")
+    
+    # Nutze die display() Methode der Config-Klasse - KISS!
+    cfg.display()
 
 
 def cmd_new_config(
@@ -227,6 +216,7 @@ def cmd_reset_config(path: Optional[Path] = None):
 def cmd_change_password(
     ctx: typer.Context,
     new_password: Optional[str] = None,
+    use_file: bool = True,  # Default: Store in external file
 ):
     """Change Kopia repository password and store securely."""
     cfg = ensure_config(ctx)
@@ -253,9 +243,25 @@ def cmd_change_password(
     typer.echo(f"Profile: {repo.profile_name}")
     typer.echo("")
     
+    # Verify current password first (security best practice)
+    import getpass
+    typer.echo("Verify current password:")
+    current_password = getpass.getpass("Current password: ")
+    
+    typer.echo("↻ Verifying current password...")
+    if not repo.verify_password(current_password):
+        typer.echo("✗ Current password is incorrect!")
+        typer.echo("\nIf you've forgotten the password:")
+        typer.echo("  • Check /etc/.kopi-docka.password")
+        typer.echo("  • Check password_file setting in config")
+        typer.echo("  • As last resort: reset repository (lose all backups)")
+        raise typer.Exit(code=1)
+    
+    typer.echo("✓ Current password verified")
+    typer.echo("")
+    
     # Get new password
     if not new_password:
-        import getpass
         typer.echo("Enter new password (empty = auto-generate):")
         new_password = getpass.getpass("New password: ")
         
@@ -269,7 +275,7 @@ def cmd_change_password(
                 typer.echo("Aborted.")
                 raise typer.Exit(code=0)
         else:
-            new_password_confirm = getpass.getpass("Confirm: ")
+            new_password_confirm = getpass.getpass("Confirm new password: ")
             if new_password != new_password_confirm:
                 typer.echo("✗ Passwords don't match!")
                 raise typer.Exit(code=1)
@@ -279,127 +285,34 @@ def cmd_change_password(
         if not typer.confirm("Continue?"):
             raise typer.Exit(code=0)
     
-    # Change in Kopia
+    # Change in Kopia repository - KISS!
     typer.echo("\n↻ Changing repository password...")
     try:
-        import subprocess
-        env = repo._get_env().copy()
-        env["KOPIA_NEW_PASSWORD"] = new_password
-        
-        cmd = ["kopia", "repository", "change-password", "--config-file", repo._get_config_file()]
-        proc = subprocess.run(cmd, env=env, text=True, capture_output=True)
-        
-        if proc.returncode != 0:
-            typer.echo(f"✗ Failed: {proc.stderr or proc.stdout}")
-            raise typer.Exit(code=1)
-        
+        repo.set_repo_password(new_password)
         typer.echo("✓ Repository password changed")
     except Exception as e:
         typer.echo(f"✗ Error: {e}")
         raise typer.Exit(code=1)
     
-    # Store password securely
-    _store_password_secure(cfg, new_password)
+    # Store password using Config class - KISS!
+    typer.echo("\n↻ Storing new password...")
+    try:
+        cfg.set_password(new_password, use_file=use_file)
+        
+        if use_file:
+            password_file = cfg.config_file.parent / f".{cfg.config_file.stem}.password"
+            typer.echo(f"✓ Password stored in: {password_file} (chmod 600)")
+        else:
+            typer.echo(f"✓ Password stored in: {cfg.config_file} (chmod 600)")
+    except Exception as e:
+        typer.echo(f"✗ Failed to store password: {e}")
+        typer.echo("\n⚠️  IMPORTANT: Write down this password manually!")
+        typer.echo(f"Password: {new_password}")
+        raise typer.Exit(code=1)
     
     typer.echo("\n" + "=" * 70)
     typer.echo("✓ PASSWORD CHANGED SUCCESSFULLY")
     typer.echo("=" * 70)
-
-
-def _store_password_secure(cfg: Config, password: str):
-    """Store password with systemd-creds or fallback to encrypted file."""
-    import shutil
-    
-    cred_name = f"kopia_password_{cfg.get('kopia', 'profile', fallback='kopi-docka')}"
-    
-    if shutil.which('systemd-creds'):
-        typer.echo("\n↻ Storing with systemd-creds...")
-        
-        import tempfile
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as tmp:
-            tmp.write(password)
-            tmp_path = tmp.name
-        
-        try:
-            cred_dir = Path("/etc/credstore.encrypted")
-            cred_dir.mkdir(parents=True, exist_ok=True)
-            cred_path = cred_dir / cred_name
-            backup_path = cred_dir / f"{cred_name}.backup"
-            
-            # Backup previous password (idempotent)
-            if cred_path.exists():
-                shutil.copy2(cred_path, backup_path)
-                typer.echo(f"✓ Previous password backed up: {backup_path}")
-            
-            # Encrypt new credential
-            cmd = [
-                "sudo", "systemd-creds", "encrypt",
-                "--name", cred_name,
-                tmp_path,
-                str(cred_path)
-            ]
-            
-            proc = subprocess.run(cmd, capture_output=True, text=True)
-            
-            if proc.returncode == 0:
-                typer.echo(f"✓ New password encrypted: {cred_path}")
-                
-                # Update config
-                config = configparser.ConfigParser(interpolation=None)
-                config.read(cfg.config_file)
-                
-                if not config.has_section('kopia'):
-                    config.add_section('kopia')
-                
-                config.set('kopia', 'password', f'${{CREDENTIALS_DIRECTORY}}/{cred_name}')
-                
-                with open(cfg.config_file, 'w') as f:
-                    config.write(f)
-                
-                typer.echo("✓ Config updated")
-            else:
-                typer.echo(f"✗ systemd-creds failed: {proc.stderr}")
-                _store_plaintext_fallback(cfg, password)
-        finally:
-            import os
-            os.unlink(tmp_path)
-    else:
-        typer.echo("\n⚠️  systemd-creds not available (need systemd 250+)")
-        _store_plaintext_fallback(cfg, password)
-
-
-def _store_plaintext_fallback(cfg: Config, password: str):
-    """Fallback: Store in plain file with chmod 600."""
-    import shutil
-    
-    typer.echo("↻ Storing in plain text file (chmod 600)...")
-    
-    password_file = cfg.config_file.parent / f".{cfg.config_file.stem}.password"
-    backup_file = cfg.config_file.parent / f".{cfg.config_file.stem}.password.backup"
-    
-    # Backup previous password (idempotent)
-    if password_file.exists():
-        shutil.copy2(password_file, backup_file)
-        typer.echo(f"✓ Previous password backed up: {backup_file}")
-    
-    # Write new password
-    password_file.write_text(password + "\n", encoding='utf-8')
-    password_file.chmod(0o600)
-    typer.echo(f"✓ New password file: {password_file}")
-    
-    # Update config
-    config = configparser.ConfigParser(interpolation=None)
-    config.read(cfg.config_file)
-    
-    if not config.has_section('kopia'):
-        config.add_section('kopia')
-    
-    config.set('kopia', 'password_file', str(password_file))
-    
-    with open(cfg.config_file, 'w') as f:
-        config.write(f)
-    
-    typer.echo("✓ Config updated")
 
 
 # -------------------------
@@ -442,6 +355,7 @@ def register(app: typer.Typer):
     def _change_password_cmd(
         ctx: typer.Context,
         new_password: Optional[str] = typer.Option(None, "--new-password", help="New password (will prompt if not provided)"),
+        use_file: bool = typer.Option(True, "--file/--inline", help="Store in external file (default) or inline in config"),
     ):
         """Change Kopia repository password."""
-        cmd_change_password(ctx, new_password)
+        cmd_change_password(ctx, new_password, use_file)

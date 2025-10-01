@@ -38,6 +38,7 @@ from .commands import (
     repository_commands,
     backup_commands,
     service_commands,
+    dry_run_commands,
 )
 
 app = typer.Typer(
@@ -104,6 +105,8 @@ dependency_commands.register(app)
 repository_commands.register(app)
 backup_commands.register(app)
 service_commands.register(app)
+dry_run_commands.register(app)  
+
 
 
 # -------------------------

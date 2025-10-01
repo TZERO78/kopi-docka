@@ -5,9 +5,9 @@ from typing import Optional
 
 import typer
 
-from ..helpers import Config, DependencyManager, get_logger
+from ..helpers import Config, get_logger
 from ..cores import KopiaRepository
-
+from ..cores import DependencyManager
 logger = get_logger(__name__)
 
 

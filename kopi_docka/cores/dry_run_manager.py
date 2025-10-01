@@ -263,11 +263,7 @@ class DryRunReport:
             ("Stop Timeout", f"{self.config.get('backup', 'stop_timeout')}s"),
             ("Start Timeout", f"{self.config.get('backup', 'start_timeout')}s"),
             ("Compression", self.config.get("kopia", "compression")),
-            ("Encryption", self.config.get("kopia", "encryption")),
-            (
-                "Exclude Patterns",
-                ", ".join(self.config.getlist("backup", "exclude_patterns")) or "—",
-            ),
+            ("Encryption", self.config.get("kopia", "encryption")),        
         ]
 
         for name, value in config_items:

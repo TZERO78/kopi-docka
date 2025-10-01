@@ -55,7 +55,6 @@ from .helpers import (
     Config,
     create_default_config,
     generate_secure_password,
-    DependencyManager,
 )
 
 # Core business logic
@@ -64,6 +63,7 @@ from .cores import (
     RestoreManager,
     DockerDiscovery,
     KopiaRepository,
+    DependencyManager,
     DryRunReport,
     DisasterRecoveryManager,
     KopiDockaService,
@@ -88,15 +88,13 @@ __all__ = [
     "Config",
     "create_default_config",
     "generate_secure_password",
-    
-    # Dependencies
-    "DependencyManager",
-    
+     
     # Core Managers
     "BackupManager",
     "RestoreManager",
     "DockerDiscovery",
     "KopiaRepository",
+    "DependencyManager",
     "DryRunReport",
     "DisasterRecoveryManager",
     "KopiaPolicyManager",
