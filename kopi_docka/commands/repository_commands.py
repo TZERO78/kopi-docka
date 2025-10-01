@@ -134,12 +134,41 @@ def cmd_init(ctx: typer.Context):
 
     typer.echo(f"Using profile: {repo.profile_name}")
     typer.echo(f"Repository: {repo.repo_path}")
+    
+    # Warnung bei Standard-Passwort
+    try:
+        current_password = cfg.get_password()
+        if current_password == 'kopia-docka':
+            typer.echo("")
+            typer.echo("⚠️  WARNING: Using default password 'kopia-docka'!")
+            typer.echo("   This is INSECURE for production use.")
+            typer.echo("")
+            if not typer.confirm("Continue with default password?", default=False):
+                typer.echo("\nChange password first:")
+                typer.echo("  kopi-docka change-password")
+                raise typer.Exit(code=0)
+    except ValueError as e:
+        typer.echo(f"⚠️  Password issue: {e}")
+        typer.echo("Continuing anyway (will fail if repository needs password)...")
 
     try:
-        repo.connect()
-        typer.echo("✓ Repository connected")
+        repo.initialize()
+        typer.echo("✓ Repository initialized")
+        
+        # Erinnerung bei Standard-Passwort
+        try:
+            if cfg.get_password() == 'kopia-docka':
+                typer.echo("")
+                typer.echo("=" * 60)
+                typer.echo("⚠️  NEXT STEP: Change the default password NOW!")
+                typer.echo("=" * 60)
+                typer.echo("  kopi-docka change-password")
+                typer.echo("=" * 60)
+        except ValueError:
+            pass
+        
     except Exception as e:
-        typer.echo(f"✗ Init/connect failed: {e}")
+        typer.echo(f"✗ Init failed: {e}")
         raise typer.Exit(code=1)
 
 
@@ -308,8 +337,7 @@ def cmd_repo_selftest(
     conf_path = conf_dir / f"selftest-{stamp}.conf"
 
     conf_path.write_text(
-        f"""
-[kopia]
+        f"""[kopia]
 repository_path = {repo_dir}
 password = {password}
 profile = {test_profile}
@@ -319,7 +347,7 @@ daily = 7
 weekly = 4
 monthly = 12
 yearly = 3
-""".strip(),
+""",
         encoding="utf-8",
     )
 
@@ -332,13 +360,13 @@ yearly = 3
 
     typer.echo("↻ Connecting/creating test repository…")
     try:
-        test_repo.connect()
+        test_repo.initialize()
     except Exception as e:
-        typer.echo(f"✗ Could not connect/create selftest repo: {e}")
+        typer.echo(f"✗ Could not initialize selftest repo: {e}")
         raise typer.Exit(code=1)
 
     if not test_repo.is_connected():
-        typer.echo("✗ Not connected after connect().")
+        typer.echo("✗ Not connected after initialize().")
         raise typer.Exit(code=1)
 
     _print_kopia_native_status(test_repo)
@@ -392,118 +420,6 @@ def cmd_repo_maintenance(ctx: typer.Context):
         raise typer.Exit(code=1)
 
 
-def cmd_change_password(
-    ctx: typer.Context,
-    new_password: Optional[str] = None,
-    update_config: bool = True,
-):
-    """Change Kopia repository password."""
-    cfg = ensure_config(ctx)
-    repo = ensure_repository(ctx)
-
-    typer.echo("=" * 60)
-    typer.echo("CHANGE KOPIA REPOSITORY PASSWORD")
-    typer.echo("=" * 60)
-    typer.echo(f"Repository: {repo.repo_path}")
-    typer.echo(f"Profile: {repo.profile_name}")
-    typer.echo("")
-
-    # Get new password
-    if not new_password:
-        import getpass
-        typer.echo("Enter new password (or leave empty to auto-generate):")
-        new_password = getpass.getpass("New password: ")
-
-        if not new_password:
-            new_password = generate_secure_password()
-            typer.echo("")
-            typer.echo("=" * 60)
-            typer.echo("AUTO-GENERATED PASSWORD:")
-            typer.echo("=" * 60)
-            typer.echo(new_password)
-            typer.echo("=" * 60)
-            typer.echo("")
-            if not typer.confirm("Use this password?"):
-                typer.echo("Aborted.")
-                raise typer.Exit(code=0)
-        else:
-            new_password_confirm = getpass.getpass("Confirm new password: ")
-            if new_password != new_password_confirm:
-                typer.echo("Passwords don't match!")
-                raise typer.Exit(code=1)
-
-    if len(new_password) < 12:
-        typer.echo("")
-        typer.echo(f"WARNING: Password is very short ({len(new_password)} chars).")
-        if not typer.confirm("Continue with weak password?"):
-            raise typer.Exit(code=1)
-
-    typer.echo("")
-    typer.echo("Changing repository password...")
-
-    try:
-        import os
-        env = repo._get_env().copy()
-        env["KOPIA_NEW_PASSWORD"] = new_password
-
-        cmd = [
-            "kopia", "repository", "change-password",
-            "--config-file", repo._get_config_file()
-        ]
-
-        proc = subprocess.run(cmd, env=env, text=True, capture_output=True)
-
-        if proc.returncode != 0:
-            typer.echo(f"Failed to change password: {proc.stderr or proc.stdout}")
-            raise typer.Exit(code=1)
-
-        typer.echo("✓ Repository password changed successfully")
-
-    except Exception as e:
-        typer.echo(f"Error changing password: {e}")
-        raise typer.Exit(code=1)
-
-    # Update config
-    if update_config:
-        typer.echo("")
-        if not typer.confirm("Update password in config file?"):
-            typer.echo("")
-            typer.echo("Password changed in repository but NOT in config file.")
-            return
-
-        try:
-            import configparser
-            config = configparser.ConfigParser(interpolation=None)
-            config.read(cfg.config_file)
-
-            if not config.has_section('kopia'):
-                config.add_section('kopia')
-
-            config.set('kopia', 'password', new_password)
-
-            with open(cfg.config_file, 'w') as f:
-                config.write(f)
-
-            cfg.config_file.chmod(0o600)
-
-            typer.echo(f"✓ Config file updated: {cfg.config_file}")
-
-            password_file = cfg.config_file.parent / f".{cfg.config_file.stem}.password"
-            with open(password_file, 'w') as f:
-                f.write(f"{new_password}\n")
-            password_file.chmod(0o600)
-
-            typer.echo(f"✓ Password file updated: {password_file}")
-
-        except Exception as e:
-            typer.echo(f"Warning: Could not update config file: {e}")
-
-    typer.echo("")
-    typer.echo("=" * 60)
-    typer.echo("PASSWORD CHANGE COMPLETE")
-    typer.echo("=" * 60)
-
-
 # -------------------------
 # Registration
 # -------------------------
@@ -511,32 +427,29 @@ def cmd_change_password(
 def register(app: typer.Typer):
     """Register all repository commands."""
     
+    # Simple commands without parameters
     app.command("init")(cmd_init)
     app.command("repo-status")(cmd_repo_status)
     app.command("repo-which-config")(cmd_repo_which_config)
     app.command("repo-set-default")(cmd_repo_set_default)
-    
-    app.command("repo-init-path")(
-        lambda ctx, 
-               path=typer.Argument(..., help="Repository path"),
-               profile=typer.Option(None, "--profile", "-p"),
-               set_default=typer.Option(False, "--set-default/--no-set-default"),
-               password=typer.Option(None, "--password"):
-            cmd_repo_init_path(ctx, path, profile, set_default, password)
-    )
-    
-    app.command("repo-selftest")(
-        lambda tmpdir=typer.Option(Path("/tmp"), "--tmpdir"),
-               keep=typer.Option(False, "--keep/--no-keep"),
-               password=typer.Option(None, "--password"):
-            cmd_repo_selftest(tmpdir, keep, password)
-    )
-    
     app.command("repo-maintenance")(cmd_repo_maintenance)
     
-    app.command("change-password")(
-        lambda ctx,
-               new_password=typer.Option(None, "--new-password"),
-               update_config=typer.Option(True, "--update-config/--no-update-config"):
-            cmd_change_password(ctx, new_password, update_config)
-    )
+    @app.command("repo-init-path")
+    def _repo_init_path_cmd(
+        ctx: typer.Context,
+        path: Path = typer.Argument(..., help="Repository path"),
+        profile: Optional[str] = typer.Option(None, "--profile", help="Profile name"),
+        set_default: bool = typer.Option(False, "--set-default/--no-set-default"),
+        password: Optional[str] = typer.Option(None, "--password"),
+    ):
+        """Create a Kopia filesystem repository at PATH."""
+        cmd_repo_init_path(ctx, path, profile, set_default, password)
+    
+    @app.command("repo-selftest")
+    def _repo_selftest_cmd(
+        tmpdir: Path = typer.Option(Path("/tmp"), "--tmpdir"),
+        keep: bool = typer.Option(False, "--keep/--no-keep"),
+        password: Optional[str] = typer.Option(None, "--password"),
+    ):
+        """Create ephemeral test repository."""
+        cmd_repo_selftest(tmpdir, keep, password)

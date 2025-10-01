@@ -33,7 +33,7 @@ from typing import Dict, Optional, Tuple
 
 import psutil
 
-from .constants import RAM_WORKER_THRESHOLDS
+from ..helpers.constants import RAM_WORKER_THRESHOLDS
 
 logger = logging.getLogger(__name__)
 

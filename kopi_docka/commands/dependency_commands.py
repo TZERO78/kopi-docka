@@ -89,15 +89,23 @@ def cmd_deps():
 def register(app: typer.Typer):
     """Register all dependency commands."""
     
-    app.command("check")(
-        lambda ctx, verbose=typer.Option(False, "--verbose", "-v", help="Show detailed information"):
-            cmd_check(ctx, verbose)
-    )
+    @app.command("check")
+    def _check_cmd(
+        ctx: typer.Context,
+        verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed information"),
+    ):
+        """Check system requirements and dependencies."""
+        cmd_check(ctx, verbose)
     
-    app.command("install-deps")(
-        lambda force=typer.Option(False, "--force", "-f", help="Skip confirmation prompt"),
-               dry_run=typer.Option(False, "--dry-run", help="Show what would be installed"):
-            cmd_install_deps(force, dry_run)
-    )
+    @app.command("install-deps")
+    def _install_deps_cmd(
+        force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt"),
+        dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be installed"),
+    ):
+        """Install missing system dependencies."""
+        cmd_install_deps(force, dry_run)
     
-    app.command("deps")(cmd_deps)
+    @app.command("show-deps")
+    def _deps_cmd():
+        """Show dependency installation guide."""
+        cmd_deps()

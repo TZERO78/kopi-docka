@@ -1,0 +1,7 @@
+cat > MANIFEST.in << 'EOF'
+include README.md
+include LICENSE
+include requirements.txt
+recursive-include kopi_docka/templates *.conf
+recursive-include kopi_docka/templates *.ini
+EOF

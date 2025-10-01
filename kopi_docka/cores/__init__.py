@@ -6,7 +6,11 @@ from .docker_discovery import DockerDiscovery
 from .repository_manager import KopiaRepository
 from .dry_run_manager import DryRunReport
 from .disaster_recovery_manager import DisasterRecoveryManager
-from .service_manager import KopiDockaService, ServiceConfig
+from .service_manager import (
+    KopiDockaService, 
+    ServiceConfig,
+    write_systemd_units,  # ← Diese Zeile hinzufügen
+)
 from .kopia_policy_manager import KopiaPolicyManager
 
 __all__ = [
@@ -18,5 +22,6 @@ __all__ = [
     'DisasterRecoveryManager',
     'KopiDockaService',
     'ServiceConfig',
+    'write_systemd_units',  # ← Diese Zeile hinzufügen
     'KopiaPolicyManager',
 ]

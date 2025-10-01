@@ -194,19 +194,28 @@ def cmd_restore(ctx: typer.Context):
 def register(app: typer.Typer):
     """Register all backup commands."""
     
-    app.command("list")(
-        lambda ctx,
-               units=typer.Option(True, "--units", help="List discovered backup units"),
-               snapshots=typer.Option(False, "--snapshots", help="List repository snapshots"):
-            cmd_list(ctx, units, snapshots)
-    )
+    @app.command("list")
+    def _list_cmd(
+        ctx: typer.Context,
+        units: bool = typer.Option(True, "--units", help="List discovered backup units"),
+        snapshots: bool = typer.Option(False, "--snapshots", help="List repository snapshots"),
+    ):
+        """List backup units or repository snapshots."""
+        cmd_list(ctx, units, snapshots)
     
-    app.command("backup")(
-        lambda ctx,
-               unit=typer.Option(None, "--unit", "-u", help="Backup only these units"),
-               dry_run=typer.Option(False, "--dry-run", help="Simulate backup"),
-               update_recovery_bundle=typer.Option(None, "--update-recovery/--no-update-recovery"):
-            cmd_backup(ctx, unit, dry_run, update_recovery_bundle)
-    )
+    @app.command("backup")
+    def _backup_cmd(
+        ctx: typer.Context,
+        unit: Optional[List[str]] = typer.Option(None, "--unit", help="Backup only these units"),
+        dry_run: bool = typer.Option(False, "--dry-run", help="Simulate backup"),
+        update_recovery_bundle: Optional[bool] = typer.Option(
+            None, "--update-recovery/--no-update-recovery"
+        ),
+    ):
+        """Run a cold backup for selected units (or all)."""
+        cmd_backup(ctx, unit, dry_run, update_recovery_bundle)
     
-    app.command("restore")(cmd_restore)
+    @app.command("restore")
+    def _restore_cmd(ctx: typer.Context):
+        """Launch the interactive restore wizard."""
+        cmd_restore(ctx)

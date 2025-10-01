@@ -49,14 +49,22 @@ def cmd_write_units(output_dir: Path = Path("/etc/systemd/system")):
 def register(app: typer.Typer):
     """Register all service commands."""
     
-    app.command("daemon")(
-        lambda interval_minutes=typer.Option(None, "--interval-minutes", help="Run backup every N minutes"),
-               backup_cmd=typer.Option("/usr/bin/env kopi-docka backup", "--backup-cmd"),
-               log_level=typer.Option("INFO", "--log-level"):
-            cmd_daemon(interval_minutes, backup_cmd, log_level)
-    )
+    @app.command("daemon")
+    def _daemon_cmd(
+        interval_minutes: Optional[int] = typer.Option(
+            None, "--interval-minutes", help="Run backup every N minutes"
+        ),
+        backup_cmd: str = typer.Option(
+            "/usr/bin/env kopi-docka backup", "--backup-cmd"
+        ),
+        log_level: str = typer.Option("INFO", "--log-level"),
+    ):
+        """Run the systemd-friendly daemon (service)."""
+        cmd_daemon(interval_minutes, backup_cmd, log_level)
     
-    app.command("write-units")(
-        lambda output_dir=typer.Option(Path("/etc/systemd/system"), "--output-dir"):
-            cmd_write_units(output_dir)
-    )
+    @app.command("write-units")
+    def _write_units_cmd(
+        output_dir: Path = typer.Option(Path("/etc/systemd/system"), "--output-dir"),
+    ):
+        """Write example systemd service and timer units."""
+        cmd_write_units(output_dir)

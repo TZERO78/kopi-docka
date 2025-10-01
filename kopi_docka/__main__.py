@@ -55,10 +55,16 @@ logger = get_logger(__name__)
 def initialize_context(
     ctx: typer.Context,
     config_path: Optional[Path] = typer.Option(
-        None, "--config", "-c", help="Path to configuration file."
+        None, 
+        "--config", 
+        help="Path to configuration file.",
+        envvar="KOPI_DOCKA_CONFIG",
     ),
     log_level: str = typer.Option(
-        "INFO", "--log-level", help="Log level (DEBUG, INFO, WARNING, ERROR)."
+        "INFO", 
+        "--log-level", 
+        help="Log level (DEBUG, INFO, WARNING, ERROR).",
+        envvar="KOPI_DOCKA_LOG_LEVEL",
     ),
 ):
     """

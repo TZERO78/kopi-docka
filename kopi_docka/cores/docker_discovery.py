@@ -32,9 +32,9 @@ import subprocess
 from typing import List, Dict, Optional, Any
 from pathlib import Path
 
-from .logging import get_logger
-from .types import BackupUnit, ContainerInfo, VolumeInfo
-from .constants import (
+from ..helpers.logging import get_logger
+from ..types import BackupUnit, ContainerInfo, VolumeInfo
+from ..helpers.constants import (
     DOCKER_COMPOSE_PROJECT_LABEL,
     DOCKER_COMPOSE_CONFIG_LABEL,
     DOCKER_COMPOSE_SERVICE_LABEL,

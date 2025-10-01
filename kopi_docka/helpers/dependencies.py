@@ -31,7 +31,7 @@ import subprocess
 from typing import List, Dict, Tuple, Optional
 from pathlib import Path
 
-from helpers.logging import get_logger
+from ..helpers.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -437,7 +437,14 @@ class DependencyManager:
                     commands.extend(
                         [
                             "rpm --import https://kopia.io/signing-key",
-                            "cat > /etc/yum.repos.d/kopia.repo <<EOF\n[kopia]\nname=Kopia\nbaseurl=http://packages.kopia.io/rpm/stable/\$basearch/\nenabled=1\ngpgcheck=1\ngpgkey=https://kopia.io/signing-key\nEOF",
+                            r"""cat > /etc/yum.repos.d/kopia.repo <<EOF
+[kopia]
+name=Kopia
+baseurl=http://packages.kopia.io/rpm/stable/\$basearch/
+enabled=1
+gpgcheck=1
+gpgkey=https://kopia.io/signing-key
+EOF""",
                             "yum install -y kopia",
                         ]
                     )

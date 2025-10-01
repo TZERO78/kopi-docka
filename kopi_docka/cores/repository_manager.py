@@ -2,22 +2,20 @@
 ################################################################################
 # KOPI-DOCKA
 #
-# @file:        repository.py
-# @module:      kopi_docka.repository
+# @file:        repository_manager.py
+# @module:      kopi_docka.cores.repository_manager
 # @description: Kopia CLI wrapper with profile-specific config handling.
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
-# @version:     1.1.0
+# @version:     1.2.0
 #
 # ------------------------------------------------------------------------------ 
 # MIT-Lizenz: siehe LICENSE oder https://opensource.org/licenses/MIT
 # ==============================================================================
-# Changelog v1.1.0:
-# - initialize() ist jetzt idempotent (prüft ob bereits connected)
-# - connect() vereinfacht, ruft nicht mehr initialize() auf
-# - disconnect() Methode hinzugefügt
-# - create_snapshot_from_stdin() verwendet --config-file explizit
-# - Bessere Fehlerbehandlung und Logging
+# Changelog v1.2.0:
+# - Password handling via Config.get_password() method
+# - Support for systemd-creds and password_file references
+# - Fallback to default password for initial setup
 ################################################################################
 
 """
@@ -56,7 +54,7 @@ class KopiaRepository:
     def __init__(self, config: Config):
         self.config = config
         self.repo_path = config.kopia_repository_path
-        self.password = config.kopia_password
+        # Password wird dynamisch über get_password() geholt
         self.profile_name = config.kopia_profile
 
     # --------------- Low-level helpers ---------------
@@ -70,8 +68,18 @@ class KopiaRepository:
     def _get_env(self) -> Dict[str, str]:
         """Build environment for Kopia CLI (password, cache dir)."""
         env = os.environ.copy()
-        if self.password:
-            env["KOPIA_PASSWORD"] = self.password
+        
+        # Hole Passwort dynamisch über Config.get_password()
+        try:
+            password = self.config.get_password()
+            if password:
+                env["KOPIA_PASSWORD"] = password
+        except ValueError as e:
+            logger.warning(f"Could not get password: {e}")
+            # Fallback zu direktem Config-Wert für Kompatibilität
+            password = self.config.get('kopia', 'password', fallback='')
+            if password:
+                env["KOPIA_PASSWORD"] = password
 
         cache_dir = self.config.kopia_cache_directory
         if cache_dir:
@@ -309,8 +317,7 @@ class KopiaRepository:
         except Exception as e:
             logger.debug("Skipping policy defaults (optional): %s", e)
 
-        if self.password:
-            logger.info("Repository initialized with configured password. Keep it safe!")
+        logger.info("Repository initialized successfully")
 
     def make_default_profile(self) -> None:
         """
