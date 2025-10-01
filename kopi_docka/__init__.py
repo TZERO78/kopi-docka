@@ -1,21 +1,21 @@
 ################################################################################
 # KOPI-DOCKA
 #
-# @file:        init.py
+# @file:        __init__.py
 # @module:      kopi_docka
-# @description: Exposes version, logging, and core managers for package consumers.
+# @description: Package entry point exposing core APIs and utilities
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
-# @version:     1.0.0
+# @version:     2.0.0
 #
 # ------------------------------------------------------------------------------
 # Copyright (c) 2025 Markus F. (TZERO78)
 # MIT-Lizenz: siehe LICENSE oder https://opensource.org/licenses/MIT
 # ==============================================================================
-# Hinweise:
-# - Re-exports Config, DockerDiscovery, BackupManager, and other entry points
-# - Sets __version__ from constants.VERSION for tooling introspection
-# - Keeps logging helpers accessible via the package namespace
+# Changes in v2.0.0:
+# - Restructured into helpers/, cores/, commands/ modules
+# - Updated imports to reflect new package organization
+# - Maintained backward compatibility for external consumers
 ################################################################################
 
 """
@@ -26,12 +26,14 @@ Docker containers and their associated data with minimal downtime and maximum
 reliability.
 """
 
-from .constants import VERSION
+# Version and metadata
+from .helpers.constants import VERSION
 
 __version__ = VERSION
-__author__ = "Kopi-Docka Development Team"
+__author__ = "Markus F. (TZERO78) & KI-Assistenten"
 
-from .logging import (
+# Logging utilities
+from .helpers.logging import (
     get_logger,
     log_manager,
     setup_logging,
@@ -39,6 +41,7 @@ from .logging import (
     Colors,
 )
 
+# Type definitions
 from .types import (
     BackupUnit,
     ContainerInfo,
@@ -47,24 +50,62 @@ from .types import (
     RestorePoint,
 )
 
-from .config import Config
-from .discovery import DockerDiscovery
-from .backup import BackupManager
-from .restore import RestoreManager
-from .repository import KopiaRepository
+# Configuration and helpers
+from .helpers import (
+    Config,
+    create_default_config,
+    generate_secure_password,
+    DependencyManager,
+)
+
+# Core business logic
+from .cores import (
+    BackupManager,
+    RestoreManager,
+    DockerDiscovery,
+    KopiaRepository,
+    DryRunReport,
+    DisasterRecoveryManager,
+    KopiDockaService,
+    ServiceConfig,
+    KopiaPolicyManager,
+)
 
 __all__ = [
+    # Version
     "VERSION",
+    "__version__",
+    "__author__",
+    
+    # Types
     "BackupUnit",
     "ContainerInfo",
     "VolumeInfo",
     "BackupMetadata",
     "RestorePoint",
+    
+    # Configuration
     "Config",
-    "DockerDiscovery",
+    "create_default_config",
+    "generate_secure_password",
+    
+    # Dependencies
+    "DependencyManager",
+    
+    # Core Managers
     "BackupManager",
     "RestoreManager",
+    "DockerDiscovery",
     "KopiaRepository",
+    "DryRunReport",
+    "DisasterRecoveryManager",
+    "KopiaPolicyManager",
+    
+    # Service
+    "KopiDockaService",
+    "ServiceConfig",
+    
+    # Logging
     "get_logger",
     "log_manager",
     "setup_logging",

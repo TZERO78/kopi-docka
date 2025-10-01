@@ -6,19 +6,16 @@
 # @description: Setuptools configuration and CLI packaging for Kopi-Docka.
 # @author:      Markus F. (TZERO78) & Contributors
 # @repository:  https://github.com/TZERO78/kopi-docka
-# @version:     1.0.0
+# @version:     2.0.0
 #
 # ------------------------------------------------------------------------------
 # Copyright (c) 2025 Markus F. (TZERO78)
 # MIT-Lizenz: siehe LICENSE oder https://opensource.org/licenses/MIT
 # ==============================================================================
-# Hinweise:
-# - Lädt README.md als long_description (falls vorhanden).
-# - Optionales Extra "systemd" für sd_notify/Watchdog (linux-only).
-# - "dev"-Extras für Tests/Linting.
-# - Registriert CLI:
-#     - kopi-docka            -> kopi_docka.__main__:main (Typer-CLI mit Subcommands)
-#     - kopi-docka-service    -> kopi_docka.service:main  (leichter Daemon/Unit-Helper)
+# Changes in v2.0.0:
+# - Updated version to 2.0.0 to reflect major restructuring
+# - Package data now includes templates directory
+# - CLI entry points unchanged for backward compatibility
 ################################################################################
 
 from setuptools import setup, find_packages
@@ -32,7 +29,7 @@ if readme_file.exists():
 
 setup(
     name="kopi-docka",
-    version="1.0.0",
+    version="2.0.0",
     description="Robust cold backups for Docker environments using Kopia",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -48,6 +45,15 @@ setup(
     license_files=("LICENSE",),
 
     packages=find_packages(exclude=("tests*", "docs*", "examples*")),
+    
+    # Include template files
+    package_data={
+        "kopi_docka": [
+            "templates/*.conf",
+            "templates/*.ini",
+        ],
+    },
+    
     include_package_data=True,
     zip_safe=False,
 
@@ -74,11 +80,10 @@ setup(
 
     entry_points={
         "console_scripts": [
-            # Haupt-CLI (Typer) mit Subcommands: init, list, backup, restore, disaster_recovery,
-            # write-units, daemon, doctor, etc.
+            # Haupt-CLI (Typer) mit allen Commands
             "kopi-docka=kopi_docka.__main__:main",
-            # Leichter Service/Daemon-Helper (optional, identische Subcommands wie in README)
-            "kopi-docka-service=kopi_docka.service:main",
+            # Service/Daemon-Helper
+            "kopi-docka-service=kopi_docka.cores.service_manager:main",
         ],
     },
 
@@ -98,5 +103,5 @@ setup(
         "Topic :: Utilities",
     ],
 
-    keywords="docker backup kopia volumes cold-backup systemd",
+    keywords="docker backup kopia volumes cold-backup systemd restore disaster-recovery",
 )
