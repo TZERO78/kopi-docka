@@ -148,6 +148,27 @@ class Config:
         """Get recovery bundle retention count."""
         return int(self.get('backup', 'recovery_bundle_retention', fallback=3))
     
+    @property
+    def backup_base_path(self) -> Path:
+        """Get backup base path as Path object."""
+        path_str = self.get('backup', 'base_path', fallback='/backup/kopi-docka')
+        return Path(path_str).expanduser()
+
+    @property
+    def parallel_workers(self) -> int:
+        """Get parallel workers setting (returns integer, auto-calculates if needed)."""
+        value = self.get('backup', 'parallel_workers', fallback='auto')
+        
+        if value == 'auto':
+            from .system_utils import SystemUtils
+            return SystemUtils.get_optimal_workers()
+        
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return 4  # Fallback
+        
+
     # Kopia settings properties
     
     @property

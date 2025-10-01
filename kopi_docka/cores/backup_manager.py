@@ -1,7 +1,7 @@
 ################################################################################
 # KOPI-DOCKA
 #
-# @file:        backup.py
+# @file:        backup_manager.py
 # @module:      kopi_docka.backup
 # @description: Orchestriert Cold-Backups: Stop -> Rezepte -> Volumes -> Start.
 # @author:      Markus F. (TZERO78) & KI-Assistenten
@@ -31,6 +31,7 @@ Cold backup strategy:
 import json
 import subprocess
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -40,6 +41,7 @@ from ..helpers.logging import get_logger
 from ..types import BackupUnit, ContainerInfo, VolumeInfo, BackupMetadata
 from ..helpers.config import Config
 from ..cores.repository_manager import KopiaRepository
+from ..cores.kopia_policy_manager import KopiaPolicyManager
 from ..helpers.constants import (
     CONTAINER_STOP_TIMEOUT,
     CONTAINER_START_TIMEOUT,
@@ -56,6 +58,7 @@ class BackupManager:
     def __init__(self, config: Config):
         self.config = config
         self.repo = KopiaRepository(config)
+        self.policy_manager = KopiaPolicyManager(self.repo)
         self.max_workers = config.parallel_workers
 
         self.stop_timeout = self.config.getint(
@@ -80,12 +83,16 @@ class BackupManager:
             f"Starting backup of unit: {unit.name}", extra={"unit_name": unit.name}
         )
         start_time = time.time()
-        metadata = BackupMetadata(
-            unit_name=unit.name, timestamp=datetime.now(), duration_seconds=0
-        )
-
+        
         # Create a consistent backup_id for all snapshots in this run (required)
-        backup_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup_id = str(uuid.uuid4())
+        
+        metadata = BackupMetadata(
+            unit_name=unit.name,
+            timestamp=datetime.now(),
+            duration_seconds=0,
+            backup_id=backup_id,
+        )
 
         try:
             # Apply retention policies up front
@@ -392,7 +399,7 @@ class BackupManager:
 
             snap_id = self.repo.create_snapshot_from_stdin(
                 tar_process.stdout,
-                path=f"{VOLUME_BACKUP_DIR}/{unit.name}/{volume.name}",
+                dest_virtual_path=f"{VOLUME_BACKUP_DIR}/{unit.name}/{volume.name}",  # ← FIX!
                 tags={
                     "type": "volume",
                     "unit": unit.name,
@@ -439,13 +446,6 @@ class BackupManager:
 
     def _ensure_policies(self, unit: BackupUnit):
         """Set Kopia retention policies for this unit (volumes + recipes)."""
-        retention = {
-            "daily": self.config.getint("retention", "daily", 7),
-            "weekly": self.config.getint("retention", "weekly", 4),
-            "monthly": self.config.getint("retention", "monthly", 12),
-            "yearly": self.config.getint("retention", "yearly", 2),
-        }
-
         targets = [
             f"{VOLUME_BACKUP_DIR}/{unit.name}",
             f"{RECIPE_BACKUP_DIR}/{unit.name}",
@@ -453,30 +453,15 @@ class BackupManager:
 
         for target in targets:
             try:
-                cmd = [
-                    "kopia",
-                    "policy",
-                    "set",
-                    f'--keep-daily={retention["daily"]}',
-                    f'--keep-weekly={retention["weekly"]}',
-                    f'--keep-monthly={retention["monthly"]}',
-                    f'--keep-yearly={retention["yearly"]}',
+                self.policy_manager.set_retention_for_target(
                     target,
-                ]
-                subprocess.run(
-                    cmd,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    env=self.repo._get_env(),
+                    keep_daily=self.config.getint("retention", "daily", 7),
+                    keep_weekly=self.config.getint("retention", "weekly", 4),
+                    keep_monthly=self.config.getint("retention", "monthly", 12),
+                    # keep_yearly intentionally omitted (Kopia 0.21 doesn't support it)
                 )
                 logger.debug(
                     f"Applied Kopia retention policy on {target}",
-                    extra={"unit_name": unit.name, "target": target},
-                )
-            except subprocess.CalledProcessError as e:
-                logger.warning(
-                    f"Could not apply Kopia policy on {target}: {e.stderr}",
                     extra={"unit_name": unit.name, "target": target},
                 )
             except Exception as e:

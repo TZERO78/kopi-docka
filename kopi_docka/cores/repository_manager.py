@@ -439,8 +439,12 @@ class KopiaRepository:
             raise RuntimeError(f"Could not determine snapshot ID from output: {proc.stdout[:200]}")
         return snap_id
 
-    def create_snapshot_from_stdin(self, stdin: IO[bytes], dest_virtual_path: str,
-                                   tags: Optional[Dict[str, str]] = None) -> str:
+    def create_snapshot_from_stdin(
+        self, 
+        stdin: IO[bytes], 
+        dest_virtual_path: str,  # ← Parameter heißt "dest_virtual_path"
+        tags: Optional[Dict[str, str]] = None
+    ) -> str:
         """
         Create a snapshot from stdin (single virtual file).
         IMPORTANT: Use '--stdin-file <name>' **and** '-' as source to indicate stdin.
