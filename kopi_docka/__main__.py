@@ -9,8 +9,7 @@
 # @repository:  https://github.com/TZERO78/kopi-docka
 # @version:     1.0.0
 #
-# ------------------------------------------------------------------------------
-# Copyright (c) 2025 Markus F. (TZERO78)
+# ------------------------------------------------------------------------------ 
 # MIT-Lizenz: siehe LICENSE oder https://opensource.org/licenses/MIT
 ################################################################################
 
@@ -29,6 +28,11 @@ import sys
 import shutil
 import subprocess
 import os
+import json
+import socket
+import time
+import secrets
+import string
 from pathlib import Path
 from typing import Optional, List
 
@@ -50,7 +54,7 @@ from .service import (
 )
 
 app = typer.Typer(
-    add_completion=False, 
+    add_completion=False,
     help="Kopi-Docka – Backup & Restore for Docker using Kopia."
 )
 logger = get_logger(__name__)
@@ -80,10 +84,10 @@ def initialize_context(
     except Exception:
         import logging
         logging.basicConfig(level=log_level.upper())
-    
+
     # Initialize context
     ctx.ensure_object(dict)
-    
+
     # Load configuration once
     try:
         if config_path and config_path.exists():
@@ -92,7 +96,7 @@ def initialize_context(
             cfg = Config()
     except Exception:
         cfg = None
-    
+
     ctx.obj["config"] = cfg
     ctx.obj["config_path"] = config_path
 
@@ -138,17 +142,36 @@ def ensure_dependencies():
 
 
 def ensure_repository(ctx: typer.Context) -> KopiaRepository:
-    """Ensure repository is initialized or exit."""
+    """
+    Ensure repository is connected for this profile, try auto-connect (and create if needed).
+    """
     repo = get_repository(ctx)
     if not repo:
         typer.echo("❌ Repository not available")
         raise typer.Exit(code=1)
-    
-    if not repo.is_initialized():
-        typer.echo("✗ Kopia repository not initialized")
-        typer.echo("Run: kopi-docka init")
+
+    # Already connected?
+    try:
+        if repo.is_connected():
+            return repo
+    except Exception:
+        pass
+
+    # Auto connect (and create if needed by repo.connect())
+    typer.echo("↻ Connecting to Kopia repository…")
+    try:
+        repo.connect()
+    except Exception as e:
+        typer.echo(f"✗ Connect failed: {e}")
+        typer.echo("  Check: repository_path, password, permissions, mounts.")
         raise typer.Exit(code=1)
-    
+
+    # Verify
+    if not repo.is_connected():
+        typer.echo("✗ Still not connected after connect().")
+        typer.echo("  Tip: 'kopia repository status --config-file ~/.config/kopia/repository-<profile>.config'")
+        raise typer.Exit(code=1)
+
     return repo
 
 
@@ -158,6 +181,56 @@ def _filter_units(all_units, names: Optional[List[str]]):
         return all_units
     wanted = set(names)
     return [u for u in all_units if u.name in wanted]
+
+
+def _print_kopia_native_status(repo: KopiaRepository) -> None:
+    """
+    Print exact Kopia native status (command used, RC, RAW stdout/stderr, pretty JSON if possible).
+    Always uses the repo's profile config file.
+    """
+    typer.echo("\n" + "-" * 60)
+    typer.echo("KOPIA (native) STATUS — RAW & JSON")
+    typer.echo("-" * 60)
+
+    cfg_file = repo._get_config_file()  # profile config path
+    env = repo._get_env()
+
+    cmd_json_verbose = ["kopia", "repository", "status", "--json-verbose", "--config-file", cfg_file]
+    cmd_json = ["kopia", "repository", "status", "--json", "--config-file", cfg_file]
+    cmd_plain = ["kopia", "repository", "status", "--config-file", cfg_file]
+
+    used_cmd = None
+    rc_connected = False
+    raw_out = raw_err = ""
+
+    for cmd in (cmd_json_verbose, cmd_json, cmd_plain):
+        p = subprocess.run(cmd, env=env, text=True, capture_output=True)
+        used_cmd = cmd
+        raw_out, raw_err = p.stdout or "", p.stderr or ""
+        if p.returncode == 0:
+            rc_connected = True
+            break
+
+    typer.echo("Command used       : " + " ".join(used_cmd))
+    typer.echo(f"Config file        : {cfg_file}")
+    typer.echo(f"Env KOPIA_PASSWORD : {'set' if env.get('KOPIA_PASSWORD') else 'unset'}")
+    typer.echo(f"Env KOPIA_CACHE    : {env.get('KOPIA_CACHE_DIRECTORY') or '-'}")
+    typer.echo(f"Connected (by RC)  : {'✓' if rc_connected else '✗'}")
+
+    typer.echo("\n--- kopia stdout ---")
+    typer.echo(raw_out.strip() or "<empty>")
+    if raw_err.strip():
+        typer.echo("\n--- kopia stderr ---")
+        typer.echo(raw_err.strip())
+
+    # Pretty-print JSON if possible
+    try:
+        parsed = json.loads(raw_out) if raw_out else None
+        if parsed is not None:
+            typer.echo("\n--- parsed JSON (pretty) ---")
+            typer.echo(json.dumps(parsed, indent=2, ensure_ascii=False))
+    except Exception:
+        pass
 
 
 # -------------------------
@@ -182,14 +255,14 @@ def cmd_check(
     """Check system requirements and dependencies."""
     deps = DependencyManager()
     deps.print_status(verbose=verbose)
-    
+
     # Check repository if config exists
     cfg = get_config(ctx)
     if cfg:
         try:
             repo = KopiaRepository(cfg)
-            if repo.is_initialized():
-                typer.echo("✓ Kopia repository is initialized")
+            if repo.is_connected():
+                typer.echo("✓ Kopia repository is connected")
                 typer.echo(f"  Profile: {repo.profile_name}")
                 typer.echo(f"  Repository: {repo.repo_path}")
                 if verbose:
@@ -198,7 +271,7 @@ def cmd_check(
                     units = repo.list_backup_units()
                     typer.echo(f"  Backup units: {len(units)}")
             else:
-                typer.echo("✗ Kopia repository not initialized")
+                typer.echo("✗ Kopia repository not connected")
                 typer.echo("  Run: kopi-docka init")
         except Exception as e:
             typer.echo(f"✗ Repository check failed: {e}")
@@ -214,7 +287,7 @@ def cmd_install_deps(
 ):
     """Install missing system dependencies."""
     deps = DependencyManager()
-    
+
     if dry_run:
         missing = deps.get_missing()
         if missing:
@@ -222,7 +295,7 @@ def cmd_install_deps(
         else:
             typer.echo("✓ All dependencies already installed")
         return
-    
+
     missing = deps.get_missing()
     if missing:
         success = deps.auto_install(force=force)
@@ -231,7 +304,7 @@ def cmd_install_deps(
         typer.echo(f"\n✓ Installed {len(missing)} dependencies")
     else:
         typer.echo("✓ All required dependencies already installed")
-    
+
     # Hint about config
     if not Path.home().joinpath(".config/kopi-docka/config.conf").exists() and \
        not Path("/etc/kopi-docka.conf").exists():
@@ -256,14 +329,14 @@ def cmd_config(
 ):
     """Show current configuration."""
     cfg = ensure_config(ctx)
-    
+
     import configparser
     typer.echo(f"Configuration file: {cfg.config_file}")
     typer.echo("=" * 60)
-    
+
     config = configparser.ConfigParser()
     config.read(cfg.config_file)
-    
+
     for section in config.sections():
         typer.echo(f"\n[{section}]")
         for option, value in config.items(section):
@@ -286,18 +359,18 @@ def cmd_new_config(
             existing_cfg = Config(path)
         else:
             existing_cfg = Config()
-    except:
+    except Exception:
         pass  # Config doesn't exist, that's fine
-    
+
     if existing_cfg and existing_cfg.config_file.exists() and not force:
         typer.echo(f"⚠️ Config already exists at: {existing_cfg.config_file}")
         typer.echo("Use --force to overwrite or 'edit-config' to modify")
         raise typer.Exit(code=1)
-    
+
     typer.echo("Creating new configuration...")
     created_path = create_default_config(path, force)
     typer.echo(f"✓ Config created at: {created_path}")
-    
+
     if edit:
         editor = os.environ.get('EDITOR', 'nano')
         typer.echo(f"\nOpening in {editor} for initial setup...")
@@ -315,13 +388,13 @@ def cmd_edit_config(
 ):
     """Edit existing configuration file."""
     cfg = ensure_config(ctx)
-    
+
     if not editor:
         editor = os.environ.get('EDITOR', 'nano')
-    
+
     typer.echo(f"Opening {cfg.config_file} in {editor}...")
     subprocess.call([editor, str(cfg.config_file)])
-    
+
     # Validate after editing
     try:
         Config(cfg.config_file)
@@ -336,43 +409,288 @@ def cmd_edit_config(
 
 @app.command("init")
 def cmd_init(ctx: typer.Context):
-    """Initialize (or connect to) the Kopia repository."""
-    # Check Kopia first
+    """Initialize (or connect to) the Kopia repository defined in your config."""
     if not shutil.which("kopia"):
         typer.echo("❌ Kopia is not installed!")
         typer.echo("Install with: kopi-docka install-deps")
         raise typer.Exit(code=1)
-    
-    # Check dependencies
+
     ensure_dependencies()
-    
-    # Get config
     cfg = ensure_config(ctx)
-    
-    # Create repository
     repo = KopiaRepository(cfg)
-    
+
     typer.echo(f"Using profile: {repo.profile_name}")
     typer.echo(f"Repository: {repo.repo_path}")
 
-    if repo.is_initialized():
-        typer.echo("Repository already initialized. Connecting…")
-        try:
-            repo.connect()
-            typer.echo("✓ Connected to repository")
-        except Exception as e:
-            typer.echo(f"Failed to connect: {e}")
-            raise typer.Exit(code=1)
-        return
-
-    typer.echo("Initializing repository…")
     try:
-        repo.initialize()
-        typer.echo("✓ Repository initialized successfully")
-        typer.echo(f"✓ Profile '{repo.profile_name}' configured")
+        repo.connect()  # connect → if not initialized: create → connect
+        typer.echo("✓ Repository connected")
     except Exception as e:
-        typer.echo(f"Failed to initialize repository: {e}")
+        typer.echo(f"✗ Init/connect failed: {e}")
         raise typer.Exit(code=1)
+
+
+@app.command("repo-status")
+def cmd_repo_status(ctx: typer.Context):
+    """Show Kopia repository status and statistics."""
+    ensure_config(ctx)
+    repo = ensure_repository(ctx)
+
+    try:
+        typer.echo("=" * 60)
+        typer.echo("KOPIA REPOSITORY STATUS")
+        typer.echo("=" * 60)
+
+        is_conn = False
+        try:
+            is_conn = repo.is_connected()
+        except Exception:
+            is_conn = False
+
+        typer.echo(f"\nProfile: {repo.profile_name}")
+        typer.echo(f"Repository: {repo.repo_path}")
+        typer.echo(f"Connected: {'✓' if is_conn else '✗'}")
+
+        snapshots = repo.list_snapshots()
+        units = repo.list_backup_units()
+        typer.echo(f"\nTotal Snapshots: {len(snapshots)}")
+        typer.echo(f"Backup Units: {len(units)}")
+
+        # Native status (exact command + raw + parsed)
+        _print_kopia_native_status(repo)
+
+        typer.echo("\n" + "=" * 60)
+
+    except Exception as e:
+        typer.echo(f"✗ Failed to get repository status: {e}")
+        raise typer.Exit(code=1)
+
+
+@app.command("repo-which-config")
+def cmd_repo_which_config(ctx: typer.Context):
+    """Show which Kopia config file is used by the current profile and the default path."""
+    repo = get_repository(ctx) or KopiaRepository(ensure_config(ctx))
+    typer.echo(f"Profile         : {repo.profile_name}")
+    typer.echo(f"Profile config  : {repo._get_config_file()}")
+    typer.echo(f"Default config  : {Path.home() / '.config' / 'kopia' / 'repository.config'}")
+
+
+@app.command("repo-set-default")
+def cmd_repo_set_default(ctx: typer.Context):
+    """
+    Point the default Kopia config (repository.config) at the current profile.
+    After this, running 'kopia repository status' WITHOUT --config-file will use this profile.
+    """
+    repo = ensure_repository(ctx)
+
+    src = Path(repo._get_config_file())
+    dst = Path.home() / ".config" / "kopia" / "repository.config"
+    dst.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        if dst.exists() or dst.is_symlink():
+            dst.unlink()
+        try:
+            dst.symlink_to(src)
+        except Exception:
+            from shutil import copy2
+            copy2(src, dst)
+        typer.echo("✓ Default kopia config set.")
+        typer.echo("Test:  kopia repository status")
+    except Exception as e:
+        typer.echo(f"✗ Could not set default: {e}")
+        raise typer.Exit(code=1)
+
+
+@app.command("repo-init-path")
+def cmd_repo_init_path(
+    ctx: typer.Context,
+    path: Path = typer.Argument(..., help="Repository path (filesystem backend)."),
+    profile: Optional[str] = typer.Option(None, "--profile", "-p", help="Profile name to use (defaults to current)."),
+    set_default: bool = typer.Option(False, "--set-default/--no-set-default", help="Also set as default Kopia config."),
+    password: Optional[str] = typer.Option(None, "--password", help="Password to use (overrides config/env)."),
+):
+    """
+    Create a Kopia filesystem repository at PATH (exactly like: kopia repository create filesystem --path PATH),
+    then connect to it under the chosen profile/config.
+    """
+    cfg = ensure_config(ctx)
+    repo = KopiaRepository(cfg)
+
+    env = repo._get_env()
+    if password:
+        env["KOPIA_PASSWORD"] = password
+
+    cfg_file = repo._get_config_file() if not profile else str(Path.home() / ".config" / "kopia" / f"repository-{profile}.config")
+    Path(cfg_file).parent.mkdir(parents=True, exist_ok=True)
+
+    path = path.expanduser().resolve()
+    path.mkdir(parents=True, exist_ok=True)
+
+    # 1) Create
+    cmd_create = [
+        "kopia", "repository", "create", "filesystem",
+        "--path", str(path),
+        "--description", f"Kopi-Docka Backup Repository ({profile or repo.profile_name})",
+        "--config-file", cfg_file,
+    ]
+    p = subprocess.run(cmd_create, env=env, text=True, capture_output=True)
+    if p.returncode != 0 and "existing data in storage location" not in (p.stderr or ""):
+        typer.echo("✗ create failed:")
+        typer.echo(p.stderr.strip() or p.stdout.strip())
+        raise typer.Exit(code=1)
+
+    # 2) Connect (idempotent)
+    cmd_connect = [
+        "kopia", "repository", "connect", "filesystem",
+        "--path", str(path),
+        "--config-file", cfg_file,
+    ]
+    pc = subprocess.run(cmd_connect, env=env, text=True, capture_output=True)
+    if pc.returncode != 0:
+        ps = subprocess.run(["kopia", "repository", "status", "--config-file", cfg_file], env=env, text=True, capture_output=True)
+        typer.echo("✗ connect failed:")
+        typer.echo(pc.stderr.strip() or pc.stdout.strip() or ps.stderr.strip() or ps.stdout.strip())
+        raise typer.Exit(code=1)
+
+    # 3) Verify
+    ps = subprocess.run(["kopia", "repository", "status", "--json", "--config-file", cfg_file], env=env, text=True, capture_output=True)
+    if ps.returncode != 0:
+        typer.echo("✗ status failed after connect:")
+        typer.echo(ps.stderr.strip() or ps.stdout.strip())
+        raise typer.Exit(code=1)
+
+    typer.echo("✓ Repository created & connected")
+    typer.echo(f"  Path    : {path}")
+    typer.echo(f"  Profile : {profile or repo.profile_name}")
+    typer.echo(f"  Config  : {cfg_file}")
+
+    # 4) Optionally set default
+    if set_default:
+        src = Path(cfg_file)
+        dst = Path.home() / ".config" / "kopia" / "repository.config"
+        try:
+            if dst.exists() or dst.is_symlink():
+                dst.unlink()
+            try:
+                dst.symlink_to(src)
+            except Exception:
+                from shutil import copy2
+                copy2(src, dst)
+            typer.echo("✓ Set as default Kopia config. Test:")
+            typer.echo("  kopia repository status")
+        except Exception as e:
+            typer.echo(f"⚠ could not set default: {e}")
+
+    # Hints for raw Kopia
+    typer.echo("\nUse raw Kopia with this repo:")
+    typer.echo(f"  kopia repository status --config-file {cfg_file}")
+    typer.echo(f"  kopia snapshot list --json --config-file {cfg_file}")
+
+
+@app.command("repo-selftest")
+def cmd_repo_selftest(
+    tmpdir: Path = typer.Option(Path("/tmp"), "--tmpdir", help="Base dir for ephemeral test repo"),
+    keep: bool = typer.Option(False, "--keep/--no-keep", help="Keep repo & config for manual inspection"),
+    password: Optional[str] = typer.Option(None, "--password", help="Password for the test repo (default: random)"),
+):
+    """
+    Create an ephemeral test repository, snapshot a dummy file, list snapshots, and clean up.
+    Useful to validate Kopia + profile config on this host.
+    """
+    # Prepare locations & credentials
+    stamp = str(int(time.time()))
+    test_profile = f"kopi-docka-selftest-{stamp}"
+    repo_dir = Path(tmpdir) / f"kopia-selftest-{stamp}"
+    repo_dir.mkdir(parents=True, exist_ok=True)
+
+    if not password:
+        alphabet = string.ascii_letters + string.digits
+        password = "".join(secrets.choice(alphabet) for _ in range(24))
+
+    # Minimal temp config for Config()
+    conf_dir = Path.home() / ".config" / "kopi-docka"
+    conf_dir.mkdir(parents=True, exist_ok=True)
+    conf_path = conf_dir / f"selftest-{stamp}.conf"
+
+    conf_path.write_text(
+        f"""
+[kopia]
+repository_path = {repo_dir}
+password = {password}
+profile = {test_profile}
+
+[retention]
+daily = 7
+weekly = 4
+monthly = 12
+yearly = 3
+""".strip(),
+        encoding="utf-8",
+    )
+
+    typer.echo(f"Selftest profile   : {test_profile}")
+    typer.echo(f"Selftest repo path : {repo_dir}")
+    typer.echo(f"Selftest config    : {conf_path}")
+
+    cfg = Config(conf_path)
+    test_repo = KopiaRepository(cfg)
+
+    # Connect/create
+    typer.echo("↻ Connecting/creating test repository…")
+    try:
+        test_repo.connect()
+    except Exception as e:
+        typer.echo(f"✗ Could not connect/create selftest repo: {e}")
+        raise typer.Exit(code=1)
+
+    if not test_repo.is_connected():
+        typer.echo("✗ Not connected after connect().")
+        raise typer.Exit(code=1)
+
+    # Native status (raw)
+    _print_kopia_native_status(test_repo)
+
+    # Create a small snapshot
+    workdir = repo_dir / "data"
+    workdir.mkdir(parents=True, exist_ok=True)
+    (workdir / "hello.txt").write_text("Hello Kopia!\n", encoding="utf-8")
+
+    typer.echo("Creating snapshot of selftest data…")
+    snap_id = test_repo.create_snapshot(str(workdir), tags={"type": "selftest"})
+    typer.echo(f"Snapshot ID        : {snap_id}")
+
+    # List snapshots
+    snaps = test_repo.list_snapshots(tag_filter={"type": "selftest"})
+    typer.echo(f"Selftest snapshots : {len(snaps)}")
+
+    # Optional maintenance (quick)
+    try:
+        test_repo.maintenance_run(full=False)
+    except Exception:
+        pass
+
+    # Cleanup
+    if not keep:
+        typer.echo("Cleaning up selftest repo & config…")
+        try:
+            test_repo.disconnect()
+        except Exception:
+            pass
+        try:
+            import shutil as _shutil
+            _shutil.rmtree(repo_dir, ignore_errors=True)
+        except Exception:
+            pass
+        try:
+            conf_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        typer.echo("✓ Cleanup done")
+    else:
+        typer.echo("(kept) Inspect manually, e.g.:")
+        typer.echo(f"  kopia repository status --config-file ~/.config/kopia/repository-{test_repo.profile_name}.config")
+        typer.echo(f"  kopia snapshot list --json --config-file ~/.config/kopia/repository-{test_repo.profile_name}.config")
 
 
 @app.command("repo-maintenance")
@@ -380,73 +698,15 @@ def cmd_repo_maintenance(ctx: typer.Context):
     """Run Kopia repository maintenance."""
     ensure_config(ctx)
     repo = ensure_repository(ctx)
-    
+
     try:
         repo.maintenance_run()
         typer.echo("✓ Maintenance completed")
     except Exception as e:
         typer.echo(f"Maintenance failed: {e}")
         raise typer.Exit(code=1)
-    
-@app.command("repo-status")
-def cmd_repo_status(
-    ctx: typer.Context,
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed repository info"),
-):
-    """Show Kopia repository status and statistics."""
-    cfg = ensure_config(ctx)
-    repo = ensure_repository(ctx)
-    
-    try:
-        typer.echo("=" * 60)
-        typer.echo("KOPIA REPOSITORY STATUS")
-        typer.echo("=" * 60)
-        
-        # Basic repo info
-        typer.echo(f"\nProfile: {repo.profile_name}")
-        typer.echo(f"Repository: {repo.repo_path}")
-        typer.echo(f"Connected: {'✓' if repo.is_initialized() else '✗'}")
-        
-        # Get snapshots
-        snapshots = repo.list_snapshots()
-        typer.echo(f"\nTotal Snapshots: {len(snapshots)}")
-        
-        # Get backup units
-        units = repo.list_backup_units()
-        typer.echo(f"Backup Units: {len(units)}")
-        
-        if verbose and snapshots:
-            typer.echo("\n" + "-" * 60)
-            typer.echo("RECENT SNAPSHOTS")
-            typer.echo("-" * 60)
-            
-            # Show last 10 snapshots
-            recent = snapshots[-10:] if len(snapshots) > 10 else snapshots
-            for snap in reversed(recent):
-                unit = snap.get("tags", {}).get("unit", "unknown")
-                timestamp = snap.get("timestamp", "unknown")
-                snap_id = snap.get("id", "")[:12]
-                typer.echo(f"  {snap_id} | {unit:<20} | {timestamp}")
-        
-        if verbose and units:
-            typer.echo("\n" + "-" * 60)
-            typer.echo("BACKUP UNITS")
-            typer.echo("-" * 60)
-            for unit_name in units:
-                typer.echo(f"  • {unit_name}")
-        
-        typer.echo("\n" + "=" * 60)
-        
-        # Call native kopia status for detailed info
-        if verbose:
-            typer.echo("\nDetailed Kopia Status:")
-            typer.echo("-" * 60)
-            repo.status()
-        
-    except Exception as e:
-        typer.echo(f"✗ Failed to get repository status: {e}")
-        raise typer.Exit(code=1)
-    
+
+
 # -------------------------
 # Backup & Restore
 # -------------------------
@@ -459,7 +719,7 @@ def cmd_list(
 ):
     """List backup units or repository snapshots."""
     cfg = ensure_config(ctx)
-    
+
     if not (units or snapshots):
         units = True
 
@@ -509,16 +769,15 @@ def cmd_backup(
     ),
 ):
     """Run a cold backup for selected units (or all)."""
-    # Ensure prerequisites
     ensure_dependencies()
     cfg = ensure_config(ctx)
     repo = ensure_repository(ctx)
-    
+
     try:
         discovery = DockerDiscovery()
         units = discovery.discover_backup_units()
         selected = _filter_units(units, unit)
-        
+
         if not selected:
             typer.echo("Nothing to back up (no units found).")
             return
@@ -558,7 +817,7 @@ def cmd_restore(ctx: typer.Context):
     """Launch the interactive restore wizard."""
     cfg = ensure_config(ctx)
     repo = ensure_repository(ctx)
-    
+
     try:
         rm = RestoreManager(cfg)
         rm.interactive_restore()
