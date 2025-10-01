@@ -478,36 +478,42 @@ class KopiaRepository:
 
     def list_snapshots(self, tag_filter: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
         """
-        List snapshots (NDJSON). If tag_filter provided, filter client-side.
+        List snapshots. Kopia returns a JSON array.
         Returns simplified dicts: id, path, timestamp, tags, size.
         """
         proc = self._run(["kopia", "snapshot", "list", "--json"], check=True)
+        
+        # Parse as JSON array (not NDJSON!)
+        try:
+            raw_snaps = json.loads(proc.stdout or "[]")
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse snapshot list: {e}")
+            return []
+        
+        if not isinstance(raw_snaps, list):
+            logger.warning("Unexpected snapshot list format (not an array)")
+            return []
+        
         snaps: List[Dict[str, Any]] = []
-        for line in (proc.stdout or "").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-
-            # FIX: Entferne "tag:" Präfix aus Tags
+        for obj in raw_snaps:
+            # Remove "tag:" prefix from tags
             tags_raw = obj.get("tags") or {}
             tags = {k.replace("tag:", ""): v for k, v in tags_raw.items()}
             
+            # Apply tag filter if provided
             if tag_filter and any(tags.get(k) != v for k, v in tag_filter.items()):
                 continue
-
+            
             src = obj.get("source") or {}
             stats = obj.get("stats") or {}
             snaps.append({
                 "id": obj.get("id", ""),
                 "path": src.get("path", ""),
                 "timestamp": obj.get("startTime") or obj.get("time") or "",
-                "tags": tags,  # ← Jetzt OHNE "tag:" Präfix!
+                "tags": tags,  # Without "tag:" prefix!
                 "size": stats.get("totalSize") or 0,
             })
+        
         return snaps
   
     # --------------- Restore / Verify / Maintenance ---------------

@@ -2,6 +2,12 @@
 
 **Robust cold backups for Docker environments using Kopia**
 
+[![Build](https://github.com/TZERO78/kopi-docka/actions/workflows/python-app.yml/badge.svg)](https://github.com/TZERO78/kopi-docka/actions/workflows/python-app.yml)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20WSL-lightgrey)
+![Code Style](https://img.shields.io/badge/code%20style-black-000000.svg)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 Kopi‑Docka performs **consistent, cold backups** of Docker stacks ("backup units"). It briefly stops containers, snapshots **recipes** (Compose + `docker inspect`, with secret redaction) and **volumes** into a Kopia repository, then restarts your services.
 
 > **Note:** Kopi‑Docka intentionally **does not** create separate database dumps anymore. Volumes are the **single source of truth**.
@@ -12,12 +18,12 @@ Kopi‑Docka performs **consistent, cold backups** of Docker stacks ("backup uni
 
 Kopi‑Docka focuses on a single, reliable workflow: **1:1 restoration of Docker services** without mixing hot DB tooling. Use it when you want:
 
-- **Consistency first:** Cold backups (Stop → Snapshot → Start).
-- **Stack awareness:** Back up complete Compose stacks as one **backup unit**.
-- **Exact restores:** Bring back the same config, volumes, and layout.
-- **Cloud‑ready repos:** Use Kopia repositories on filesystem or cloud (S3, B2, Azure, GCS†).
-- **Simple ops:** Clear CLI, dry‑run, restore wizard, and systemd integration.
-- **Deterministic archives:** Optimized tar streams for dedupe (`--numeric-owner --xattrs --acls --mtime=@0 --sort=name`).
+* **Consistency first:** Cold backups (Stop → Snapshot → Start).
+* **Stack awareness:** Back up complete Compose stacks as one **backup unit**.
+* **Exact restores:** Bring back the same config, volumes, and layout.
+* **Cloud‑ready repos:** Use Kopia repositories on filesystem or cloud (S3, B2, Azure, GCS†).
+* **Simple ops:** Clear CLI, dry‑run, restore wizard, and systemd integration.
+* **Deterministic archives:** Optimized tar streams for dedupe (`--numeric-owner --xattrs --acls --mtime=@0 --sort=name`).
 
 † subject to Kopia support and your configuration.
 
@@ -27,58 +33,58 @@ If you need enterprise‑grade orchestration, consider Kubernetes backup tools l
 
 ## Key Features
 
-- 🔒 **Cold, consistent backups** (short downtime per unit)
-- 🧩 **Backup Units** (Compose stacks or standalone containers)
-- 🧾 **Recipes**: `docker-compose.yml` (if present) + `docker inspect` with secret redaction
-- 📦 **Volumes**: tar stream with owners/ACLs/xattrs, dedupe‑friendly ordering & mtimes
-- 🏷️ **Mandatory `backup_id`**: every run tags snapshots with `{ unit, backup_id, type, timestamp }`
-- 🧰 **Per‑unit Kopia policies**: retention set on `recipes/UNIT` and `volumes/UNIT`
-- 🧪 **Dry‑run mode**: full simulation, no changes
-- 🛟 **Disaster Recovery Bundle**: encrypted package with repo info, password, script, status
-- 🐧 **systemd‑friendly**: daemon with sd_notify/watchdog/locking + sample service/timer/oneshot units
-- ⚙️ **Parallel workers = auto**: tuned by RAM/CPU; no artificial `task_timeout`
+* 🔒 **Cold, consistent backups** (short downtime per unit)
+* 🧩 **Backup Units** (Compose stacks or standalone containers)
+* 🧾 **Recipes**: `docker-compose.yml` (if present) + `docker inspect` with secret redaction
+* 📦 **Volumes**: tar stream with owners/ACLs/xattrs, dedupe‑friendly ordering & mtimes
+* 🏷️ **Mandatory `backup_id`**: every run tags snapshots with `{ unit, backup_id, type, timestamp }`
+* 🧰 **Per‑unit Kopia policies**: retention set on `recipes/UNIT` and `volumes/UNIT`
+* 🧪 **Dry‑run mode**: full simulation, no changes
+* 🛟 **Disaster Recovery Bundle**: encrypted package with repo info, password, script, status
+* 🐧 **systemd‑friendly**: daemon with sd_notify/watchdog/locking + sample service/timer/oneshot units
+* ⚙️ **Parallel workers = auto**: tuned by RAM/CPU; no artificial `task_timeout`
 
 ---
 
 ## How it Works
 
-1) **Discovery**  
-   Finds running containers & volumes, groups them into **backup units**  
-   (Compose stacks preferred; otherwise standalone). Recipes include Compose path (if labeled) and `docker inspect` (ENV secrets redacted: `PASS|SECRET|KEY|TOKEN|API|AUTH`).
+### 1) Discovery
 
-2) **Backup Pipeline (Cold)**  
-   - Create **`backup_id`** (e.g., `2025-01-31T23-59-59Z`) – required and used for grouping.  
-   - **Stop** unit containers (graceful `docker stop -t <timeout>`).  
-   - **Snapshot recipes** → Kopia tags: `{type: recipe, unit, backup_id, timestamp}`.  
-   - **Snapshot volumes** (parallel, up to `parallel_workers`) via tar stream → Kopia `--stdin`  
-     Tags: `{type: volume, unit, volume, backup_id, timestamp, size_bytes?}`.  
-   - **Start** containers; if a healthcheck exists, wait until `healthy`.  
-   - **Apply retention** policies per unit (daily/weekly/monthly/yearly).  
-   - (Optional) **Create DR bundle** and rotate.
+Finds running containers & volumes, groups them into **backup units** (Compose stacks preferred; otherwise standalone). Recipes include Compose path (if labeled) and `docker inspect` (ENV secrets redacted: `PASS|SECRET|KEY|TOKEN|API|AUTH`).
 
-3) **Restore (Wizard)**  
-   - Lists restore points grouped strictly by **(unit, backup_id)**.  
-   - Restores recipe files to a working directory.  
-   - Generates **safe volume restore scripts** (stop users, safety tar of current volume, stream restore, restart).  
-   - Documents **modern `docker compose up -d`** only (no legacy fallback).  
-   - Warns about redacted secrets in `*_inspect.json`.
+### 2) Backup Pipeline (Cold)
+
+1. Create **`backup_id`** (e.g., `2025-01-31T23-59-59Z`) – required and used for grouping.
+2. **Stop** unit containers (graceful `docker stop -t <timeout>`).
+3. **Snapshot recipes** → Kopia tags: `{type: recipe, unit, backup_id, timestamp}`.
+4. **Snapshot volumes** (parallel, up to `parallel_workers`) via tar stream → Kopia `--stdin`  
+   Tags: `{type: volume, unit, volume, backup_id, timestamp, size_bytes?}`.
+5. **Start** containers; if a healthcheck exists, wait until `healthy`.
+6. **Apply retention** policies per unit (daily/weekly/monthly/yearly).
+7. (Optional) **Create DR bundle** and rotate.
+
+### 3) Restore (Wizard)
+
+* Lists restore points grouped strictly by **(unit, backup_id)**.
+* Restores recipe files to a working directory.
+* Generates **safe volume restore scripts** (stop users, safety tar of current volume, stream restore, restart).
+* Documents **modern `docker compose up -d`** only (no legacy fallback).
+* Warns about redacted secrets in `*_inspect.json`.
 
 ---
 
 ## Requirements
 
-- Linux (systemd recommended)
-- Docker (Engine & CLI)
-- Kopia (CLI)
-- `tar`
-- **Python 3.10+**
+- Linux (Debian/Ubuntu recommended)
+- Docker Engine & CLI
+- Kopia CLI
+- Python 3.10+
+- `tar` (usually pre-installed)
 
-Quick checks:
-
+**Quick check:**
 ```bash
-which docker && docker --version
-which kopia && kopia --version
-which tar
+docker --version
+kopia --version
 python3 --version
 ```
 
@@ -86,240 +92,443 @@ python3 --version
 
 ## Installation
 
-### From source (pipx recommended)
+### Option 1: pipx (recommended)
+```bash
+pipx install git+https://github.com/TZERO78/kopi-docka.git
+```
 
+### Option 2: From source
 ```bash
 git clone https://github.com/TZERO78/kopi-docka.git
 cd kopi-docka
-pipx install .
-# or:
 pip install -e .
 ```
 
-The CLI is installed as `kopi-docka` (verify with `which kopi-docka`).
+### Verify installation
+```bash
+kopi-docka --version
+kopi-docka check
+```
+
+If dependencies are missing:
+```bash
+sudo kopi-docka install-deps
+```
+
+---
+
+## Quickstart
+
+```bash
+# 1. Check system
+kopi-docka check
+
+# 2. Create config (opens editor)
+kopi-docka new-config
+
+# 3. Edit at least these settings:
+#    - repository_path: where to store backups
+#    - password: CHANGE from default 'kopi-docka'!
+
+# 4. Initialize repository
+kopi-docka init
+
+# 5. Change default password immediately!
+kopi-docka change-password
+
+# 6. Check connection
+kopi-docka repo-status
+
+# 7. Discover your Docker containers
+kopi-docka list --units
+
+# 8. Test run (no changes made)
+kopi-docka dry-run
+
+# 9. Real backup
+kopi-docka backup
+
+# 10. Restore if needed
+kopi-docka restore
+```
 
 ---
 
 ## Configuration
 
-Default search order (first wins):
+Config file locations (first found wins):
+- `/etc/kopi-docka.conf` (system-wide)
+- `~/.config/kopi-docka/config.conf` (user)
 
-- `/etc/kopi-docka.conf`
-- `~/.config/kopi-docker/config.conf`
-
-### Example `kopi-docka.conf`
-
+**Minimal example:**
 ```ini
 [kopia]
-repository_path = /backup/kopia-repo
-password = CHANGE_ME_TO_A_SECURE_PASSWORD
-compression = zstd-fastest
-encryption = aes256
-cache_directory = /var/cache/kopia
+repository_path = /backup/kopia-repository
+password = your-secure-password-here
+profile = kopi-docka
+compression = zstd
 
 [backup]
-backup_base_path = /backup/kopi-docka
 parallel_workers = auto
 stop_timeout = 30
 start_timeout = 60
-exclude_patterns = ["*.tmp", "*.cache", "lost+found"]
-update_recovery_bundle = false
-recovery_bundle_path = /backup/recovery
-recovery_bundle_retention = 3
 
 [retention]
-daily   = 7
-weekly  = 4
+daily = 7
+weekly = 4
 monthly = 12
-yearly  = 2
-
-[logging]
-level = INFO
+yearly = 5
 ```
 
-Notes:
+**Important settings:**
 
-- `parallel_workers = auto` uses a RAM/CPU heuristic (capped at CPU cores).
-- `exclude_patterns` are passed to `tar --exclude`.
-- **No `task_timeout`** anymore (removed). If you still have `task_timeout=0` it is interpreted as “no timeout”.
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `repository_path` | Where backups are stored | `/backup/kopia-repository` |
+| `password` | Repository password | `kopi-docka` ⚠️ |
+| `parallel_workers` | Backup threads | `auto` (based on RAM/CPU) |
+| `stop_timeout` | Seconds to wait for graceful stop | `30` |
+| `retention.daily` | Keep N daily backups | `7` |
 
 ---
 
-## Usage
+## Password Management
 
-### Initialize & Inspect
-
-```bash
-# Initialize or connect repository, check deps
-kopi-docka init
-kopi-docka check
+### Default Setup (Simple)
+Password stored directly in config file:
+```ini
+[kopia]
+password = my-secure-password
 ```
 
-### List Units
+### External File (More Secure)
+```bash
+# Create password file
+echo "my-secure-password" | sudo tee /etc/.kopia-password
+sudo chmod 600 /etc/.kopia-password
 
+# Update config
+[kopia]
+password_file = /etc/.kopia-password
+password =
+```
+
+### Change Password Safely
+```bash
+kopi-docka change-password
+```
+This updates **both** the Kopia repository and your config.
+
+⚠️ **IMPORTANT:** After first `kopi-docka init`, change the default password immediately!
+```bash
+kopi-docka change-password
+```
+
+---
+
+## Usage Examples
+
+### List Backup Units
 ```bash
 kopi-docka list --units
 ```
 
-### Backup
-
+### Dry Run (Test Mode)
 ```bash
-# Dry run (no changes)
-kopi-docka backup --dry-run
+kopi-docka dry-run
+kopi-docka dry-run --unit my-stack
+```
 
-# Full backup (all units)
+### Backup Everything
+```bash
 kopi-docka backup
+```
 
-# Specific unit
-kopi-docka backup --unit my-stack
+### Backup Specific Units
+```bash
+kopi-docka backup --unit webapp --unit database
+```
 
-# Also generate/update DR bundle
+### Backup with Recovery Bundle
+```bash
 kopi-docka backup --update-recovery
 ```
 
-### Restore
-
+### Restore Wizard
 ```bash
-# Interactive restore wizard
 kopi-docka restore
 ```
-
-Flow:
-
-1. Pick **unit** and **backup_id**.
-2. Wizard restores recipes to a working directory.
-3. For each volume, it writes a **restore script** (stops containers, safety backup, stream restore, restart).
-4. Use **`docker compose up -d`** when ready.  
-   If you need manual recreation (no Compose), use the `*_inspect.json` hints.
+Guides you through:
+1. Selecting a restore point
+2. Restoring config files
+3. Creating safe volume restore scripts
+4. Restarting services
 
 ---
 
-## Disaster Recovery Bundle
+## CLI Commands Reference
 
-Create/rotate an encrypted bundle with **repo info**, **Kopia password**, **config**, **recovery script**, and **status**:
+### Configuration Management
+| Command | Description |
+|---------|-------------|
+| `show-config` | Display current configuration (with secrets masked) |
+| `new-config` | Create new config file with template |
+| `edit-config` | Open config in editor ($EDITOR or nano) |
+| `reset-config` | ⚠️ Reset config completely (creates new password!) |
+| `change-password` | Safely change Kopia repository password |
 
-```bash
-kopi-docka disaster-recovery
-```
+### System & Dependencies
+| Command | Description |
+|---------|-------------|
+| `check` | Verify all dependencies and show status |
+| `install-deps` | Auto-install missing system dependencies |
+| `show-deps` | Show manual installation guide for dependencies |
+| `version` | Show Kopi-Docka version |
 
-Configure automatic updates in `[backup]`:
+### Repository Management
+| Command | Description |
+|---------|-------------|
+| `init` | Initialize or connect to Kopia repository |
+| `repo-status` | Show detailed repository status with native Kopia info |
+| `repo-which-config` | Display which Kopia config file is being used |
+| `repo-set-default` | Make current profile the default Kopia config |
+| `repo-init-path PATH` | Create new filesystem repository at specific path |
+| `repo-maintenance` | Run Kopia repository maintenance (cleanup, optimize) |
+| `repo-selftest` | Create temporary test repository for validation |
 
-```ini
-update_recovery_bundle      = true
-recovery_bundle_path        = /backup/recovery
-recovery_bundle_retention   = 3
-```
+### Backup & Restore Operations
+| Command | Description |
+|---------|-------------|
+| `list --units` | Show all discovered backup units (containers/stacks) |
+| `list --snapshots` | Show all Kopia snapshots in repository |
+| `dry-run` | Simulate backup without making any changes |
+| `dry-run --unit NAME` | Simulate backup for specific unit only |
+| `estimate-size` | Calculate estimated backup size for all units |
+| `backup` | Run full cold backup for all units |
+| `backup --unit NAME` | Backup specific unit(s) only |
+| `backup --update-recovery` | Create/update disaster recovery bundle |
+| `restore` | Interactive restore wizard |
 
-You’ll get:
-- `kopia-repository.json`
-- `kopia-password.txt` (keep secure!)
-- `kopi-docka.conf`
-- `recover.sh` (automated bootstrap + repo connect)
-- `backup-status.json`
-- `<bundle>.README` (password & steps), `<bundle>.PASSWORD` (0600)
-
----
-
-## Scheduling & Service
-
-### systemd (recommended)
-
-Write example units, reload, enable:
-
-```bash
-sudo kopi-docka write-units
-sudo systemctl daemon-reload
-
-# Timer: daily at 02:00 with jitter
-sudo systemctl enable --now kopi-docka.timer
-systemctl status kopi-docka.timer
-```
-
-### Optional daemon (internal interval)
-
-```bash
-kopi-docka daemon --interval-minutes 1440
-```
-
-The daemon is sd_notify/watchdog aware and uses a PID lock to avoid overlaps.  
-Prefer the **timer** for production; the daemon can run alongside as needed.
-
-Logs:
-
-```bash
-journalctl -u kopi-docka --no-pager -n 200
-```
-
----
-
-## Performance Tips
-
-- Tune `parallel_workers` (auto is usually fine; lower if RAM is tight).
-- Add `exclude_patterns` to reduce noise and speed up backups.
-- Put `KOPIA_CACHE_DIRECTORY` on fast storage.
-- Set sensible retention; policies are applied per unit automatically.
+### Service & Automation
+| Command | Description |
+|---------|-------------|
+| `daemon` | Run systemd-friendly daemon (for manual testing) |
+| `write-units` | Generate systemd service/timer unit files |
 
 ---
 
 ## Troubleshooting
 
-**Doctor & versions**
+### ❌ "invalid repository password" during init
 
+**Cause:** Repository already exists with different password.
+
+**Solution A: Use existing repository (RECOMMENDED)**
 ```bash
-kopi-docka doctor
-docker --version
-kopia --version
+# 1. Find old password (check backup of config)
+# 2. Update config with correct password
+# 3. Run init again
+kopi-docka init
 ```
 
-**Repository & snapshots**
-
+**Solution B: Start fresh (⚠️ DELETES EXISTING BACKUPS!)**
 ```bash
-kopia repository status
-kopia snapshot list --json | jq '.'
+# Backup old repo first!
+sudo mv /backup/kopia-repository /backup/kopia-repository.OLD
+
+# Create new repo
+kopi-docka init
 ```
 
-**Disk space**
+### ⚠️ "No backup units found"
 
+**Causes:**
+- No Docker containers running
+- Docker socket not accessible
+
+**Solutions:**
 ```bash
-df -h
+# Check Docker access
+docker ps
+
+# Add user to docker group
+sudo usermod -aG docker $USER
+# Then logout and login again
+
+# Or run with sudo
+sudo kopi-docka list --units
 ```
 
-**Permissions**
+### 🔍 "Not connected" vs. "Connected: ✓"
 
-- Ensure access to `/var/run/docker.sock` (root or user in `docker` group).
-- Ensure write access to `repository_path` and `backup_base_path`.
+**Check your profile config:**
+```bash
+kopi-docka repo-which-config
+```
 
-**Healthchecks**
+Different users have different Kopia profiles!
+- Root: `/root/.config/kopia/...`
+- User: `/home/user/.config/kopia/...`
 
-- On startup, Kopi‑Docka waits for `healthy` if a healthcheck is defined.
+### 📁 Permission Issues
 
----
-
-## Security
-
-- `*_inspect.json` redact env variables matching `PASS|SECRET|KEY|TOKEN|API|AUTH`.
-- DR bundle is OpenSSL‑encrypted (`aes-256-cbc` with `pbkdf2`). Store the password safely.
-- Docker socket access ≈ root. Restrict to trusted administrators.
-
----
-
-## FAQ
-
-**Why remove live DB dumps?**  
-Cold backups are simpler and fully consistent for containerized apps. The volume is the truth; fewer moving parts.
-
-**Can I restore a single file?**  
-Yes. Use Kopia to restore or mount a snapshot and copy files out. The wizard’s scripts show streaming examples.
-
-**How do I pick an older backup?**  
-Choose by **`backup_id`** in the restore wizard. Snapshots are grouped by `(unit, backup_id)`.
+Ensure backup paths are writable:
+```bash
+sudo mkdir -p /backup/kopia-repository
+sudo chown $USER:$USER /backup/kopia-repository
+```
 
 ---
 
-## License & Contributing
+## Systemd Integration
 
-- License: MIT
-- Issues/PRs welcome ✨
+### Setup Timer (Daily at 02:00)
+```bash
+# Write example units
+sudo kopi-docka write-units
+
+# Reload systemd
+sudo systemctl daemon-reload
+
+# Enable and start timer
+sudo systemctl enable --now kopi-docka.timer
+
+# Check status
+systemctl status kopi-docka.timer
+systemctl status kopi-docka.service
+
+# View logs
+journalctl -u kopi-docka -f
+```
+
+### Custom Schedule
+Edit `/etc/systemd/system/kopi-docka.timer`:
+```ini
+[Timer]
+OnCalendar=*-*-* 03:00:00  # Daily at 03:00
+Persistent=true
+```
+
+Then reload:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart kopi-docka.timer
+```
 
 ---
 
+## Storage Backends
+
+Kopi-Docka supports all Kopia backends:
+
+### Local Filesystem
+```ini
+repository_path = /backup/kopia-repository
+```
+
+### AWS S3
+```ini
+repository_path = s3://my-bucket/kopia
+```
+Set `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in environment.
+
+### Backblaze B2
+```ini
+repository_path = b2://my-bucket/kopia
+```
+
+### Azure Blob
+```ini
+repository_path = azure://container/kopia
+```
+
+### Google Cloud Storage
+```ini
+repository_path = gs://my-bucket/kopia
+```
+
+---
+
+## Development
+
+### Setup Dev Environment
+```bash
+git clone https://github.com/TZERO78/kopi-docka.git
+cd kopi-docka
+pip install -e ".[dev]"
+```
+
+### Code Style
+```bash
+# Format code
+make format
+
+# Check style
+make check-style
+
+# Run tests
+make test
+```
+
+### Project Structure
+```
+kopi_docka/
+├── helpers/        # Config, logging, system utils
+├── cores/          # Core business logic
+├── commands/       # CLI command modules
+└── templates/      # Config templates
+```
+
+---
+
+## Credits & Thanks
+
+**Created by:** Markus F. (TZERO78)
+
+**Built with:**
+- [Kopia](https://kopia.io/) – Fast, secure backup/restore
+- [Docker](https://www.docker.com/) – Container platform
+- [Typer](https://typer.tiangolo.com/) – CLI framework
+- [psutil](https://github.com/giampaolo/psutil) – System utilities
+
+**Special thanks to:**
+- The Kopia team for building an amazing backup tool
+- The Docker community
+- All contributors and testers
+- AI assistants for code reviews and documentation
+
+**Inspired by:**
+- [docker-volume-backup](https://github.com/offen/docker-volume-backup)
+- Various Kopia integration projects
+- The need for simpler Docker backup solutions
+
+---
+
+## Contributing
+
+Contributions welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+**Report issues:** [GitHub Issues](https://github.com/TZERO78/kopi-docka/issues)
+
+---
+
+## License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+Copyright (c) 2025 Markus F. (TZERO78)
+
+---
+
+## Support
+
+- 📚 [Documentation](https://github.com/TZERO78/kopi-docka#readme)
+- 🐛 [Bug Reports](https://github.com/TZERO78/kopi-docka/issues)
+- 💬 [Discussions](https://github.com/TZERO78/kopi-docka/discussions)
+
+**Love Kopi-Docka?** Give us a ⭐ on GitHub!
