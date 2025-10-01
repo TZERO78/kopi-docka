@@ -492,7 +492,10 @@ class KopiaRepository:
             except json.JSONDecodeError:
                 continue
 
-            tags = obj.get("tags") or {}
+            # FIX: Entferne "tag:" Präfix aus Tags
+            tags_raw = obj.get("tags") or {}
+            tags = {k.replace("tag:", ""): v for k, v in tags_raw.items()}
+            
             if tag_filter and any(tags.get(k) != v for k, v in tag_filter.items()):
                 continue
 
@@ -502,11 +505,11 @@ class KopiaRepository:
                 "id": obj.get("id", ""),
                 "path": src.get("path", ""),
                 "timestamp": obj.get("startTime") or obj.get("time") or "",
-                "tags": tags,
+                "tags": tags,  # ← Jetzt OHNE "tag:" Präfix!
                 "size": stats.get("totalSize") or 0,
             })
         return snaps
-
+  
     # --------------- Restore / Verify / Maintenance ---------------
 
     def restore_snapshot(self, snapshot_id: str, target_path: str) -> None:

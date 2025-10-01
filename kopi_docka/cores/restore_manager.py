@@ -93,11 +93,11 @@ class RestoreManager:
             groups = {}
 
             for s in snaps:
-                path = s.get("path", "")
                 tags = s.get("tags", {})
                 unit = tags.get("unit")
                 backup_id = tags.get("backup_id")  # REQUIRED
                 ts_str = tags.get("timestamp")
+                snap_type = tags.get("type", "")  # ← Type aus Tags holen
 
                 if not unit or not backup_id:
                     continue  # enforce backup_id
@@ -109,7 +109,6 @@ class RestoreManager:
 
                 key = f"{unit}:{backup_id}"
                 if key not in groups:
-                    # keep compatibility: RestorePoint may include fields we don't use (e.g., database_snapshots)
                     groups[key] = RestorePoint(
                         unit_name=unit,
                         timestamp=ts,
@@ -119,9 +118,10 @@ class RestoreManager:
                         database_snapshots=[],  # kept empty for type-compat
                     )
 
-                if RECIPE_BACKUP_DIR in path:
+                # Nutze Type aus Tags statt path
+                if snap_type == "recipe":
                     groups[key].recipe_snapshots.append(s)
-                elif VOLUME_BACKUP_DIR in path:
+                elif snap_type == "volume":
                     groups[key].volume_snapshots.append(s)
 
             out = list(groups.values())
@@ -187,22 +187,12 @@ class RestoreManager:
         recipe_dir.mkdir(parents=True, exist_ok=True)
 
         for snap in rp.recipe_snapshots:
-            mount_point = None
             try:
                 snapshot_id = snap["id"]
                 print(f"   📥 Restoring recipe snapshot: {snapshot_id[:12]}...")
 
-                # Mount snapshot (repo provides mount + unmount helpers)
-                mount_point = self.repo.mount_snapshot(snapshot_id)
-
-                subprocess.run(
-                    ["cp", "-r", f"{mount_point}/.", str(recipe_dir)],
-                    check=True,
-                    capture_output=True,
-                )
-
-                self.repo.unmount_snapshot(mount_point)
-                mount_point = None
+                # Direkt mit kopia restore (einfacher als mount)
+                self.repo.restore_snapshot(snapshot_id, str(recipe_dir))
 
                 print(f"   ✅ Recipe files restored to: {recipe_dir}")
                 self._check_for_secrets(recipe_dir)
@@ -218,12 +208,6 @@ class RestoreManager:
                     extra={"unit_name": rp.unit_name},
                 )
                 print(f"   ⚠️ Warning: Could not restore recipe: {e}")
-            finally:
-                if mount_point:
-                    try:
-                        self.repo.unmount_snapshot(mount_point)
-                    except Exception as e:
-                        logger.warning(f"Failed to unmount: {e}")
 
         return recipe_dir
 
@@ -246,6 +230,9 @@ class RestoreManager:
         print("\n   📦 Volume Restore Commands:")
         print("   " + "-" * 40)
 
+        # Config-File Path dynamisch aus repo holen
+        config_file = self.repo._get_config_file()
+
         for snap in rp.volume_snapshots:
             tags = snap.get("tags", {})
             vol = tags.get("volume", "unknown")
@@ -256,30 +243,31 @@ class RestoreManager:
             print("\n   Commands:")
             print(
                 f"""
-   VOLUME_NAME="{vol}"
-   SNAP_ID="{snap_id}"
+    VOLUME_NAME="{vol}"
+    SNAP_ID="{snap_id}"
+    CONFIG_FILE="{config_file}"
 
-   # 1. Stop containers using this volume
-   echo "Stopping containers using volume $VOLUME_NAME..."
-   docker ps -q --filter "volume=$VOLUME_NAME" | xargs -r docker stop
+    # 1. Stop containers using this volume
+    echo "Stopping containers using volume $VOLUME_NAME..."
+    docker ps -q --filter "volume=$VOLUME_NAME" | xargs -r docker stop
 
-   # 2. Safety backup of current volume
-   echo "Creating safety backup..."
-   docker run --rm -v "$VOLUME_NAME":/src -v /tmp:/backup alpine \\
-     sh -c 'tar -czf /backup/$VOLUME_NAME-backup-$(date +%Y%m%d-%H%M%S).tar.gz -C /src .'
+    # 2. Safety backup of current volume
+    echo "Creating safety backup..."
+    docker run --rm -v "$VOLUME_NAME":/src -v /tmp:/backup alpine \\
+        sh -c 'tar -czf /backup/$VOLUME_NAME-backup-$(date +%Y%m%d-%H%M%S).tar.gz -C /src .'
 
-   # 3. Restore from Kopia (stream into volume; keep ACLs/xattrs)
-   echo "Restoring volume from backup..."
-   kopia snapshot restore "$SNAP_ID" - | \\
-     docker run --rm -i -v "$VOLUME_NAME":/target debian:bookworm-slim \\
-     bash -c 'set -euo pipefail; rm -rf /target/*; tar -xpf - --numeric-owner --xattrs --acls -C /target'
+    # 3. Restore from Kopia (stream into volume; keep ACLs/xattrs)
+    echo "Restoring volume from backup..."
+    kopia snapshot restore "$SNAP_ID" --config-file "$CONFIG_FILE" - | \\
+        docker run --rm -i -v "$VOLUME_NAME":/target debian:bookworm-slim \\
+        bash -c 'set -euo pipefail; rm -rf /target/*; tar -xpf - --numeric-owner --xattrs --acls -C /target'
 
-   # 4. Restart containers
-   echo "Restarting containers..."
-   docker ps -a -q --filter "volume=$VOLUME_NAME" | xargs -r docker start
+    # 4. Restart containers
+    echo "Restarting containers..."
+    docker ps -a -q --filter "volume=$VOLUME_NAME" | xargs -r docker start
 
-   echo "Volume $VOLUME_NAME restored successfully!"
-"""
+    echo "Volume $VOLUME_NAME restored successfully!"
+    """
             )
 
     def _display_restart_instructions(self, recipe_dir: Path):
