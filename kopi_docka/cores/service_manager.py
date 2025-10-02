@@ -1,8 +1,8 @@
 ################################################################################
 # KOPI-DOCKA
 #
-# @file:        service.py
-# @module:      kopi_docka.service
+# @file:        service_manager.py
+# @module:      kopi_docka.service_manager
 # @description: Systemd-friendly daemon orchestrating scheduled cold backups.
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
