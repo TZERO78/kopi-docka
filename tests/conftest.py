@@ -119,13 +119,14 @@ def mock_backup_unit():
         id="abc123",
         name="test-container",
         image="nginx:latest",
-        is_running=True,
+        status="running",  # Fixed: use status instead of is_running
         labels={}
     )
     
     volume = VolumeInfo(
         name="test-volume",
-        mount_point="/var/lib/docker/volumes/test-volume/_data",
+        driver="local",
+        mountpoint="/var/lib/docker/volumes/test-volume/_data",  # Fixed: mountpoint not mount_point
         size_bytes=1024 * 1024  # 1 MB
     )
     
