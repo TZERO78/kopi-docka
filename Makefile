@@ -30,9 +30,29 @@ check-style:
 format:
 	$(PYTHON) -m black kopi_docka/
 
-# Run tests
+# Run all tests
 test:
-	$(PYTHON) -m pytest
+	$(PYTHON) -m pytest tests/
+
+# Run only unit tests (fast)
+test-unit:
+	$(PYTHON) -m pytest tests/unit/ -v
+
+# Run only integration tests (slow)
+test-integration:
+	$(PYTHON) -m pytest tests/integration/ -v
+
+# Run tests with coverage report
+test-coverage:
+	$(PYTHON) -m pytest tests/ --cov=kopi_docka --cov-report=html --cov-report=term-missing
+
+# Run fast tests (unit only, no verbose)
+test-fast:
+	$(PYTHON) -m pytest tests/unit/ -x --tb=short
+
+# Run specific test file
+test-file:
+	$(PYTHON) -m pytest $(FILE) -v
 
 # Build the standalone executable
 build:
