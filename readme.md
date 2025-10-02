@@ -10,39 +10,64 @@
 
 Kopi‑Docka performs **consistent, cold backups** of Docker stacks ("backup units"). It briefly stops containers, snapshots **recipes** (Compose + `docker inspect`, with secret redaction) and **volumes** into a Kopia repository, then restarts your services.
 
+**🛡️ True Disaster Recovery:** Server crashed? DR bundle + new server + 15 minutes = everything running again. No manual config hunting, no 8-hour restore marathons.
+
 > **Note:** Kopi‑Docka intentionally **does not** create separate database dumps anymore. Volumes are the **single source of truth**.
 
 ---
 
 ## Why Kopi‑Docka?
 
-Kopi‑Docka focuses on a single, reliable workflow: **1:1 restoration of Docker services** without mixing hot DB tooling. Use it when you want:
+**From server crash to running services in 15 minutes - on a completely different server!**
 
-* **Consistency first:** Cold backups (Stop → Snapshot → Start).
-* **Stack awareness:** Back up complete Compose stacks as one **backup unit**.
-* **Exact restores:** Bring back the same config, volumes, and layout.
-* **Cloud‑ready repos:** Use Kopia repositories on filesystem or cloud (S3, B2, Azure, GCS†).
-* **Simple ops:** Clear CLI, dry‑run, restore wizard, and systemd integration.
-* **Deterministic archives:** Optimized tar streams for dedupe (`--numeric-owner --xattrs --acls --mtime=@0 --sort=name`).
+Kopi‑Docka focuses on **true disaster recovery** for Docker environments. Not just backups, but complete, encrypted stack restoration with one command.
+
+### The Problem
+Server crashed at 3 AM. Your docker-compose files? Gone. Kopia password? Where was that? S3 bucket name? Configuration? 8 hours of manual work to get everything running again.
+
+### The Solution
+Kopi‑Docka creates **Disaster Recovery Bundles** containing everything you need:
+* Repository connection info
+* Encrypted passwords
+* Complete configuration
+* Automatic reconnect script
+* Backup inventory
+
+**Result:** New server + DR Bundle + 15 minutes = Everything running again! 🚀
+
+### Use it when you want:
+
+* **True disaster recovery:** Restore complete stacks on ANY server (even different provider/datacenter)
+* **Consistency first:** Cold backups (Stop → Snapshot → Start) guarantee data integrity
+* **Stack awareness:** Back up complete Compose stacks as one **backup unit**
+* **Encrypted cloud storage:** AES-256 client-side encryption via Kopia (S3, B2, Azure, GCS†)
+* **Zero manual work:** Restore wizard handles everything - no config hunting, no guesswork
+* **Complete autonomy:** No vendor lock-in, no subscription services, full control
 
 † subject to Kopia support and your configuration.
 
-If you need enterprise‑grade orchestration, consider Kubernetes backup tools like Velero, or general purpose solutions (Restic + scripting, Duplicati, commercial tools). Kopi‑Docka shines on single Docker hosts and small fleets.
+**Perfect for:** Self-hosted services, homelab servers, small business Docker hosts where downtime is costly and manual restoration is painful.
+
+If you need enterprise‑grade orchestration, consider Kubernetes backup tools like Velero. Kopi‑Docka shines on single Docker hosts and small fleets where simplicity and reliability matter most.
 
 ---
 
 ## Key Features
 
-* 🔒 **Cold, consistent backups** (short downtime per unit)
-* 🧩 **Backup Units** (Compose stacks or standalone containers)
-* 🧾 **Recipes**: `docker-compose.yml` (if present) + `docker inspect` with secret redaction
-* 📦 **Volumes**: tar stream with owners/ACLs/xattrs, dedupe‑friendly ordering & mtimes
-* 🏷️ **Mandatory `backup_id`**: every run tags snapshots with `{ unit, backup_id, type, timestamp }`
-* 🧰 **Per‑unit Kopia policies**: retention set on `recipes/UNIT` and `volumes/UNIT`
-* 🧪 **Dry‑run mode**: full simulation, no changes
-* 🛟 **Disaster Recovery Bundle**: encrypted package with repo info, password, script, status
-* 🐧 **systemd‑friendly**: daemon with sd_notify/watchdog/locking + sample service/timer/oneshot units
-* ⚙️ **Parallel workers = auto**: tuned by RAM/CPU; no artificial `task_timeout`
+* 🛡️ **Disaster Recovery Bundles** - encrypted emergency kit with repo info, passwords, and auto-reconnect script
+* 🔄 **Restore anywhere** - works on completely different servers (new hardware, provider, datacenter)
+* 🔒 **Cold, consistent backups** - short downtime per unit, guaranteed data integrity
+* 🧩 **Backup Units** - Compose stacks or standalone containers, backed up as one logical unit
+* 🧾 **Complete recipes** - `docker-compose.yml` (if present) + `docker inspect` with secret redaction
+* 📦 **Volume snapshots** - tar stream with owners/ACLs/xattrs, dedupe‑friendly ordering & mtimes
+* 🏷️ **Mandatory `backup_id`** - every run tags snapshots with `{ unit, backup_id, type, timestamp }`
+* 🧰 **Per‑unit Kopia policies** - retention set on `recipes/UNIT` and `volumes/UNIT`
+* 🔐 **Client-side encryption** - AES-256 via Kopia, cloud provider sees only encrypted blobs
+* ☁️ **Multi-cloud support** - S3, B2, Azure, GCS, or local filesystem
+* 🧪 **Dry‑run mode** - full simulation, no changes, test before real backup
+* 🐧 **systemd‑friendly** - daemon with sd_notify/watchdog/locking + sample service/timer units
+* ⚙️ **Parallel workers = auto** - tuned by RAM/CPU; no artificial `task_timeout`
+* ⏱️ **Fast recovery** - from server crash to running services in ~15 minutes
 
 ---
 
@@ -63,13 +88,133 @@ Finds running containers & volumes, groups them into **backup units** (Compose s
 6. **Apply retention** policies per unit (daily/weekly/monthly/yearly).
 7. (Optional) **Create DR bundle** and rotate.
 
-### 3) Restore (Wizard)
+### 3) Restore (On ANY Server!)
 
-* Lists restore points grouped strictly by **(unit, backup_id)**.
-* Restores recipe files to a working directory.
-* Generates **safe volume restore scripts** (stop users, safety tar of current volume, stream restore, restart).
-* Documents **modern `docker compose up -d`** only (no legacy fallback).
-* Warns about redacted secrets in `*_inspect.json`.
+**Disaster scenario? No problem!**
+
+* Works on **completely different servers** (new hardware, different provider, blank Ubuntu install)
+* Lists restore points grouped strictly by **(unit, backup_id)**
+* Restores recipe files (`docker-compose.yml` + configs) to working directory
+* Generates **safe volume restore scripts** (stop containers → safety backup → stream restore → restart)
+* Uses modern **`docker compose up -d`** (no legacy fallback needed)
+* Warns about redacted secrets in `*_inspect.json` (restore manually if needed)
+
+**From crashed server to running stack: ~15 minutes!**
+
+---
+
+## Disaster Recovery
+
+**Your "Break Glass" emergency plan for total server loss.**
+
+### What is the Disaster Recovery Bundle?
+
+An encrypted package containing **everything** you need to reconnect to your backups and restore services - even if your entire infrastructure is gone.
+
+**Bundle contents:**
+```
+kopi-docka-recovery-TIMESTAMP.tar.gz.enc  (encrypted with AES-256-CBC)
+├── kopia-repository.json       # Repository connection info
+├── kopia-password.txt          # Encrypted repository password
+├── kopi-docka.conf            # Your complete configuration
+├── recover.sh                 # Automatic reconnect script
+├── backup-status.json         # Inventory of all backups
+└── RECOVERY-INSTRUCTIONS.txt  # Human-readable steps
+```
+
+### Disaster Scenario Walkthrough
+
+**3:00 AM - Everything is gone:**
+- ❌ Production server crashed (hardware failure)
+- ❌ All configs lost
+- ❌ Can't remember Kopia password
+- ❌ Which S3 bucket was it again?
+- ❌ Team is panicking
+
+**3:05 AM - Get the DR Bundle:**
+- ✅ Retrieve from safe storage (USB stick / phone / vault)
+- ✅ Decrypt with your DR password: `openssl enc -aes-256-cbc -d -in bundle.tar.gz.enc -out bundle.tar.gz`
+
+**3:10 AM - Deploy new server:**
+- ✅ Spin up fresh Ubuntu/Debian instance (any provider!)
+- ✅ Install Kopi-Docka: `pipx install git+https://github.com/TZERO78/kopi-docka.git`
+
+**3:15 AM - Auto-reconnect:**
+```bash
+cd recovered-bundle/
+sudo ./recover.sh
+# Script automatically:
+# - Connects to your cloud repository (S3/B2/Azure/GCS)
+# - Authenticates with stored credentials
+# - Verifies backup integrity
+# - Shows available restore points
+```
+
+**3:20 AM - Restore services:**
+```bash
+kopi-docka restore
+# Interactive wizard:
+# 1. Select stack/unit
+# 2. Choose backup_id (timestamp)
+# 3. Restores docker-compose.yml
+# 4. Generates safe volume restore scripts
+# 5. Executes restoration
+```
+
+**3:30 AM - Back online:**
+```bash
+cd restored-stack/
+docker compose up -d
+# Services starting...
+# Health checks passing...
+# ✅ Production restored!
+```
+
+**Total downtime: 30 minutes instead of 8+ hours of manual work!**
+
+### Creating & Managing DR Bundles
+
+**Manual creation:**
+```bash
+kopi-docka disaster-recovery
+# Creates encrypted bundle in configured location
+```
+
+**Automatic updates (recommended):**
+```ini
+[backup]
+update_recovery_bundle = true
+recovery_bundle_path = /backup/recovery
+recovery_bundle_retention = 3
+```
+
+Then every backup run updates the bundle automatically!
+
+**Storage recommendations:**
+- 📱 **Phone/Tablet** - encrypted, always with you
+- 💾 **USB stick** - in physical safe/vault
+- ☁️ **Different cloud** - not the same as your backup repo!
+- 🏠 **Off-site location** - friend's house, office, etc.
+
+**Never store DR bundle on the same server as your backups!**
+
+### Security Model
+
+**Encryption layers:**
+1. **Kopia repository** - AES-256-GCM encrypted at rest
+2. **DR Bundle** - AES-256-CBC encrypted with PBKDF2
+3. **Cloud storage** - provider's encryption (bonus layer)
+
+**Access required:**
+- DR Bundle password (only you know it)
+- Cloud provider credentials (in bundle, encrypted)
+
+**Even if attacker gets:**
+- ❌ Your cloud bucket - everything encrypted
+- ❌ Your DR bundle - needs password to decrypt
+- ❌ Both - still needs bundle password
+
+**You're protected!** 🛡️
 
 ---
 
@@ -148,9 +293,20 @@ kopi-docka dry-run
 # 9. Real backup
 kopi-docka backup
 
-# 10. Restore if needed
+# 10. Create Disaster Recovery Bundle (IMPORTANT!)
+kopi-docka disaster-recovery
+# Store the bundle somewhere SAFE (USB, phone, vault)
+# This is your insurance policy!
+
+# 11. Enable automatic backups (optional)
+sudo kopi-docka write-units
+sudo systemctl enable --now kopi-docka.timer
+
+# 12. Test restore (dry run)
 kopi-docka restore
 ```
+
+**⚠️ Critical: Store your DR bundle off-site!** Without it, you'd need to manually remember all connection details in an emergency.
 
 ---
 
@@ -228,41 +384,145 @@ kopi-docka change-password
 
 ## Usage Examples
 
-### List Backup Units
+### Basic Operations
+
+**List Backup Units**
 ```bash
 kopi-docka list --units
 ```
 
-### Dry Run (Test Mode)
+**Dry Run (Test Mode)**
 ```bash
 kopi-docka dry-run
 kopi-docka dry-run --unit my-stack
 ```
 
-### Backup Everything
+**Backup Everything**
 ```bash
 kopi-docka backup
 ```
 
-### Backup Specific Units
+**Backup Specific Units**
 ```bash
 kopi-docka backup --unit webapp --unit database
 ```
 
-### Backup with Recovery Bundle
+### Disaster Recovery Workflows
+
+**Create DR Bundle (Manual)**
+```bash
+# Create bundle now
+kopi-docka disaster-recovery
+
+# Bundle created at configured location
+# Copy to safe storage!
+```
+
+**Enable Automatic DR Updates**
+```ini
+# In kopi-docka.conf:
+[backup]
+update_recovery_bundle = true
+recovery_bundle_path = /backup/recovery
+recovery_bundle_retention = 3
+```
+
+```bash
+# Now every backup updates the bundle
+kopi-docka backup --update-recovery
+```
+
+**Use DR Bundle in Emergency**
+```bash
+# On NEW server (blank install):
+
+# 1. Decrypt bundle
+openssl enc -aes-256-cbc -d -pbkdf2 \
+  -in kopi-docka-recovery-*.tar.gz.enc \
+  -out recovered.tar.gz
+
+# 2. Extract
+tar -xzf recovered.tar.gz
+cd kopi-docka-recovery-*/
+
+# 3. Auto-reconnect to repository
+sudo ./recover.sh
+# Guides you through reconnection
+
+# 4. Restore your stacks
+kopi-docka restore
+```
+
+### Full Restore Workflow
+
+**Interactive Restore Wizard**
+```bash
+kopi-docka restore
+```
+
+**What the wizard does:**
+1. Shows available restore points (grouped by unit + backup_id)
+2. Lets you select which stack to restore
+3. Restores docker-compose.yml and configs
+4. Creates safe volume restore scripts
+5. Provides commands to restart services
+
+**Example output:**
+```
+📋 Available restore points:
+
+1. 📦 webapp  (2025-01-31 23:59:59)  💾 Volumes: 3
+2. 📦 database  (2025-01-31 23:59:59)  💾 Volumes: 2
+
+🎯 Select restore point: 1
+
+✅ Selected: webapp from 2025-01-31 23:59:59
+📂 Restore directory: /tmp/kopia-docka-restore-webapp-xyz/
+
+1️⃣ Restoring recipes...
+   ✅ Recipe files restored to: /tmp/.../recipes/
+   
+2️⃣ Volume restoration:
+   Generated scripts for safe restore:
+   /tmp/.../restore-volume-data.sh
+   /tmp/.../restore-volume-config.sh
+
+3️⃣ Service restart:
+   cd /tmp/.../recipes/
+   docker compose up -d
+
+✅ Restoration guide complete!
+```
+
+### Advanced Scenarios
+
+**Backup with Bundle Update**
 ```bash
 kopi-docka backup --update-recovery
 ```
 
-### Restore Wizard
+**Restore on Different Server**
 ```bash
+# Server A died, restoring on Server B:
+# 1. Install Kopi-Docka on Server B
+# 2. Use DR bundle to reconnect
+# 3. Restore as normal
 kopi-docka restore
+# Volumes restore to new server
+# Docker Compose brings up services
 ```
-Guides you through:
-1. Selecting a restore point
-2. Restoring config files
-3. Creating safe volume restore scripts
-4. Restarting services
+
+**Verify Backups**
+```bash
+# List all snapshots
+kopi-docka list --snapshots
+
+# Check repository
+kopi-docka repo-status
+
+# Run maintenance
+kopi-docka repo-maintenance
+```
 
 ---
 
@@ -318,6 +578,41 @@ Guides you through:
 ---
 
 ## Troubleshooting
+
+### 🚨 Lost everything? (Server died, configs gone)
+
+**You have a DR Bundle? You're saved!**
+
+```bash
+# 1. Get DR bundle from safe storage (USB/phone/vault)
+# 2. Deploy new server (any Linux)
+# 3. Install Kopi-Docka
+pipx install git+https://github.com/TZERO78/kopi-docka.git
+
+# 4. Decrypt bundle
+openssl enc -aes-256-cbc -d -pbkdf2 \
+  -in your-bundle.tar.gz.enc \
+  -out recovered.tar.gz
+
+# 5. Extract and reconnect
+tar -xzf recovered.tar.gz
+cd kopi-docka-recovery-*/
+sudo ./recover.sh
+
+# 6. Restore
+kopi-docka restore
+
+# Done! 🎉
+```
+
+**No DR Bundle?** You'll need to manually:
+- Remember repository location (S3 bucket, path, etc.)
+- Find repository password
+- Reconnect manually with `kopi-docka init`
+
+**Prevention:** Always create and store DR bundles!
+
+---
 
 ### ❌ "invalid repository password" during init
 
@@ -481,26 +776,38 @@ kopi_docka/
 
 ---
 
-## Credits & Thanks
+## Credits & Acknowledgments
 
-**Created by:** Markus F. (TZERO78)
+**Author:** Markus F. (TZERO78)
 
-**Built with:**
-- [Kopia](https://kopia.io/) – Fast, secure backup/restore
-- [Docker](https://www.docker.com/) – Container platform
-- [Typer](https://typer.tiangolo.com/) – CLI framework
-- [psutil](https://github.com/giampaolo/psutil) – System utilities
+### Dependencies
 
-**Special thanks to:**
-- The Kopia team for building an amazing backup tool
-- The Docker community
-- All contributors and testers
-- AI assistants for code reviews and documentation
+**Core Components:**
+- **[Docker](https://www.docker.com/)** - Container lifecycle management (external, unmodified)
+- **[Kopia](https://kopia.io/)** - Backup backend with encryption, deduplication & multi-cloud support (external, unmodified)
 
-**Inspired by:**
+**Python Libraries:**
+- [Typer](https://typer.tiangolo.com/) - CLI framework
+- [psutil](https://github.com/giampaolo/psutil) - System resource monitoring
+
+> **Note:** Kopi-Docka is an independent project with no official affiliation to Docker Inc. or the Kopia project.
+
+### Inspiration
+
 - [docker-volume-backup](https://github.com/offen/docker-volume-backup)
 - Various Kopia integration projects
-- The need for simpler Docker backup solutions
+- Real-world disaster recovery requirements
+
+### Contributors
+
+Thanks to contributors, testers, and early adopters.
+
+---
+
+**Contribute:**
+- Report bugs and suggest features
+- Improve documentation
+- Submit pull requests
 
 ---
 
