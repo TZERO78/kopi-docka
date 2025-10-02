@@ -1,8 +1,8 @@
 ################################################################################
 # KOPI-DOCKA
 #
-# @file:        dry-run.py
-# @module:      kopi_docka.dry_run
+# @file:        dry_run_manager.py
+# @module:      kopi_docka.cores
 # @description: Simulates cold backup sequences without touching running containers.
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka

@@ -2,7 +2,7 @@
 # KOPI-DOCKA
 #
 # @file:        backup_manager.py
-# @module:      kopi_docka.backup
+# @module:      kopi_docka.cores
 # @description: Orchestriert Cold-Backups: Stop -> Rezepte -> Volumes -> Start.
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka

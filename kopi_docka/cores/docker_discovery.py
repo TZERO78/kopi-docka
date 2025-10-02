@@ -1,9 +1,9 @@
 ################################################################################
 # KOPI-DOCKA
 #
-# @file:        discovery.py
-# @module:      kopi_docka.discovery
-# @description: Discovers Docker containers and volumes, grouping them into backup units.
+# @file:        docker_discovery.py
+# @module:      kopi_docka.cores
+# @description: Discovers Docker containers and volumes, grouping them into backup units
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
 # @version:     1.0.0

@@ -2,7 +2,7 @@
 # KOPI-DOCKA
 #
 # @file:        disaster_recovery_manager.py
-# @module:      kopi_docka.disaster_recovery
+# @module:      kopi_docka.cores
 # @description: Creates encrypted disaster recovery bundles and supporting scripts.
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka

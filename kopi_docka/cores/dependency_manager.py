@@ -1,8 +1,8 @@
 ################################################################################
 # KOPI-DOCKA
 #
-# @file:        dependencies.py
-# @module:      kopi_docka.dependencies
+# @file:        dependency_manager.py
+# @module:      kopi_docka.cores
 # @description: Checks, reports, and installs system dependencies required by Kopi-Docka.
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
