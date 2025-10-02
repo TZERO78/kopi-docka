@@ -197,6 +197,19 @@ def sample_snapshots():
     ]
 
 
+@pytest.fixture
+def mock_ctx(tmp_config):
+    """Create mock Typer context with config.
+    
+    Use this for direct function tests instead of cli_runner.invoke().
+    """
+    from kopi_docka.helpers.config import Config
+    
+    ctx = MagicMock()
+    ctx.obj = {"config": Config(tmp_config)}
+    return ctx
+
+
 # Markers
 def pytest_configure(config):
     """Register custom markers."""
