@@ -21,6 +21,7 @@ Slim entry point that delegates to command modules.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -47,6 +48,9 @@ app = typer.Typer(
 )
 logger = get_logger(__name__)
 
+# Commands that can run without root privileges
+SAFE_COMMANDS = {"version", "show-deps", "show-config"}
+
 
 # -------------------------
 # Application Context Setup
@@ -71,7 +75,19 @@ def initialize_context(
     """
     Initialize application context before any command runs.
     Sets up logging and loads configuration once.
+    
+    Also enforces root privileges for all commands except safe commands
+    (version, show-deps, show-config).
     """
+    # Root check for all commands except SAFE_COMMANDS
+    if ctx.invoked_subcommand not in SAFE_COMMANDS:
+        if os.geteuid() != 0:
+            typer.echo("❌ Kopi-Docka benötigt Root-Rechte", err=True)
+            typer.echo("\n💡 Führe alle Commands mit sudo aus:", err=True)
+            cmd = " ".join(sys.argv)
+            typer.echo(f"  sudo {cmd}", err=True)
+            raise typer.Exit(code=13)  # EACCES
+    
     # Set up logging
     try:
         log_manager.configure(level=log_level.upper())
@@ -124,12 +140,29 @@ def cmd_version():
 # -------------------------
 
 def main():
-    """Main entry point for the application."""
+    """
+    Main entry point for the application.
+    
+    Note: Typer handles unknown commands itself with a nice box-formatted error.
+    Root privileges are checked in initialize_context() for non-safe commands.
+    We only handle:
+    - KeyboardInterrupt: Clean exit
+    - Unexpected errors: Show debug tip
+    """
     try:
         app()
     except KeyboardInterrupt:
         typer.echo("\nInterrupted.")
         sys.exit(130)
+    except typer.Exit:
+        # Re-raise typer exits (already handled)
+        raise
+    except Exception as e:
+        # Unexpected error - show and exit
+        logger.error(f"Unerwarteter Fehler: {e}", exc_info=True)
+        typer.echo(f"❌ Unerwarteter Fehler: {e}", err=True)
+        typer.echo("\n💡 Für Details siehe Logs oder führe mit --log-level=DEBUG aus", err=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

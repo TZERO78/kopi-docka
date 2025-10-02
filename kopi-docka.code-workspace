@@ -5,9 +5,14 @@
         }
     ],
     "settings": {
+        // Python Settings
         "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
         "python.terminal.activateEnvironment": true,
-        "terminal.integrated.cwd": "${workspaceFolder}",
+        
+        // Terminal: WSL Bash als Default (EINFACHE Version)
+        "terminal.integrated.defaultProfile.windows": "Ubuntu (WSL)",
+        
+        // Rest
         "python.linting.enabled": true,
         "python.linting.pylintEnabled": false,
         "python.linting.flake8Enabled": true,
