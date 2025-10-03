@@ -19,3 +19,105 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+================================================================================
+THIRD PARTY NOTICES
+================================================================================
+
+This project uses and depends on the following third-party software:
+
+--------------------------------------------------------------------------------
+1. KOPIA
+--------------------------------------------------------------------------------
+Website: https://kopia.io
+GitHub: https://github.com/kopia/kopia
+License: Apache License 2.0
+Copyright: Jarek Kowalski and Contributors
+
+Kopi-Docka is a wrapper tool that orchestrates Kopia for Docker backup workflows.
+Kopia remains unmodified and is used as an external dependency.
+
+Full Kopia License: https://github.com/kopia/kopia/blob/master/LICENSE
+
+NOTICE: Kopi-Docka is an independent project with no official affiliation to 
+the Kopia project. "Kopia" is a trademark of its respective owner.
+
+--------------------------------------------------------------------------------
+2. DOCKER
+--------------------------------------------------------------------------------
+Website: https://www.docker.com
+License: Proprietary
+Copyright: Docker, Inc.
+
+Kopi-Docka interacts with Docker via the Docker CLI and Docker Engine API.
+Docker is not bundled with this software and must be installed separately.
+
+Docker Terms of Service: https://www.docker.com/legal/docker-terms-service/
+
+NOTICE: "Docker" and the Docker logo are trademarks or registered trademarks 
+of Docker, Inc. in the United States and/or other countries. Docker, Inc. and 
+other parties may also have trademark rights in other terms used herein.
+Use of these trademarks does not imply endorsement by Docker, Inc.
+
+--------------------------------------------------------------------------------
+3. PYTHON DEPENDENCIES
+--------------------------------------------------------------------------------
+
+This project uses the following Python packages:
+
+• psutil (BSD 3-Clause License)
+  https://github.com/giampaolo/psutil
+  Copyright (c) 2009, Jay Loden, Dave Daeschler, Giampaolo Rodola
+
+• typer (MIT License)
+  https://github.com/tiangolo/typer
+  Copyright (c) 2019 Sebastián Ramírez
+
+Full license texts for these dependencies can be found in their respective 
+repositories or via Python package metadata.
+
+================================================================================
+DISCLAIMER
+================================================================================
+
+Kopi-Docka is provided as a convenience wrapper around existing tools (primarily
+Kopia and Docker). The authors and contributors of Kopi-Docka:
+
+1. Are not affiliated with, endorsed by, or sponsored by:
+   - The Kopia project or its maintainers
+   - Docker, Inc. or its affiliates
+   - Any cloud storage providers
+
+2. Make no warranties about:
+   - Data integrity or backup reliability
+   - Compatibility with future versions of dependencies
+   - Fitness for any particular purpose
+
+3. Strongly recommend:
+   - Always test your backups and verify restore procedures
+   - Keep multiple backup copies using different tools/strategies
+   - Read and understand the documentation of all dependencies
+   - Never rely solely on automated backups for critical data
+
+USE THIS SOFTWARE AT YOUR OWN RISK. ALWAYS TEST BACKUPS BEFORE RELYING ON 
+THEM IN PRODUCTION ENVIRONMENTS.
+
+================================================================================
+ACKNOWLEDGMENTS
+================================================================================
+
+Special thanks to:
+
+• Jarek Kowalski and all Kopia contributors for creating an excellent 
+  backup solution that makes Kopi-Docka possible.
+
+• The Docker community for revolutionizing containerization.
+
+• All open-source developers whose work we build upon.
+
+================================================================================
+
+For questions or issues, please visit:
+https://github.com/TZERO78/kopi-docka
+
+Last updated: October 2025
