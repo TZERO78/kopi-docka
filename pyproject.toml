@@ -1,0 +1,88 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kopi-docka"
+version = "2.0.0"
+description = "Robust cold backups for Docker environments using Kopia"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Markus F. (TZERO78)"},
+]
+keywords = ["docker", "backup", "kopia", "containers", "disaster-recovery"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: System Administrators",
+    "Topic :: System :: Archiving :: Backup",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: POSIX :: Linux",
+]
+
+# Haupt-Dependencies (werden immer mit pip installiert)
+dependencies = [
+    "psutil>=5.9.0",
+    "typer>=0.9.0",
+]
+
+# Optionale Dependencies
+[project.optional-dependencies]
+systemd = [
+    "systemd-python>=234",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=3.0.0",
+    "black>=22.0.0",
+    "flake8>=4.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/TZERO78/kopi-docka"
+Documentation = "https://github.com/TZERO78/kopi-docka#readme"
+Repository = "https://github.com/TZERO78/kopi-docka"
+Issues = "https://github.com/TZERO78/kopi-docka/issues"
+
+[project.scripts]
+kopi-docka = "kopi_docka.__main__:main"
+
+[tool.setuptools]
+packages = ["kopi_docka", "kopi_docka.helpers", "kopi_docka.cores", "kopi_docka.commands"]
+
+[tool.setuptools.package-data]
+kopi_docka = ["templates/*.conf", "templates/*.ini"]
+
+[tool.black]
+line-length = 100
+target-version = ['py310']
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--tb=short",
+    "--maxfail=5",
+    "-v",
+]
+markers = [
+    "unit: Fast unit tests with mocks",
+    "integration: Slow integration tests with real interactions",
+    "requires_docker: Tests that need Docker daemon running",
+    "requires_root: Tests that need root/sudo access",
+    "slow: Tests that take more than 1 second",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+    "ignore::FutureWarning",
+]
