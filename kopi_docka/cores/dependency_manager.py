@@ -67,20 +67,6 @@ class DependencyManager:
             "description": "Structured logging for systemd journal",
             "install_notes": "Enhances logging when running under systemd",
         },
-        "systemd-creds": {
-            "check_command": "systemd-creds",
-            "check_method": "check_systemd_creds",
-            "packages": {
-                "debian": None,  # Part of systemd 250+
-                "redhat": None,  # Part of systemd 250+
-                "arch": None,  # Part of systemd 250+
-                "alpine": None,  # Not available
-            },
-            "required": False,
-            "description": "Encrypted credential storage (systemd 250+)",
-            "install_notes": "Requires systemd 250 or newer. Check with: systemctl --version",
-            "version_command": ["systemd-creds", "--version"],
-        },
         "kopia": {
             "check_command": "kopia",
             "check_method": "check_kopia",
@@ -119,18 +105,6 @@ class DependencyManager:
             "required": True,
             "description": "Encryption for disaster recovery bundles",
         },
-        "du": {
-            "check_command": "du",
-            "check_method": "check_coreutils",
-            "packages": {
-                "debian": "coreutils",
-                "redhat": "coreutils",
-                "arch": "coreutils",
-                "alpine": "coreutils",
-            },
-            "required": False,
-            "description": "Disk usage estimation",
-        },
         "hostname": {
             "check_command": "hostname",
             "check_method": "check_hostname",
@@ -142,6 +116,18 @@ class DependencyManager:
             },
             "required": False,
             "description": "System hostname for reporting",
+        },
+        "du": {
+            "check_command": "du",
+            "check_method": "check_du",
+            "packages": {
+                "debian": "coreutils",
+                "redhat": "coreutils",
+                "arch": "coreutils",
+                "alpine": "coreutils",
+            },
+            "required": False,
+            "description": "Disk usage calculation for volume analysis",
         },
     }
 
@@ -191,32 +177,6 @@ class DependencyManager:
         except ImportError:
             return False
 
-    def check_systemd_creds(self) -> bool:
-        """Check if systemd-creds is available (systemd 250+)."""
-        if not shutil.which("systemd-creds"):
-            return False
-
-        # Check systemd version
-        try:
-            result = subprocess.run(
-                ["systemctl", "--version"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode == 0:
-                # Parse version from first line
-                first_line = result.stdout.split("\n")[0]
-                # Format: "systemd 251 (251.4-1ubuntu1)"
-                version_match = re.search(r"systemd (\d+)", first_line)
-                if version_match:
-                    version = int(version_match.group(1))
-                    return version >= 250
-        except Exception as e:
-            logger.debug(f"Error checking systemd version: {e}")
-
-        return False
-
     def check_docker(self) -> bool:
         """Check if Docker is installed and running."""
         if not shutil.which("docker"):
@@ -246,13 +206,13 @@ class DependencyManager:
         """Check if openssl is installed."""
         return shutil.which("openssl") is not None
 
-    def check_coreutils(self) -> bool:
-        """Check if coreutils (du) is installed."""
-        return shutil.which("du") is not None
-
     def check_hostname(self) -> bool:
         """Check if hostname command is available."""
         return shutil.which("hostname") is not None
+
+    def check_du(self) -> bool:
+        """Check if du command is available."""
+        return shutil.which("du") is not None
 
     def check_dependency(self, name: str) -> bool:
         """
@@ -351,22 +311,6 @@ class DependencyManager:
             except Exception:
                 pass
 
-        elif name == "systemd-creds":
-            try:
-                result = subprocess.run(
-                    ["systemctl", "--version"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                if result.returncode == 0:
-                    first_line = result.stdout.split("\n")[0]
-                    version_match = re.search(r"systemd (\d+)", first_line)
-                    if version_match:
-                        return version_match.group(1)
-            except Exception:
-                pass
-
         elif "version_command" in dep:
             try:
                 result = subprocess.run(
@@ -448,12 +392,6 @@ EOF""",
                             "yum install -y kopia",
                         ]
                     )
-            elif dep_name == "systemd-creds":
-                # systemd-creds requires systemd 250+, which may need OS upgrade
-                logger.info(
-                    f"systemd-creds requires systemd 250+. Check your systemd version with: systemctl --version"
-                )
-
         # Add Docker group command if Docker is missing
         if "docker" in missing:
             commands.append("usermod -aG docker $USER")
@@ -591,15 +529,6 @@ EOF""",
             print("  OR")
             print("  $ paru -S kopia-bin")
 
-        if "systemd-creds" in missing:
-            print("\n" + "-" * 60)
-            print("📌 systemd-creds (systemd 250+):")
-            print("-" * 60)
-            print("  Check your systemd version:")
-            print("     $ systemctl --version")
-            print("  If below 250, you may need to upgrade your distribution")
-            print("  or compile systemd from source (advanced).")
-
         print("\n" + "=" * 60)
 
         # Automated installation option
@@ -723,7 +652,7 @@ EOF""",
                 optional_deps.append(dep_info)
 
         # Print required dependencies
-        print("\n📌 Required Dependencies:")
+        print("\n� Required Dependencies:")
         print("-" * 40)
         all_required_ok = True
 
