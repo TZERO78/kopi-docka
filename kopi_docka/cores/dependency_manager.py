@@ -371,8 +371,21 @@ class DependencyManager:
                 if self.distro == "debian":
                     commands.extend(
                         [
-                            "curl -s https://kopia.io/signing-key | apt-key add -",
-                            'echo "deb http://packages.kopia.io/apt/ stable main" > /etc/apt/sources.list.d/kopia.list',
+                            # Sicherstellen, dass gnupg installiert ist
+                            "command -v gpg >/dev/null 2>&1 || apt-get install -y gnupg",
+                            
+                            # Keyring-Verzeichnis erstellen (falls nicht vorhanden)
+                            "install -d -m 0755 /etc/apt/keyrings",
+                            
+                            # Key herunterladen & im Keyring speichern
+                            "curl -fsSL https://kopia.io/signing-key | gpg --dearmor -o /etc/apt/keyrings/kopia.gpg",
+                            
+                            # Berechtigungen setzen
+                            "chmod 0644 /etc/apt/keyrings/kopia.gpg",
+                            
+                            # APT-Source mit signed-by eintragen (https statt http!)
+                            'echo "deb [signed-by=/etc/apt/keyrings/kopia.gpg] https://packages.kopia.io/apt/ stable main" > /etc/apt/sources.list.d/kopia.list',
+                            
                             "apt update",
                             "apt install -y kopia",
                         ]
