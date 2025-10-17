@@ -45,8 +45,8 @@ class FilesystemBackend(BackendBase):
     
     def setup_interactive(self) -> Dict[str, Any]:
         """Interactive setup for filesystem backend using Rich CLI"""
-        from kopi_docka.v2.cli import utils
-        from kopi_docka.v2.i18n import t, get_current_language
+        from kopi_docka.cli import utils
+        from kopi_docka.i18n import t, get_current_language
         
         lang = get_current_language()
         

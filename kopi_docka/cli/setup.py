@@ -10,8 +10,8 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 
-from kopi_docka.v2.cli import utils
-from kopi_docka.v2.i18n import t, get_current_language
+from kopi_docka.cli import utils
+from kopi_docka.i18n import t, get_current_language
 
 # Create sub-app for setup commands
 app = typer.Typer(
@@ -28,7 +28,7 @@ def setup_callback(ctx: typer.Context):
     """Setup callback - runs wizard if no subcommand"""
     if ctx.invoked_subcommand is None:
         # No subcommand provided, run the wizard
-        from kopi_docka.v2.cli.wizard import run_setup_wizard
+        from kopi_docka.cli.wizard import run_setup_wizard
         run_setup_wizard()
         raise typer.Exit(0)
 
@@ -51,7 +51,7 @@ def setup_backend(
     
     Configure where your backups will be stored.
     """
-    from kopi_docka.v2.i18n import set_language
+    from kopi_docka.i18n import set_language
     
     # Check sudo
     utils.require_sudo("backend setup")
@@ -106,7 +106,7 @@ def setup_backend(
         
         if config:
             # Save configuration
-            from kopi_docka.v2.config import save_backend_config, get_config_path
+            from kopi_docka.config import save_backend_config, get_config_path
             
             try:
                 config_path = save_backend_config(backend, config)
@@ -194,7 +194,7 @@ def _setup_s3_backend(lang: str) -> dict:
 
 def _setup_tailscale_backend(lang: str) -> dict:
     """Setup Tailscale backend"""
-    from kopi_docka.v2.backends.tailscale import TailscaleBackend
+    from kopi_docka.backends.tailscale import TailscaleBackend
     
     utils.print_header("Tailscale Backend Setup")
     utils.print_info("🔥 Secure offsite backups via your Tailnet")

@@ -15,10 +15,10 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 
-from kopi_docka.v2.cli import utils
-from kopi_docka.v2.i18n import t, get_current_language
-from kopi_docka.v2.config import save_backend_config, update_repository_status
-from kopi_docka.v2.utils.dependency_installer import DependencyInstaller
+from kopi_docka.cli import utils
+from kopi_docka.i18n import t, get_current_language
+from kopi_docka.config import save_backend_config, update_repository_status
+from kopi_docka.helpers.dependency_installer import DependencyInstaller
 
 console = Console()
 
@@ -34,7 +34,7 @@ def run_setup_wizard(language: Optional[str] = None):
     4. Configure backend
     5. Initialize repository
     """
-    from kopi_docka.v2.i18n import set_language
+    from kopi_docka.i18n import set_language
     
     # Check sudo FIRST
     utils.require_sudo("setup wizard")
@@ -249,17 +249,17 @@ def check_and_install_backend_dependencies(backend_type: str) -> bool:
 def configure_backend(backend_type: str) -> Optional[dict]:
     """Configure selected backend"""
     if backend_type == "local":
-        from kopi_docka.v2.backends.filesystem import FilesystemBackend
+        from kopi_docka.backends.filesystem import FilesystemBackend
         backend = FilesystemBackend()
         return backend.setup_interactive()
     
     elif backend_type == "tailscale":
-        from kopi_docka.v2.backends.tailscale import TailscaleBackend
+        from kopi_docka.backends.tailscale import TailscaleBackend
         backend = TailscaleBackend()
         return backend.setup_interactive()
     
     elif backend_type == "rclone":
-        from kopi_docka.v2.backends.rclone import RcloneBackend
+        from kopi_docka.backends.rclone import RcloneBackend
         backend = RcloneBackend()
         return backend.setup_interactive()
     
@@ -268,8 +268,8 @@ def configure_backend(backend_type: str) -> Optional[dict]:
 
 def initialize_repository() -> bool:
     """Initialize Kopia repository"""
-    from kopi_docka.v2.config import load_backend_config
-    from kopi_docka.v2.cli.repo import _build_kopia_create_command
+    from kopi_docka.config import load_backend_config
+    from kopi_docka.cli.repo import _build_kopia_create_command
     import subprocess
     
     utils.print_header("🔐 Repository Initialization")

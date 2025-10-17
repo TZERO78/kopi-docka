@@ -11,10 +11,10 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 
-from kopi_docka.v2.i18n import set_language, get_current_language
-from kopi_docka.v2.cli import utils
-from kopi_docka.v2.cli import setup
-from kopi_docka.v2.cli import repo
+from kopi_docka.i18n import set_language, get_current_language
+from kopi_docka.cli import utils
+from kopi_docka.cli import setup
+from kopi_docka.cli import repo
 
 # Create Typer app
 app = typer.Typer(

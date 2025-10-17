@@ -12,8 +12,8 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 
-from kopi_docka.v2.cli import utils
-from kopi_docka.v2.config import (
+from kopi_docka.cli import utils
+from kopi_docka.config import (
     load_backend_config,
     update_repository_status,
     is_repository_initialized,

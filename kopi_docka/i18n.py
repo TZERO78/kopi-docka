@@ -71,7 +71,7 @@ def _( msg: str) -> str:
     Translation function (underscore convention).
     
     Usage:
-        from kopi_docka.v2.i18n import _
+        from kopi_docka.i18n import _
         print(_("Welcome to Kopi-Docka!"))
     
     Args:
@@ -242,7 +242,7 @@ def t(key: str, lang: Optional[str] = None) -> str:
     Translation function with dot-notation keys.
     
     Usage:
-        from kopi_docka.v2.i18n import t
+        from kopi_docka.i18n import t
         print(t("welcome.title", "de"))
     
     Args:
