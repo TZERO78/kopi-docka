@@ -69,68 +69,88 @@ class TailscaleBackend(BackendBase):
         return success
     
     def setup_interactive(self) -> Dict[str, Any]:
-        """Interactive setup for Tailscale backend"""
-        print("\n" + "=" * 60)
-        print(_("Tailscale Backend Setup"))
-        print("=" * 60)
+        """Interactive setup for Tailscale backend using Rich CLI"""
+        from kopi_docka.v2.cli import utils
+        from kopi_docka.v2.i18n import t, get_current_language
+        
+        lang = get_current_language()
         
         # Check if Tailscale is running
         if not self._is_running():
-            print(f"\n⚠️  {_('Tailscale is not running')}")
-            start = input(f"{_('Start Tailscale now?')} (Y/n): ").strip().lower()
-            if start in ('', 'y', 'yes'):
+            utils.print_warning(t("tailscale.not_connected", lang))
+            
+            if utils.prompt_confirm(t("tailscale.connect_prompt", lang)):
                 self._start_tailscale()
             else:
                 raise ConfigurationError(_("Tailscale must be running"))
         
-        # Discover peers
-        print(f"\n🔍 {_('Discovering peers in Tailnet')}...")
+        # Discover peers with spinner
+        utils.print_info(t("tailscale.loading_peers", lang))
         peers = self._list_peers()
         
         if not peers:
+            utils.print_error(t("tailscale.no_peers", lang))
             raise ConfigurationError(_("No peers found in Tailnet"))
         
-        # Show peers
-        print(f"\n{_('Available backup targets')}:")
-        for i, peer in enumerate(peers, 1):
-            status = "🟢" if peer.online else "🔴"
-            disk_info = f"{peer.disk_free_gb:.1f}GB free" if peer.disk_free_gb else "?"
+        # Show peers in a nice table
+        table = utils.create_table(
+            "Available Backup Targets",
+            [
+                ("Status", "white", 8),
+                ("Hostname", "cyan", 20),
+                ("IP", "white", 15),
+                ("Disk Free", "green", 12),
+                ("Latency", "yellow", 10),
+            ]
+        )
+        
+        for peer in peers:
+            status = "🟢 Online" if peer.online else "🔴 Offline"
+            disk_info = f"{peer.disk_free_gb:.1f}GB" if peer.disk_free_gb else "?"
             ping_info = f"{peer.ping_ms}ms" if peer.ping_ms else "?"
             
-            print(f"  {i}. {status} {peer.hostname} ({peer.ip}) - {disk_info} - {ping_info}")
+            table.add_row(status, peer.hostname, peer.ip, disk_info, ping_info)
         
-        # Select peer
-        choice = input(f"\n{_('Select peer')} [1-{len(peers)}]: ").strip()
-        try:
-            peer_idx = int(choice) - 1
-            if not (0 <= peer_idx < len(peers)):
-                raise ValueError()
-            selected_peer = peers[peer_idx]
-        except ValueError:
-            print(_("Invalid selection, using first peer"))
-            selected_peer = peers[0]
+        utils.console.print(table)
+        
+        # Select peer using numbered selection
+        selected_peer = utils.prompt_select(
+            t("tailscale.select_peer", lang),
+            peers,
+            display_fn=lambda p: f"{'🟢' if p.online else '🔴'} {p.hostname} ({p.ip})"
+        )
         
         if not selected_peer.online:
-            print(f"⚠️  {_('Warning: Selected peer is offline')}")
+            utils.print_warning(t("tailscale.peer_offline", lang))
         
         # Get remote path
         default_path = "/backup/kopi-docka"
-        remote_path = input(f"\n{_('Backup path on')} {selected_peer.hostname} [{default_path}]: ").strip()
-        if not remote_path:
-            remote_path = default_path
+        remote_path = utils.prompt_text(
+            f"{t('tailscale.backup_path', lang)} [{default_path}]",
+            default=default_path
+        )
+        
+        if not remote_path.startswith("/"):
+            utils.print_error(t("tailscale.path_must_be_absolute", lang))
+            raise ConfigurationError("Path must be absolute")
         
         # Setup SSH key
         ssh_key_path = Path.home() / ".ssh" / "kopi-docka_ed25519"
         if not ssh_key_path.exists():
-            setup_ssh = input(f"\n{_('Setup SSH key for passwordless access?')} (Y/n): ").strip().lower()
-            if setup_ssh in ('', 'y', 'yes'):
+            if utils.prompt_confirm(t("tailscale.setup_ssh_key", lang)):
                 self._setup_ssh_key(selected_peer.hostname, ssh_key_path)
         
+        # Get SSH user
+        ssh_user = utils.prompt_text(
+            f"{t('tailscale.ssh_user', lang)} [root]",
+            default="root"
+        )
+        
         # Build SFTP URL
-        ssh_user = input(f"\n{_('SSH user')} [root]: ").strip() or "root"
         repository_path = f"sftp://{ssh_user}@{selected_peer.hostname}.tailnet:{remote_path}"
         
-        print(f"\n✓ {_('Repository path')}: {repository_path}")
+        utils.print_separator()
+        utils.print_success(f"Repository path: {repository_path}")
         
         return {
             "type": "sftp",  # Kopia uses SFTP backend
@@ -237,12 +257,17 @@ class TailscaleBackend(BackendBase):
     
     def _start_tailscale(self) -> bool:
         """Start Tailscale"""
+        from kopi_docka.v2.cli import utils
+        from kopi_docka.v2.i18n import t, get_current_language
+        
+        lang = get_current_language()
+        
         try:
             subprocess.run(["sudo", "tailscale", "up"], check=True)
-            print(f"✓ {_('Tailscale started')}")
+            utils.print_success("Tailscale started")
             return True
         except subprocess.CalledProcessError:
-            print(f"✗ {_('Failed to start Tailscale')}")
+            utils.print_error("Failed to start Tailscale")
             return False
     
     def _list_peers(self) -> List[TailscalePeer]:
@@ -327,8 +352,13 @@ class TailscaleBackend(BackendBase):
     
     def _setup_ssh_key(self, hostname: str, key_path: Path) -> bool:
         """Setup SSH key for passwordless access"""
+        from kopi_docka.v2.cli import utils
+        from kopi_docka.v2.i18n import t, get_current_language
+        
+        lang = get_current_language()
+        
         try:
-            print(f"\n{_('Generating SSH key')}...")
+            utils.print_info(t("tailscale.generating_ssh_key", lang))
             
             # Generate ED25519 key
             subprocess.run(
@@ -337,22 +367,22 @@ class TailscaleBackend(BackendBase):
                 check=True
             )
             
-            print(f"✓ {_('SSH key generated')}")
+            utils.print_success(t("tailscale.ssh_key_generated", lang))
             
             # Copy to remote
-            print(f"\n{_('Copying SSH key to')} {hostname}...")
-            print(_("You may need to enter the root password."))
+            utils.print_info(f"{t('tailscale.copying_ssh_key', lang)} {hostname}...")
+            utils.print_warning("You may need to enter the root password")
             
             subprocess.run(
                 ["ssh-copy-id", "-i", str(key_path), f"root@{hostname}.tailnet"],
                 check=True
             )
             
-            print(f"✓ {_('SSH key copied successfully')}")
+            utils.print_success(t("tailscale.ssh_key_copied", lang))
             return True
             
         except subprocess.CalledProcessError as e:
-            print(f"✗ {_('Failed to setup SSH key')}: {e}")
+            utils.print_error(f"{t('tailscale.ssh_key_failed', lang)}: {e}")
             return False
     
     def get_recovery_instructions(self) -> str:
