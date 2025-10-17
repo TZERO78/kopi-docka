@@ -108,6 +108,9 @@ def get_backend_info(backend_type: str) -> Dict[str, str]:
     }
 
 
+# Alias for direct registry access
+BACKENDS = _BACKEND_REGISTRY
+
 # Export public API
 __all__ = [
     "BackendBase",
@@ -120,6 +123,7 @@ __all__ = [
     "create_backend",
     "list_available_backends",
     "get_backend_info",
+    "BACKENDS",
 ]
 
 

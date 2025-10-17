@@ -207,6 +207,21 @@ pip install -e .
 pip install textual pydantic babel docker rich
 ```
 
+### ⚠️ Important: Sudo Requirements
+
+**Kopi-Docka requires root privileges for:**
+- Installing system dependencies (rclone, tailscale, etc.)
+- Kopia repository operations
+- Docker management (stopping containers, volume access)
+- Systemd timer configuration
+
+**Always run the wizard with sudo:**
+```bash
+sudo python3 kopi_docka/v2/test_wizard.py
+```
+
+If you start without sudo, you'll see a warning and can choose to continue with limited functionality.
+
 ### Test Current Implementation
 
 ```bash
@@ -232,8 +247,11 @@ set_language('de')
 print(_('Welcome'))  # Should show German if .po exists
 "
 
-# Test Textual app (basic)
-python3 -m kopi_docka.v2.ui.app
+# Test Textual app (basic) - REQUIRES SUDO!
+sudo python3 kopi_docka/v2/test_wizard.py
+
+# Or with debug output
+sudo python3 kopi_docka/v2/test_wizard.py --debug
 ```
 
 ## 📖 Design Principles

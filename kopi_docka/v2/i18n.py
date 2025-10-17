@@ -110,5 +110,72 @@ def set_language(lang: str) -> None:
     setup_i18n(lang)
 
 
+# Translation dictionary (fallback when .mo files are not available)
+_TRANSLATIONS = {
+    "en": {
+        "welcome.title": "Welcome to Kopi-Docka Setup Wizard",
+        "welcome.subtitle": "Let's set up your Docker backup system",
+        "welcome.system_info": "System Information",
+        "welcome.requirements": "System Requirements",
+        "welcome.button_next": "Next",
+        "backend_selection.title": "Select Backup Backend",
+        "backend_selection.subtitle": "Choose where to store your backups",
+        "backend_selection.recommendation": "Recommendation",
+        "backend_selection.button_next": "Next",
+        "dependency_check.title": "Dependency Check",
+        "dependency_check.button_next": "Next",
+        "common.button_back": "Back",
+        "common.button_quit": "Quit",
+        "common.button_help": "Help",
+    },
+    "de": {
+        "welcome.title": "Willkommen zum Kopi-Docka Setup-Assistenten",
+        "welcome.subtitle": "Richten wir Ihr Docker-Backup-System ein",
+        "welcome.system_info": "Systeminformationen",
+        "welcome.requirements": "Systemanforderungen",
+        "welcome.button_next": "Weiter",
+        "backend_selection.title": "Backup-Backend auswählen",
+        "backend_selection.subtitle": "Wählen Sie, wo Ihre Backups gespeichert werden sollen",
+        "backend_selection.recommendation": "Empfehlung",
+        "backend_selection.button_next": "Weiter",
+        "dependency_check.title": "Abhängigkeitsprüfung",
+        "dependency_check.button_next": "Weiter",
+        "common.button_back": "Zurück",
+        "common.button_quit": "Beenden",
+        "common.button_help": "Hilfe",
+    }
+}
+
+
+def t(key: str, lang: Optional[str] = None) -> str:
+    """
+    Translation function with dot-notation keys.
+    
+    Usage:
+        from kopi_docka.v2.i18n import t
+        print(t("welcome.title", "de"))
+    
+    Args:
+        key: Translation key (e.g., "welcome.title")
+        lang: Language code. If None, uses current language.
+    
+    Returns:
+        Translated string or key if not found
+    """
+    if lang is None:
+        lang = get_current_language()
+    
+    # Try fallback dictionary first
+    if lang in _TRANSLATIONS and key in _TRANSLATIONS[lang]:
+        return _TRANSLATIONS[lang][key]
+    
+    # Fallback to English
+    if "en" in _TRANSLATIONS and key in _TRANSLATIONS["en"]:
+        return _TRANSLATIONS["en"][key]
+    
+    # Last resort: return key itself
+    return key
+
+
 # Initialize on import
 setup_i18n()

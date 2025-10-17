@@ -203,10 +203,14 @@ def _command_exists(command: str) -> bool:
         return False
 
 
+# Alias for backwards compatibility
+detect_os_info = detect_os
+
 # Convenience exports
 __all__ = [
     "OSInfo",
     "detect_os",
+    "detect_os_info",
     "get_package_manager",
 ]
 
