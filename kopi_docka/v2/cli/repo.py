@@ -345,6 +345,157 @@ def repo_change_password():
         raise typer.Exit(1)
 
 
+@app.command(name="delete")
+def repo_delete(
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Skip confirmation prompts (DANGEROUS!)",
+    ),
+):
+    """
+    Delete repository (DANGEROUS!)
+    
+    Deletes all repository data. This action CANNOT be undone!
+    """
+    utils.print_header("⚠️  Delete Repository")
+    
+    # Load config
+    try:
+        config = load_backend_config()
+    except ConfigError as e:
+        utils.print_error(f"Configuration error: {e}")
+        raise typer.Exit(1)
+    
+    if config is None:
+        utils.print_error("No backend configured")
+        raise typer.Exit(1)
+    
+    backend_type = config["backend_type"]
+    backend_config = config["backend_config"]
+    repo_path = backend_config.get("repository_path", "N/A")
+    
+    # Show what will be deleted
+    utils.print_warning("This will DELETE ALL backup data!")
+    utils.print_separator()
+    console.print(f"[yellow]Repository:[/yellow] {repo_path}")
+    console.print(f"[yellow]Backend:[/yellow] {backend_type}")
+    utils.print_separator()
+    console.print("[red]This action CANNOT be undone![/red]")
+    
+    # Safety check 1: Type repository path
+    if not force:
+        utils.print_info("Type repository path to confirm")
+        confirmation = utils.prompt_text("Confirm", default="")
+        
+        if confirmation != repo_path:
+            utils.print_error("Confirmation failed")
+            raise typer.Exit(1)
+    
+    # Safety check 2: Are you sure?
+    if not force:
+        if not utils.prompt_confirm("Are you absolutely sure?", default=False):
+            utils.print_info("Cancelled")
+            raise typer.Exit(0)
+    
+    utils.print_separator()
+    
+    # 1. Disconnect
+    utils.print_info("Disconnecting from repository...")
+    try:
+        subprocess.run(
+            ["kopia", "repository", "disconnect"],
+            capture_output=True,
+            timeout=10
+        )
+        utils.print_success("Disconnected")
+    except Exception as e:
+        utils.print_warning(f"Disconnect failed (may not be connected): {e}")
+    
+    # 2. Delete repository data (filesystem only - others need manual cleanup)
+    if backend_type == "local" and backend_config.get("type") == "filesystem":
+        utils.print_info(f"Deleting repository data at {repo_path}...")
+        try:
+            from pathlib import Path
+            import shutil
+            
+            repo_dir = Path(repo_path).expanduser()
+            if repo_dir.exists():
+                shutil.rmtree(repo_dir)
+                utils.print_success(f"Deleted {repo_path}")
+            else:
+                utils.print_warning(f"Directory not found: {repo_path}")
+        except Exception as e:
+            utils.print_error(f"Failed to delete repository data: {e}")
+    else:
+        utils.print_warning(f"Cannot auto-delete {backend_type} repository")
+        utils.print_info("Please delete repository data manually on your backend")
+    
+    # 3. Remove kopia config
+    utils.print_info("Removing Kopia configuration...")
+    try:
+        from pathlib import Path
+        kopia_config = Path.home() / ".config" / "kopia" / "repository-kopi-docka.config"
+        if kopia_config.exists():
+            kopia_config.unlink()
+            utils.print_success("Removed Kopia config")
+    except Exception as e:
+        utils.print_warning(f"Failed to remove Kopia config: {e}")
+    
+    # 4. Update kopi-docka config
+    utils.print_info("Updating kopi-docka configuration...")
+    try:
+        update_repository_status(initialized=False)
+        utils.print_success("Updated config")
+    except Exception as e:
+        utils.print_warning(f"Failed to update config: {e}")
+    
+    utils.print_separator()
+    utils.print_success("Repository deleted")
+    utils.print_info("To create a new repository: sudo kopi-docka repo init")
+
+
+@app.command(name="recreate")
+def repo_recreate(
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Skip confirmation prompts (DANGEROUS!)",
+    ),
+):
+    """
+    Delete and recreate repository (DANGEROUS!)
+    
+    Deletes all existing data and creates a new repository.
+    This action CANNOT be undone!
+    """
+    utils.print_header("🔄 Recreate Repository")
+    
+    utils.print_warning("This will DELETE ALL backup data and create a new repository!")
+    utils.print_separator()
+    
+    if not force:
+        if not utils.prompt_confirm("Continue?", default=False):
+            utils.print_info("Cancelled")
+            raise typer.Exit(0)
+    
+    # Delete
+    try:
+        repo_delete(force=True)
+    except typer.Exit:
+        pass
+    
+    utils.print_separator()
+    utils.print_info("Creating new repository...")
+    
+    # Re-initialize
+    try:
+        repo_init()
+    except Exception as e:
+        utils.print_error(f"Failed to recreate repository: {e}")
+        raise typer.Exit(1)
+
+
 # Register repo commands to main app
 def register_to_main_app(main_app: typer.Typer):
     """Register repo commands to main CLI app"""
