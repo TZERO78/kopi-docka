@@ -35,6 +35,9 @@ def run_setup_wizard(language: Optional[str] = None):
     """
     from kopi_docka.v2.i18n import set_language
     
+    # Check sudo FIRST
+    utils.require_sudo("setup wizard")
+    
     # Set language if provided
     if language:
         try:

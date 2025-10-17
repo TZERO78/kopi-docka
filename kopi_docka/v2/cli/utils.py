@@ -1,17 +1,44 @@
 """
-CLI utility functions using Rich
+CLI Utilities for Kopi-Docka v2
 
-Provides beautiful terminal output with minimal code.
+Rich-based helpers for beautiful CLI output.
 """
 
-from typing import List, Optional, Any, Callable
+import os
+import sys
+from typing import Any, Callable, List, Optional, TypeVar
+
+import typer
 from rich.console import Console
-from rich.prompt import Prompt, Confirm
-from rich.table import Table
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
 
 console = Console()
+
+
+def require_sudo(command_name: str = "this command") -> None:
+    """
+    Check if running with sudo/root privileges.
+    
+    Exits with clear error message if not running as root.
+    
+    Args:
+        command_name: Name of command requiring sudo (for error message)
+    
+    Raises:
+        typer.Exit: If not running as root
+    """
+    if os.geteuid() != 0:
+        print_error("❌ Root privileges required")
+        print_separator()
+        console.print("[yellow]Kopi-Docka needs sudo for:[/yellow]")
+        console.print("  • Installing dependencies (Kopia, Tailscale, Rclone)")
+        console.print("  • Creating backup directories")
+        console.print("  • Accessing system resources")
+        print_separator()
+        print_info("Please run with sudo:")
+        console.print(f"  [cyan]sudo {' '.join(sys.argv)}[/cyan]\n")
+        raise typer.Exit(1)
 
 
 def print_header(title: str, subtitle: str = ""):

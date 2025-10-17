@@ -52,6 +52,9 @@ def setup_backend(
     """
     from kopi_docka.v2.i18n import set_language
     
+    # Check sudo
+    utils.require_sudo("backend setup")
+    
     # Set language if provided
     if language:
         try:
