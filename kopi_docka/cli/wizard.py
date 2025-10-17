@@ -35,9 +35,22 @@ def run_setup_wizard(language: Optional[str] = None):
     5. Initialize repository
     """
     from kopi_docka.i18n import set_language
+    from kopi_docka.config import load_backend_config
     
     # Check sudo FIRST
     utils.require_sudo("setup wizard")
+    
+    # Check if config already exists (idempotency)
+    existing_config = load_backend_config()
+    if existing_config:
+        backend_type = existing_config.get("backend_type", "unknown")
+        utils.print_warning(f"Existing configuration found ({backend_type} backend)")
+        
+        if not utils.prompt_confirm("Overwrite existing configuration?", default=False):
+            utils.print_info("Keeping existing configuration")
+            raise typer.Exit(0)
+        
+        utils.print_info("Proceeding with new setup...")
     
     # Set language if provided
     if language:
