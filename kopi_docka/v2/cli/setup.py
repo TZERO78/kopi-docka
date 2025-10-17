@@ -87,10 +87,21 @@ def setup_backend(
             raise typer.Exit(1)
         
         if config:
-            # TODO: Save configuration
-            utils.print_separator()
-            utils.print_success(t("setup.success", lang))
-            utils.print_info(f"Configuration saved for {backend} backend")
+            # Save configuration
+            from kopi_docka.v2.config import save_backend_config, get_config_path
+            
+            try:
+                config_path = save_backend_config(backend, config)
+                
+                utils.print_separator()
+                utils.print_success(t("setup.success", lang))
+                utils.print_info(f"Configuration saved to: {config_path}")
+                utils.print_warning("Repository not initialized yet")
+                utils.print_info("Run 'kopi-docka repo init' to initialize the repository")
+                
+            except Exception as e:
+                utils.print_error(f"Failed to save configuration: {e}")
+                raise typer.Exit(1)
         else:
             utils.print_warning(t("setup.cancelled", lang))
             raise typer.Exit(1)

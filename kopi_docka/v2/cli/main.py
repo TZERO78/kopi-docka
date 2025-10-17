@@ -13,6 +13,7 @@ from rich.console import Console
 from kopi_docka.v2.i18n import set_language, get_current_language
 from kopi_docka.v2.cli import utils
 from kopi_docka.v2.cli import setup
+from kopi_docka.v2.cli import repo
 
 # Create Typer app
 app = typer.Typer(
@@ -23,8 +24,9 @@ app = typer.Typer(
 
 console = Console()
 
-# Register setup commands
+# Register sub-commands
 setup.register_to_main_app(app)
+repo.register_to_main_app(app)
 
 
 @app.callback()
