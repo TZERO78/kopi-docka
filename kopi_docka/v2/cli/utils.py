@@ -10,6 +10,7 @@ from typing import Any, Callable, List, Optional, TypeVar
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
@@ -59,7 +60,7 @@ def print_success(message: str):
 
 def print_error(message: str):
     """Print error message with red X"""
-    console.print(f"[red]✗[/red] {message}")
+    console.print(f"[red]✗[/red] {escape(message)}")
 
 
 def print_warning(message: str):
