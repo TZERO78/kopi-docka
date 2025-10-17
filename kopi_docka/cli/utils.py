@@ -55,7 +55,7 @@ def print_header(title: str, subtitle: str = ""):
 
 def print_success(message: str):
     """Print success message with green checkmark"""
-    console.print(f"[green]✓[/green] {message}")
+    console.print(f"[green]✓[/green] {escape(message)}")
 
 
 def print_error(message: str):
@@ -65,12 +65,12 @@ def print_error(message: str):
 
 def print_warning(message: str):
     """Print warning message with yellow warning symbol"""
-    console.print(f"[yellow]⚠[/yellow]  {message}")
+    console.print(f"[yellow]⚠[/yellow]  {escape(message)}")
 
 
 def print_info(message: str):
     """Print info message with cyan arrow"""
-    console.print(f"[cyan]→[/cyan] {message}")
+    console.print(f"[cyan]→[/cyan] {escape(message)}")
 
 
 def print_separator():
