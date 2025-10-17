@@ -13,9 +13,23 @@ from kopi_docka.v2.cli import utils
 from kopi_docka.v2.i18n import t, get_current_language
 
 # Create sub-app for setup commands
-app = typer.Typer(help="Setup and configuration commands")
+app = typer.Typer(
+    help="Setup and configuration commands",
+    invoke_without_command=True,
+    no_args_is_help=False,
+)
 
 console = Console()
+
+
+@app.callback()
+def setup_callback(ctx: typer.Context):
+    """Setup callback - runs wizard if no subcommand"""
+    if ctx.invoked_subcommand is None:
+        # No subcommand provided, run the wizard
+        from kopi_docka.v2.cli.wizard import run_setup_wizard
+        run_setup_wizard()
+        raise typer.Exit(0)
 
 
 @app.command(name="backend")
