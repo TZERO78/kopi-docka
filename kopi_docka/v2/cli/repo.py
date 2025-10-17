@@ -496,6 +496,33 @@ def repo_recreate(
         raise typer.Exit(1)
 
 
+@app.command(name="disconnect")
+def repo_disconnect():
+    """
+    Disconnect from repository
+    
+    Disconnects the current Kopia repository session.
+    """
+    utils.print_header("🔌 Disconnect from Repository")
+    
+    try:
+        result = subprocess.run(
+            ["kopia", "repository", "disconnect"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode == 0:
+            utils.print_success("Disconnected from repository")
+        else:
+            utils.print_warning("Not connected or already disconnected")
+            
+    except Exception as e:
+        utils.print_error(f"Disconnect failed: {e}")
+        raise typer.Exit(1)
+
+
 # Register repo commands to main app
 def register_to_main_app(main_app: typer.Typer):
     """Register repo commands to main CLI app"""
