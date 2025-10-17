@@ -291,6 +291,60 @@ def _build_kopia_connect_command(backend_type: str, backend_config: dict, passwo
     return cmd
 
 
+@app.command(name="change-password")
+def repo_change_password():
+    """
+    Change repository password
+    
+    Changes the password for the Kopia repository.
+    """
+    utils.print_header("🔐 Change Repository Password")
+    
+    # Get current password
+    utils.print_info("Enter current repository password")
+    old_password = utils.prompt_text("Current password", password=True)
+    
+    # Get new password
+    utils.print_info("Enter new repository password")
+    new_password = utils.prompt_text("New password", password=True)
+    new_password_confirm = utils.prompt_text("Confirm new password", password=True)
+    
+    if new_password != new_password_confirm:
+        utils.print_error("Passwords do not match")
+        raise typer.Exit(1)
+    
+    utils.print_separator()
+    utils.print_info("Changing password...")
+    
+    try:
+        # Kopia change-password command
+        cmd = [
+            "kopia", "repository", "change-password",
+            "--old-password", old_password,
+            "--new-password", new_password
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode == 0:
+            utils.print_success("Password changed successfully!")
+            utils.print_warning("Make sure to update your password manager/backup")
+        else:
+            utils.print_error("Password change failed")
+            if result.stderr:
+                console.print(f"[red]{result.stderr}[/red]")
+            raise typer.Exit(1)
+            
+    except Exception as e:
+        utils.print_error(f"Password change failed: {e}")
+        raise typer.Exit(1)
+
+
 # Register repo commands to main app
 def register_to_main_app(main_app: typer.Typer):
     """Register repo commands to main CLI app"""
