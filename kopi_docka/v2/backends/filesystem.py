@@ -44,46 +44,47 @@ class FilesystemBackend(BackendBase):
         return installer.install_kopia()
     
     def setup_interactive(self) -> Dict[str, Any]:
-        """
-        Interactive setup for filesystem backend.
+        """Interactive setup for filesystem backend using Rich CLI"""
+        from kopi_docka.v2.cli import utils
+        from kopi_docka.v2.i18n import t, get_current_language
         
-        Note: This is a simplified version using print/input.
-        Full Textual UI version will be implemented later.
-        """
-        print("\n" + "=" * 60)
-        print(_("Filesystem Backend Setup"))
-        print("=" * 60)
+        lang = get_current_language()
+        
+        utils.print_header("Filesystem Backend Setup")
+        utils.print_info("Store backups on local disk or network-attached storage")
+        utils.print_separator()
         
         # Get repository path
         default_path = "/backup/kopia-repository"
-        path_str = input(f"\n{_('Repository path')} [{default_path}]: ").strip()
-        
-        if not path_str:
-            path_str = default_path
+        path_str = utils.prompt_text(
+            "Repository path",
+            default=default_path
+        )
         
         # Expand and resolve path
         path = Path(path_str).expanduser().resolve()
         
         # Create directory if not exists
         if not path.exists():
-            create = input(f"\n{_('Directory does not exist. Create it?')} (Y/n): ").strip().lower()
-            if create in ('', 'y', 'yes'):
+            if utils.prompt_confirm("Directory does not exist. Create it?"):
                 try:
                     path.mkdir(parents=True, mode=0o700)
-                    print(f"✓ {_('Created directory')}: {path}")
+                    utils.print_success(f"Created directory: {path}")
                 except Exception as e:
-                    raise ConfigurationError(f"{_('Failed to create directory')}: {e}")
+                    utils.print_error(f"Failed to create directory: {e}")
+                    raise ConfigurationError(f"Failed to create directory: {e}")
             else:
-                raise ConfigurationError(_("Repository directory required"))
+                utils.print_error("Repository directory required")
+                raise ConfigurationError("Repository directory required")
         
         # Check permissions
         if not os.access(path, os.W_OK):
-            raise ConfigurationError(
-                f"{_('No write permission for')}: {path}\n"
-                f"{_('Run with sudo or choose a different path')}"
-            )
+            utils.print_error(f"No write permission for: {path}")
+            utils.print_warning("Run with sudo or choose a different path")
+            raise ConfigurationError(f"No write permission for: {path}")
         
-        print(f"\n✓ {_('Repository path')}: {path}")
+        utils.print_separator()
+        utils.print_success(f"Repository path: {path}")
         
         return {
             "type": "filesystem",

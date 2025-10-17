@@ -55,41 +55,58 @@ class RcloneBackend(BackendBase):
         return success
     
     def setup_interactive(self) -> Dict[str, Any]:
-        """Interactive setup for rclone backend"""
-        print("\n" + "=" * 60)
-        print(_("Rclone Backend Setup"))
-        print("=" * 60)
+        """Interactive setup for rclone backend using Rich CLI"""
+        from kopi_docka.v2.cli import utils
+        from kopi_docka.v2.i18n import t, get_current_language
+        
+        lang = get_current_language()
+        
+        utils.print_header("Rclone Backend Setup")
+        utils.print_info("Support for 70+ cloud providers: Google Drive, Dropbox, OneDrive, S3, B2...")
+        utils.print_separator()
         
         # List existing remotes
         remotes = self._list_remotes()
         
         if remotes:
-            print(f"\n{_('Existing rclone remotes')}:")
-            for i, remote in enumerate(remotes, 1):
+            # Show remotes in a nice table
+            table = utils.create_table(
+                "Existing Rclone Remotes",
+                [
+                    ("Name", "cyan", 25),
+                    ("Type", "green", 20),
+                ]
+            )
+            
+            for remote in remotes:
                 remote_type = self._get_remote_type(remote)
-                print(f"  {i}. {remote} ({remote_type})")
-            print(f"  {len(remotes) + 1}. {_('Create new remote')}")
+                table.add_row(remote, remote_type)
             
-            choice = input(f"\n{_('Select option')} [1-{len(remotes) + 1}]: ").strip()
+            utils.console.print(table)
             
-            try:
-                choice_num = int(choice)
-                if 1 <= choice_num <= len(remotes):
-                    remote_name = remotes[choice_num - 1]
-                else:
-                    # Create new remote
-                    remote_name = self._create_new_remote()
-            except (ValueError, IndexError):
-                remote_name = remotes[0] if remotes else self._create_new_remote()
+            # Add option to create new remote
+            remote_options = remotes + ["➕ Create new remote"]
+            
+            selected = utils.prompt_select(
+                "Select remote",
+                remote_options,
+                display_fn=lambda r: r
+            )
+            
+            if selected == "➕ Create new remote":
+                remote_name = self._create_new_remote()
+            else:
+                remote_name = selected
         else:
-            print(f"\n{_('No rclone remotes found')}.")
+            utils.print_warning("No rclone remotes found")
             remote_name = self._create_new_remote()
         
         # Get path in remote
         default_path = "kopi-docka-backups"
-        remote_path = input(f"\n{_('Path in remote')} [{default_path}]: ").strip()
-        if not remote_path:
-            remote_path = default_path
+        remote_path = utils.prompt_text(
+            "Path in remote",
+            default=default_path
+        )
         
         # Get rclone config location
         rclone_config = Path.home() / ".config/rclone/rclone.conf"
@@ -97,10 +114,14 @@ class RcloneBackend(BackendBase):
             rclone_config = Path.home() / ".rclone.conf"
         
         if not rclone_config.exists():
-            raise ConfigurationError(_("Rclone config file not found"))
+            utils.print_error("Rclone config file not found")
+            raise ConfigurationError("Rclone config file not found")
         
         full_path = f"{remote_name}:{remote_path}"
-        print(f"\n✓ {_('Remote path')}: {full_path}")
+        
+        utils.print_separator()
+        utils.print_success(f"Remote path: {full_path}")
+        utils.print_info(f"Config: {rclone_config}")
         
         return {
             "type": "rclone",
@@ -232,11 +253,15 @@ class RcloneBackend(BackendBase):
     
     def _create_new_remote(self) -> str:
         """Guide user to create new rclone remote"""
-        print(f"\n{_('Creating new rclone remote...')}")
-        print(_("This will launch the rclone config wizard."))
-        print(_("Follow the prompts to add a new remote."))
+        from kopi_docka.v2.cli import utils
         
-        input(f"\n{_('Press Enter to continue')}...")
+        utils.print_separator()
+        utils.print_info("Creating new rclone remote...")
+        utils.print_warning("This will launch the rclone config wizard")
+        utils.print_info("Follow the prompts to add a new remote")
+        
+        if not utils.prompt_confirm("Continue?", default=True):
+            raise ConfigurationError("Setup cancelled")
         
         # Launch rclone config
         subprocess.run(["rclone", "config"])
@@ -244,7 +269,10 @@ class RcloneBackend(BackendBase):
         # List remotes again
         remotes = self._list_remotes()
         if not remotes:
-            raise ConfigurationError(_("No remotes configured"))
+            utils.print_error("No remotes configured")
+            raise ConfigurationError("No remotes configured")
+        
+        utils.print_success(f"Remote created: {remotes[-1]}")
         
         # Return the last (newly created) remote
         return remotes[-1]
