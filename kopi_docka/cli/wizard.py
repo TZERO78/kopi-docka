@@ -247,8 +247,13 @@ def check_and_install_backend_dependencies(backend_type: str) -> bool:
                 installer = DependencyInstaller()
                 
                 if installer.install_rclone():
-                    utils.print_success("✓ Rclone installed!")
-                    return True
+                    # Double-check if rclone is now available
+                    if shutil.which("rclone"):
+                        utils.print_success("✓ Rclone installed!")
+                        return True
+                    else:
+                        utils.print_error("✗ Rclone installed but not in PATH. Please restart terminal.")
+                        return False
                 else:
                     utils.print_error("✗ Rclone installation failed")
                     return False
