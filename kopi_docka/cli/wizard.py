@@ -153,33 +153,31 @@ def check_and_install_core_dependencies() -> bool:
 
 def select_backend() -> str:
     """Interactive backend selection"""
+    from kopi_docka.backends import list_available_backends, get_backend_info
+    
     utils.print_separator()
     utils.print_header("📦 Backend Selection")
     
-    backends = {
-        "local": {
-            "name": "📁 Local Filesystem",
-            "desc": "Store backups on local disk or NAS",
-            "extra_tools": []
-        },
-        "tailscale": {
-            "name": "🔥 Tailscale Network",
-            "desc": "Secure offsite backups via Tailscale (Recommended!)",
-            "extra_tools": ["tailscale"]
-        },
-        "rclone": {
-            "name": "☁️  Rclone / Cloud Storage",
-            "desc": "70+ cloud providers supported",
-            "extra_tools": ["rclone"]
+    # Get all registered backends dynamically
+    available_backends = list_available_backends()
+    
+    if not available_backends:
+        utils.print_error("No backends available!")
+        raise typer.Exit(1)
+    
+    # Build backend info from registry
+    backends = {}
+    for backend_type in available_backends:
+        info = get_backend_info(backend_type)
+        backends[backend_type] = {
+            "name": info["display_name"],
+            "desc": info["description"],
         }
-    }
     
     # Show backends
     for key, info in backends.items():
         console.print(f"\n[cyan]{info['name']}[/cyan]")
         console.print(f"  {info['desc']}")
-        if info['extra_tools']:
-            console.print(f"  [dim]Requires: {', '.join(info['extra_tools'])}[/dim]")
     
     # Prompt for selection
     options = list(backends.keys())
