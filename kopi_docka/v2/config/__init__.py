@@ -10,6 +10,7 @@ from .manager import (
     get_config_path,
     is_repository_initialized,
     update_repository_status,
+    delete_config,
     ConfigError,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "get_config_path",
     "is_repository_initialized",
     "update_repository_status",
+    "delete_config",
     "ConfigError",
 ]
