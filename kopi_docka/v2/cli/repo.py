@@ -10,6 +10,7 @@ from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from kopi_docka.v2.cli import utils
 from kopi_docka.v2.config import (
@@ -101,7 +102,7 @@ def repo_init(
         else:
             utils.print_error("Repository initialization failed")
             if result.stderr:
-                console.print(f"[red]{result.stderr}[/red]")
+                console.print(f"[red]{escape(result.stderr)}[/red]")
             raise typer.Exit(1)
             
     except subprocess.TimeoutExpired:
@@ -227,7 +228,7 @@ def repo_connect(
         else:
             utils.print_error("Connection failed")
             if result.stderr:
-                console.print(f"[red]{result.stderr}[/red]")
+                console.print(f"[red]{escape(result.stderr)}[/red]")
             raise typer.Exit(1)
             
     except Exception as e:
@@ -337,7 +338,7 @@ def repo_change_password():
         else:
             utils.print_error("Password change failed")
             if result.stderr:
-                console.print(f"[red]{result.stderr}[/red]")
+                console.print(f"[red]{escape(result.stderr)}[/red]")
             raise typer.Exit(1)
             
     except Exception as e:
