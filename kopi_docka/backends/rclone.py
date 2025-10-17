@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Tuple
 
 from .base import BackendBase, ConfigurationError, DependencyError
 from ..i18n import _
-from ..utils.dependency_installer import DependencyInstaller
+from ..helpers.dependency_installer import DependencyInstaller
 
 
 class RcloneBackend(BackendBase):
