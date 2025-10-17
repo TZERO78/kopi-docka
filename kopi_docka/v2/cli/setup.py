@@ -8,6 +8,7 @@ from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from kopi_docka.v2.cli import utils
 from kopi_docka.v2.i18n import t, get_current_language
@@ -60,7 +61,7 @@ def setup_backend(
         try:
             set_language(language)
         except ValueError as e:
-            console.print(f"[red]Error:[/red] {e}")
+            console.print(f"[red]Error:[/red] {escape(str(e))}")
             raise typer.Exit(1)
     
     lang = get_current_language()
