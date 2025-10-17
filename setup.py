@@ -61,7 +61,11 @@ setup(
 
     install_requires=[
         "psutil>=5.9.0",
-        "typer>=0.9.0",
+        "typer>=0.12.0",
+        "rich>=13.0.0",
+        "pydantic>=2.0.0",
+        "docker>=7.0.0",
+        "jsonschema>=4.21.0",
     ],
 
     extras_require={
@@ -80,8 +84,10 @@ setup(
 
     entry_points={
         "console_scripts": [
-            # Haupt-CLI (Typer) mit allen Commands
-            "kopi-docka=kopi_docka.__main__:main",
+            # v2 CLI (Pure CLI with Rich) - NEW DEFAULT
+            "kopi-docka=kopi_docka.v2.cli.main:cli_main",
+            # Legacy v1 CLI (kept for compatibility)
+            "kopi-docka-v1=kopi_docka.__main__:main",
             # Service/Daemon-Helper
             "kopi-docka-service=kopi_docka.cores.service_manager:main",
         ],

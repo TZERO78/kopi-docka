@@ -1,17 +1,11 @@
 # Core Framework
 typer>=0.12.0          # CLI Framework
 psutil>=5.9.0          # System Information
-
-# TUI Framework (v2.1)
-textual>=0.85.0        # Modern Terminal UI
 rich>=13.0.0           # Beautiful Terminal Output
 
 # Data & Validation (v2.1)
 pydantic>=2.0.0        # Schema Validation & Type Safety
 docker>=7.0.0          # Docker API
-
-# Internationalization (v2.1)
-babel>=2.15.0          # i18n Support
 
 # Optional Dependencies
 jsonschema>=4.21.0     # JSON Schema Validation (legacy support)
