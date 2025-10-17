@@ -84,8 +84,8 @@ setup(
 
     entry_points={
         "console_scripts": [
-            # v2 CLI (Pure CLI with Rich) - NEW DEFAULT
-            "kopi-docka=kopi_docka.v2.cli.main:cli_main",
+            # CLI (Pure CLI with Rich)
+            "kopi-docka=kopi_docka.cli.main:cli_main",
             # Legacy v1 CLI (kept for compatibility)
             "kopi-docka-v1=kopi_docka.__main__:main",
             # Service/Daemon-Helper
