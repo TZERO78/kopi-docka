@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..i18n import _
 
@@ -25,14 +25,14 @@ class BackendBase(ABC):
     5. Generate Kopia CLI arguments
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         """
         Initialize backend with configuration.
         
         Args:
-            config: Backend-specific configuration dictionary
+            config: Backend-specific configuration dictionary (optional for setup)
         """
-        self.config = config
+        self.config = config or {}
     
     @property
     @abstractmethod
