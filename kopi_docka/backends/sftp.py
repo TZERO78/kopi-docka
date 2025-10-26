@@ -1,74 +1,57 @@
 """
 SFTP Backend Configuration
+
+Store backups on remote server via SSH/SFTP.
 """
 
 import typer
-from pathlib import Path
+from .base import BackendBase
 
 
-def configure() -> dict:
-    """Interactive SFTP configuration wizard."""
-    typer.echo("SFTP storage selected.")
-    typer.echo("")
+class SFTPBackend(BackendBase):
+    """SFTP/SSH remote storage backend"""
     
-    user = typer.prompt("SSH user", default="root")
-    host = typer.prompt("SSH host (IP or hostname)")
-    port = typer.prompt("SSH port", default=22, show_default=True)
-    path = typer.prompt("Remote path", default="/backup/kopia")
+    @property
+    def name(self) -> str:
+        return "sftp"
     
-    # SSH key setup
-    ssh_key = Path.home() / ".ssh" / "id_rsa"
-    use_key = typer.confirm(f"Use SSH key authentication? (key: {ssh_key})", default=True)
+    @property
+    def display_name(self) -> str:
+        return "SFTP"
     
-    if use_key:
-        custom_key = typer.prompt(
-            "SSH key path (press Enter for default)",
-            default=str(ssh_key),
-            show_default=False
-        )
-        ssh_key = Path(custom_key)
+    @property
+    def description(self) -> str:
+        return "Remote server via SSH"
+    
+    def configure(self) -> dict:
+        """Interactive SFTP configuration wizard."""
+        typer.echo("SFTP storage selected.")
+        typer.echo("")
         
-        if not ssh_key.exists():
-            typer.echo(f"⚠️  SSH key not found: {ssh_key}")
-            typer.echo("Generate with: ssh-keygen -t ed25519")
-            typer.echo(f"Copy to server: ssh-copy-id {user}@{host}")
-    
-    # Build repository path
-    if port != 22:
-        repo_path = f"sftp://{user}@{host}:{port}{path}"
-    else:
+        user = typer.prompt("SSH user")
+        host = typer.prompt("SSH host")
+        path = typer.prompt("Remote path", default="/backup/kopia")
+        
         repo_path = f"sftp://{user}@{host}{path}"
-    
-    instructions = f"""
-⚠️  SFTP Setup Required:
+        
+        instructions = f"""
+✓ SFTP backend configured.
 
-1. Ensure SSH access is configured:
-   ssh {user}@{host}
+Connection: {user}@{host}:{path}
 
-2. For key-based authentication (recommended):
-   ssh-keygen -t ed25519 -f ~/.ssh/id_rsa
-   ssh-copy-id -i ~/.ssh/id_rsa {user}@{host}
+Make sure:
+  • SSH access is configured (key-based auth recommended)
+  • Remote directory exists and is writable
+  • SSH host is in known_hosts
 
-3. Test connection:
-   ssh {user}@{host} "mkdir -p {path}"
+Setup SSH key-based auth:
+  ssh-copy-id {user}@{host}
 
-4. For password authentication:
-   You'll be prompted during repository initialization
-
-💡 SSH key authentication is more secure and doesn't require
-   password entry for each backup.
+Test connection:
+  ssh {user}@{host} "ls -la {path}"
 """
-    
-    result = {
-        'repository_path': repo_path,
-        'instructions': instructions,
-        'ssh_user': user,
-        'ssh_host': host,
-        'ssh_port': port,
-        'remote_path': path,
-    }
-    
-    if use_key and ssh_key.exists():
-        result['ssh_key'] = str(ssh_key)
-    
-    return result
+        
+        return {
+            'repository_path': repo_path,
+            'instructions': instructions,
+        }

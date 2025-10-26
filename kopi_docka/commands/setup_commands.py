@@ -33,19 +33,25 @@ import typer
 
 from ..helpers import get_logger, Config, create_default_config, generate_secure_password
 from ..cores import DependencyManager
-from ..backends import local, s3, b2, azure, gcs, sftp, tailscale
+from ..backends.local import LocalBackend
+from ..backends.s3 import S3Backend
+from ..backends.b2 import B2Backend
+from ..backends.azure import AzureBackend
+from ..backends.gcs import GCSBackend
+from ..backends.sftp import SFTPBackend
+from ..backends.tailscale import TailscaleBackend
 
 logger = get_logger(__name__)
 
-# Backend module registry
+# Backend registry - instantiated backends
 BACKEND_MODULES = {
-    'filesystem': local,
-    's3': s3,
-    'b2': b2,
-    'azure': azure,
-    'gcs': gcs,
-    'sftp': sftp,
-    'tailscale': tailscale,
+    'filesystem': LocalBackend({}),
+    's3': S3Backend({}),
+    'b2': B2Backend({}),
+    'azure': AzureBackend({}),
+    'gcs': GCSBackend({}),
+    'sftp': SFTPBackend({}),
+    'tailscale': TailscaleBackend({}),
 }
 
 

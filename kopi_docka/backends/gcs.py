@@ -3,19 +3,35 @@ Google Cloud Storage Backend Configuration
 """
 
 import typer
+from .base import BackendBase
 
 
-def configure() -> dict:
-    """Interactive Google Cloud Storage configuration wizard."""
-    typer.echo("Google Cloud Storage selected.")
-    typer.echo("")
+class GCSBackend(BackendBase):
+    """Google Cloud Storage backend"""
     
-    bucket = typer.prompt("Bucket name")
-    prefix = typer.prompt("Path prefix (optional)", default="kopia", show_default=True)
+    @property
+    def name(self) -> str:
+        return "gcs"
     
-    repo_path = f"gs://{bucket}/{prefix}" if prefix else f"gs://{bucket}"
+    @property
+    def display_name(self) -> str:
+        return "Google Cloud Storage"
     
-    instructions = """
+    @property
+    def description(self) -> str:
+        return "GCS cloud storage"
+    
+    def configure(self) -> dict:
+        """Interactive Google Cloud Storage configuration wizard."""
+        typer.echo("Google Cloud Storage selected.")
+        typer.echo("")
+        
+        bucket = typer.prompt("Bucket name")
+        prefix = typer.prompt("Path prefix (optional)", default="kopia", show_default=True)
+        
+        repo_path = f"gs://{bucket}/{prefix}" if prefix else f"gs://{bucket}"
+        
+        instructions = """
 ⚠️  Authenticate with Google Cloud:
 
 Option 1: gcloud CLI (recommended)
@@ -33,8 +49,8 @@ Required permissions:
   • storage.objects.get
   • storage.objects.list
 """
-    
-    return {
-        'repository_path': repo_path,
-        'instructions': instructions,
-    }
+        
+        return {
+            'repository_path': repo_path,
+            'instructions': instructions,
+        }

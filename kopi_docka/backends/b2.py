@@ -5,36 +5,47 @@ Cost-effective cloud storage with S3-compatible API.
 """
 
 import typer
+from .base import BackendBase
 
 
-def configure() -> dict:
-    """
-    Interactive Backblaze B2 configuration wizard.
+class B2Backend(BackendBase):
+    """Backblaze B2 cloud storage backend"""
     
-    Returns:
-        dict with repository_path, env_vars, instructions
-    """
-    typer.echo("Backblaze B2 cloud storage selected.")
-    typer.echo("")
-    typer.echo("You'll need:")
-    typer.echo("  • B2 Application Key ID")
-    typer.echo("  • B2 Application Key")
-    typer.echo("  • Bucket name")
-    typer.echo("")
-    typer.echo("Get credentials: https://secure.backblaze.com/app_keys.htm")
-    typer.echo("")
+    @property
+    def name(self) -> str:
+        return "b2"
     
-    bucket = typer.prompt("Bucket name")
-    prefix = typer.prompt("Path prefix (optional)", default="kopia", show_default=True)
+    @property
+    def display_name(self) -> str:
+        return "Backblaze B2"
     
-    repo_path = f"b2://{bucket}/{prefix}" if prefix else f"b2://{bucket}"
+    @property
+    def description(self) -> str:
+        return "Cost-effective cloud storage"
     
-    env_vars = {
-        'B2_APPLICATION_KEY_ID': '<your-application-key-id>',
-        'B2_APPLICATION_KEY': '<your-application-key>',
-    }
-    
-    instructions = f"""
+    def configure(self) -> dict:
+        """Interactive Backblaze B2 configuration wizard."""
+        typer.echo("Backblaze B2 cloud storage selected.")
+        typer.echo("")
+        typer.echo("You'll need:")
+        typer.echo("  • B2 Application Key ID")
+        typer.echo("  • B2 Application Key")
+        typer.echo("  • Bucket name")
+        typer.echo("")
+        typer.echo("Get credentials: https://secure.backblaze.com/app_keys.htm")
+        typer.echo("")
+        
+        bucket = typer.prompt("Bucket name")
+        prefix = typer.prompt("Path prefix (optional)", default="kopia", show_default=True)
+        
+        repo_path = f"b2://{bucket}/{prefix}" if prefix else f"b2://{bucket}"
+        
+        env_vars = {
+            'B2_APPLICATION_KEY_ID': '<your-application-key-id>',
+            'B2_APPLICATION_KEY': '<your-application-key>',
+        }
+        
+        instructions = f"""
 ⚠️  Set these environment variables before running init:
 
   export B2_APPLICATION_KEY_ID='your-key-id'
@@ -52,9 +63,9 @@ Get credentials from:
   • Free egress up to 3x storage
   • No API request fees
 """
-    
-    return {
-        'repository_path': repo_path,
-        'env_vars': env_vars,
-        'instructions': instructions,
-    }
+        
+        return {
+            'repository_path': repo_path,
+            'env_vars': env_vars,
+            'instructions': instructions,
+        }

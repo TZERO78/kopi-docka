@@ -49,6 +49,10 @@ class TailscaleBackend(BackendBase):
     def description(self) -> str:
         return _("🔥Secure offsite backups over your private Tailscale network (recommended!)")
     
+    def configure(self) -> Dict[str, Any]:
+        """Wrapper for compatibility with simple backends"""
+        return self.setup_interactive()
+    
     def check_dependencies(self) -> List[str]:
         """Check if Kopia and Tailscale are installed"""
         missing = []
