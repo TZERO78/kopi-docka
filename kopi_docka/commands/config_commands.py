@@ -33,15 +33,15 @@ from ..backends.tailscale import TailscaleBackend
 
 logger = get_logger(__name__)
 
-# Backend registry (shared with setup) - instantiated backends
+# Backend registry (shared with setup) - backend classes
 BACKEND_MODULES = {
-    'filesystem': LocalBackend({}),
-    's3': S3Backend({}),
-    'b2': B2Backend({}),
-    'azure': AzureBackend({}),
-    'gcs': GCSBackend({}),
-    'sftp': SFTPBackend({}),
-    'tailscale': TailscaleBackend({}),
+    'filesystem': LocalBackend,
+    's3': S3Backend,
+    'b2': B2Backend,
+    'azure': AzureBackend,
+    'gcs': GCSBackend,
+    'sftp': SFTPBackend,
+    'tailscale': TailscaleBackend,
 }
 
 
@@ -181,11 +181,12 @@ def cmd_new_config(
     typer.echo(f"\n✓ Selected: {backend_type}")
     typer.echo("")
     
-    # Use backend module for configuration
-    backend_module = BACKEND_MODULES.get(backend_type)
+    # Use backend class for configuration
+    backend_class = BACKEND_MODULES.get(backend_type)
     
-    if backend_module:
-        result = backend_module.configure()
+    if backend_class:
+        backend = backend_class({})
+        result = backend.configure()
         repo_path = result['repository_path']
         
         # Show setup instructions if provided

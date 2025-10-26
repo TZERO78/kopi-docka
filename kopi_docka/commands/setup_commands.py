@@ -43,15 +43,15 @@ from ..backends.tailscale import TailscaleBackend
 
 logger = get_logger(__name__)
 
-# Backend registry - instantiated backends
+# Backend registry - backend classes
 BACKEND_MODULES = {
-    'filesystem': LocalBackend({}),
-    's3': S3Backend({}),
-    'b2': B2Backend({}),
-    'azure': AzureBackend({}),
-    'gcs': GCSBackend({}),
-    'sftp': SFTPBackend({}),
-    'tailscale': TailscaleBackend({}),
+    'filesystem': LocalBackend,
+    's3': S3Backend,
+    'b2': B2Backend,
+    'azure': AzureBackend,
+    'gcs': GCSBackend,
+    'sftp': SFTPBackend,
+    'tailscale': TailscaleBackend,
 }
 
 
