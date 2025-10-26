@@ -53,14 +53,12 @@ class KopiaRepository:
 
     def __init__(self, config: Config):
         self.config = config
-        # Neues System: kopia_params statt repository_path
         self.kopia_params = config.get('kopia', 'kopia_params', fallback='')
-        # Legacy fallback für alte Configs
         if not self.kopia_params:
-            self.repo_path = config.kopia_repository_path
-        else:
-            self.repo_path = None  # Not needed with kopia_params
-        # Password wird dynamisch über get_password() geholt
+            raise ValueError(
+                "Config missing 'kopia_params'. "
+                "Please create a new config with 'kopi-docka new-config'."
+            )
         self.profile_name = config.kopia_profile
 
     # --------------- Low-level helpers ---------------
@@ -113,73 +111,6 @@ class KopiaRepository:
             msg = proc.stderr.strip() or proc.stdout.strip()
             raise RuntimeError(f"{' '.join(args)} failed: {msg}")
         return proc
-
-    # --------------- Backend helpers ---------------
-
-    def _detect_backend(self, repo_path: Union[str, Path]) -> Tuple[str, Dict[str, str]]:
-        """Detect Kopia backend and split args for create/connect."""
-        if isinstance(repo_path, Path):
-            return "filesystem", {"path": str(repo_path)}
-
-        rp = str(repo_path)
-        if "://" not in rp:
-            return "filesystem", {"path": rp}
-
-        rp_lower = rp.lower()
-        if rp_lower.startswith("s3://"):
-            bucket, prefix = self._split_bucket_prefix(rp[5:])
-            args = {"bucket": bucket}
-            if prefix:
-                args["prefix"] = prefix
-            return "s3", args
-
-        if rp_lower.startswith("b2://"):
-            bucket, prefix = self._split_bucket_prefix(rp[5:])
-            args = {"bucket": bucket}
-            if prefix:
-                args["prefix"] = prefix
-            return "b2", args
-
-        if rp_lower.startswith("azure://"):
-            container, prefix = self._split_bucket_prefix(rp[8:])
-            args = {"container": container}
-            if prefix:
-                args["prefix"] = prefix
-            return "azure", args
-
-        if rp_lower.startswith("gs://"):
-            bucket, prefix = self._split_bucket_prefix(rp[5:])
-            args = {"bucket": bucket}
-            if prefix:
-                args["prefix"] = prefix
-            return "gcs", args
-
-        logger.warning("Unrecognized repository scheme '%s', assuming filesystem", rp)
-        return "filesystem", {"path": rp}
-
-    @staticmethod
-    def _backend_args(backend: str, args: Dict[str, str]) -> List[str]:
-        """Map parsed args to Kopia CLI flags for create/connect."""
-        if backend == "filesystem":
-            return ["--path", args["path"]]
-        if backend in {"s3", "b2", "gcs"}:
-            out = ["--bucket", args["bucket"]]
-            if args.get("prefix"):
-                out += ["--prefix", args["prefix"]]
-            return out
-        if backend == "azure":
-            out = ["--container", args["container"]]
-            if args.get("prefix"):
-                out += ["--prefix", args["prefix"]]
-            return out
-        return []
-
-    @staticmethod
-    def _split_bucket_prefix(rest: str) -> Tuple[str, str]:
-        parts = rest.split("/", 1)
-        if len(parts) == 1:
-            return parts[0], ""
-        return parts[0], parts[1]
 
     # --------------- Status / Connect / Create ---------------
 
@@ -237,15 +168,9 @@ class KopiaRepository:
             logger.debug("Already connected to repository")
             return
         
-        # Neues System: kopia_params direkt nutzen
-        if self.kopia_params:
-            import shlex
-            params = shlex.split(self.kopia_params)
-            cmd = ["kopia", "repository", "connect"] + params
-        else:
-            # Legacy: _detect_backend nutzen
-            backend, args = self._detect_backend(self.repo_path)
-            cmd = ["kopia", "repository", "connect", backend, *self._backend_args(backend, args)]
+        import shlex
+        params = shlex.split(self.kopia_params)
+        cmd = ["kopia", "repository", "connect"] + params
 
         # Try connect
         proc = self._run(cmd, check=False)
@@ -257,9 +182,8 @@ class KopiaRepository:
         # Failed - check why
         err_msg = (proc.stderr or proc.stdout or "").lower()
         if "not found" in err_msg or "does not exist" in err_msg or "not initialized" in err_msg:
-            repo_info = self.kopia_params or self.repo_path
             raise RuntimeError(
-                f"Repository not found ({repo_info}). "
+                f"Repository not found ({self.kopia_params}). "
                 f"Run 'kopi-docka init' to create it first."
             )
         
@@ -285,36 +209,18 @@ class KopiaRepository:
             logger.info("Already connected to repository")
             return
         
-        # Neues System: kopia_params direkt nutzen
-        if self.kopia_params:
-            import shlex
-            params = shlex.split(self.kopia_params)
-            
-            # Für filesystem: Directory erstellen
-            if len(params) >= 2 and params[0] == "filesystem" and params[1] == "--path":
-                if len(params) >= 3:
-                    Path(params[2]).expanduser().mkdir(parents=True, exist_ok=True)
-            
-            cmd_create = ["kopia", "repository", "create"] + params + [
-                "--description", f"Kopi-Docka Backup Repository ({self.profile_name})"
-            ]
-            cmd_connect = ["kopia", "repository", "connect"] + params
-        else:
-            # Legacy: _detect_backend nutzen
-            backend, args = self._detect_backend(self.repo_path)
-            
-            if backend == "filesystem":
-                Path(args["path"]).expanduser().mkdir(parents=True, exist_ok=True)
-            
-            cmd_create = [
-                "kopia", "repository", "create", backend,
-                *self._backend_args(backend, args),
-                "--description", f"Kopi-Docka Backup Repository ({self.profile_name})"
-            ]
-            cmd_connect = [
-                "kopia", "repository", "connect", backend,
-                *self._backend_args(backend, args)
-            ]
+        import shlex
+        params = shlex.split(self.kopia_params)
+        
+        # Für filesystem: Directory erstellen
+        if len(params) >= 2 and params[0] == "filesystem" and params[1] == "--path":
+            if len(params) >= 3:
+                Path(params[2]).expanduser().mkdir(parents=True, exist_ok=True)
+        
+        cmd_create = ["kopia", "repository", "create"] + params + [
+            "--description", f"Kopi-Docka Backup Repository ({self.profile_name})"
+        ]
+        cmd_connect = ["kopia", "repository", "connect"] + params
 
         # Try to create (may fail if exists)
         proc = self._run(cmd_create, check=False)
