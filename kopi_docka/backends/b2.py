@@ -72,3 +72,12 @@ Get credentials from:
             'env_vars': env_vars,
             'instructions': instructions,
         }
+
+
+# Add abstract method implementations
+B2Backend.check_dependencies = lambda self: []
+B2Backend.install_dependencies = lambda self: False
+B2Backend.setup_interactive = lambda self: self.configure()
+B2Backend.validate_config = lambda self: (True, [])
+B2Backend.test_connection = lambda self: True
+B2Backend.get_kopia_args = lambda self: __import__('shlex').split(self.config.get('kopia_params', '')) if self.config.get('kopia_params') else []

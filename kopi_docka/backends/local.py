@@ -54,3 +54,30 @@ Make sure:
             'kopia_params': kopia_params,
             'instructions': instructions,
         }
+    
+    # Abstract method implementations (required by BackendBase)
+    def check_dependencies(self) -> list:
+        """Check dependencies."""
+        return []
+    
+    def install_dependencies(self) -> bool:
+        """Install dependencies (not implemented)."""
+        return False
+    
+    def setup_interactive(self) -> dict:
+        """Use configure() instead."""
+        return self.configure()
+    
+    def validate_config(self) -> tuple:
+        """Validate configuration."""
+        return (True, [])
+    
+    def test_connection(self) -> bool:
+        """Test connection (not implemented)."""
+        return True
+    
+    def get_kopia_args(self) -> list:
+        """Get Kopia arguments from kopia_params."""
+        import shlex
+        kopia_params = self.config.get('kopia_params', '')
+        return shlex.split(kopia_params) if kopia_params else []

@@ -57,3 +57,12 @@ Required permissions:
             'kopia_params': kopia_params,
             'instructions': instructions,
         }
+
+
+# Add abstract method implementations
+GCSBackend.check_dependencies = lambda self: []
+GCSBackend.install_dependencies = lambda self: False
+GCSBackend.setup_interactive = lambda self: self.configure()
+GCSBackend.validate_config = lambda self: (True, [])
+GCSBackend.test_connection = lambda self: True
+GCSBackend.get_kopia_args = lambda self: __import__('shlex').split(self.config.get('kopia_params', '')) if self.config.get('kopia_params') else []

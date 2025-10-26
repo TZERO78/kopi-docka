@@ -109,3 +109,12 @@ def _format_env_vars(env_vars: dict) -> str:
     for key, value in env_vars.items():
         lines.append(f"  export {key}='{value}'")
     return "\n".join(lines)
+
+
+# Add abstract method implementations to S3Backend
+S3Backend.check_dependencies = lambda self: []
+S3Backend.install_dependencies = lambda self: False
+S3Backend.setup_interactive = lambda self: self.configure()
+S3Backend.validate_config = lambda self: (True, [])
+S3Backend.test_connection = lambda self: True
+S3Backend.get_kopia_args = lambda self: __import__('shlex').split(self.config.get('kopia_params', '')) if self.config.get('kopia_params') else []

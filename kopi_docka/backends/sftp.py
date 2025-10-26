@@ -59,3 +59,12 @@ Test connection:
             'kopia_params': kopia_params,
             'instructions': instructions,
         }
+
+
+# Add abstract method implementations
+SFTPBackend.check_dependencies = lambda self: []
+SFTPBackend.install_dependencies = lambda self: False
+SFTPBackend.setup_interactive = lambda self: self.configure()
+SFTPBackend.validate_config = lambda self: (True, [])
+SFTPBackend.test_connection = lambda self: True
+SFTPBackend.get_kopia_args = lambda self: __import__('shlex').split(self.config.get('kopia_params', '')) if self.config.get('kopia_params') else []

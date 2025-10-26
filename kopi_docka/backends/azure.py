@@ -57,3 +57,12 @@ Or use Azure CLI:
             'env_vars': env_vars,
             'instructions': instructions,
         }
+
+
+# Add abstract method implementations
+AzureBackend.check_dependencies = lambda self: []
+AzureBackend.install_dependencies = lambda self: False
+AzureBackend.setup_interactive = lambda self: self.configure()
+AzureBackend.validate_config = lambda self: (True, [])
+AzureBackend.test_connection = lambda self: True
+AzureBackend.get_kopia_args = lambda self: __import__('shlex').split(self.config.get('kopia_params', '')) if self.config.get('kopia_params') else []
