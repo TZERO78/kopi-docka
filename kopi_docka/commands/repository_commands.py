@@ -227,7 +227,7 @@ def cmd_init(ctx: typer.Context):
     typer.echo("╰─────────────────────────────────────────╯")
     typer.echo("")
     typer.echo(f"Profile:     {repo.profile_name}")
-    typer.echo(f"Repository:  {repo.repo_path}")
+    typer.echo(f"Kopia Params: {repo.kopia_params}")
     typer.echo("")
     
     try:
@@ -280,7 +280,7 @@ def cmd_repo_status(ctx: typer.Context):
             is_conn = False
 
         typer.echo(f"\nProfile: {repo.profile_name}")
-        typer.echo(f"Repository: {repo.repo_path}")
+        typer.echo(f"Kopia Params: {repo.kopia_params}")
         typer.echo(f"Connected: {'✓' if is_conn else '✗'}")
 
         snapshots = repo.list_snapshots()
