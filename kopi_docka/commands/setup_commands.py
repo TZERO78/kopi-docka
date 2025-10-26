@@ -129,7 +129,7 @@ def cmd_setup_wizard(
     from ..commands.config_commands import cmd_new_config
     cfg = cmd_new_config(force=force, edit=False)
     
-    repo_path = cfg.get('kopia', 'repository_path')
+    kopia_params = cfg.get('kopia', 'kopia_params')
     
     # ═══════════════════════════════════════════
     # Step 4: Repository Init (Optional)
@@ -167,8 +167,8 @@ def cmd_setup_wizard(
     typer.echo("═" * 70)
     typer.echo("")
     typer.echo("What's configured:")
-    typer.echo(f"  • Repository: {repo_path}")
-    typer.echo(f"  • Config:     {cfg.config_file}")
+    typer.echo(f"  • Kopia params: {kopia_params}")
+    typer.echo(f"  • Config:       {cfg.config_file}")
     typer.echo("")
     typer.echo("Next steps:")
     typer.echo("  1. List Docker containers:")

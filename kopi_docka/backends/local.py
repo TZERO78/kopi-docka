@@ -34,13 +34,16 @@ class LocalBackend(BackendBase):
         
         repo_path = typer.prompt("Repository path", default="/backup/kopia-repository")
         
+        # Build Kopia command parameters
+        kopia_params = f"filesystem --path {repo_path}"
+        
         instructions = f"""
 ✓ Local filesystem backend configured.
 
-Repository will be stored at: {repo_path}
+Kopia command: kopia repository create {kopia_params}
 
 Make sure:
-  • Directory is writable
+  • Directory {repo_path} is writable
   • Has sufficient disk space
   • Is backed by reliable storage (RAID, NAS, etc.)
   
@@ -48,6 +51,6 @@ Make sure:
 """
         
         return {
-            'repository_path': repo_path,
+            'kopia_params': kopia_params,
             'instructions': instructions,
         }

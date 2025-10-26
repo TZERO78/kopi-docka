@@ -59,8 +59,14 @@ class S3Backend(BackendBase):
             typer.echo("  • DO Spaces:  nyc3.digitaloceanspaces.com")
             endpoint = typer.prompt("Endpoint URL")
         
-        # Build repository path
-        repo_path = f"s3://{bucket}/{prefix}" if prefix else f"s3://{bucket}"
+        # Build Kopia command parameters
+        kopia_params = f"s3 --bucket {bucket}"
+        if prefix:
+            kopia_params += f" --prefix {prefix}"
+        if endpoint:
+            kopia_params += f" --endpoint {endpoint}"
+        if region:
+            kopia_params += f" --region {region}"
         
         # Environment variables needed
         env_vars = {
@@ -91,11 +97,9 @@ Get credentials from:
 """
         
         return {
-            'repository_path': repo_path,
+            'kopia_params': kopia_params,
             'env_vars': env_vars,
             'instructions': instructions,
-            'endpoint': endpoint if use_custom_endpoint else None,
-            'region': region if region else None,
         }
 
 

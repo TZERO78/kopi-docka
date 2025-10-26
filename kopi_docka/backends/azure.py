@@ -29,7 +29,10 @@ class AzureBackend(BackendBase):
         container = typer.prompt("Container name")
         prefix = typer.prompt("Path prefix (optional)", default="kopia", show_default=True)
         
-        repo_path = f"azure://{container}/{prefix}" if prefix else f"azure://{container}"
+        # Build Kopia command parameters
+        kopia_params = f"azure --container {container}"
+        if prefix:
+            kopia_params += f" --prefix {prefix}"
         
         env_vars = {
             'AZURE_STORAGE_ACCOUNT': '<your-storage-account-name>',
@@ -50,7 +53,7 @@ Or use Azure CLI:
 """
         
         return {
-            'repository_path': repo_path,
+            'kopia_params': kopia_params,
             'env_vars': env_vars,
             'instructions': instructions,
         }

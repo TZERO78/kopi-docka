@@ -38,7 +38,10 @@ class B2Backend(BackendBase):
         bucket = typer.prompt("Bucket name")
         prefix = typer.prompt("Path prefix (optional)", default="kopia", show_default=True)
         
-        repo_path = f"b2://{bucket}/{prefix}" if prefix else f"b2://{bucket}"
+        # Build Kopia command parameters
+        kopia_params = f"b2 --bucket {bucket}"
+        if prefix:
+            kopia_params += f" --prefix {prefix}"
         
         env_vars = {
             'B2_APPLICATION_KEY_ID': '<your-application-key-id>',
@@ -65,7 +68,7 @@ Get credentials from:
 """
         
         return {
-            'repository_path': repo_path,
+            'kopia_params': kopia_params,
             'env_vars': env_vars,
             'instructions': instructions,
         }

@@ -31,8 +31,12 @@ class SFTPBackend(BackendBase):
         user = typer.prompt("SSH user")
         host = typer.prompt("SSH host")
         path = typer.prompt("Remote path", default="/backup/kopia")
+        port = typer.prompt("SSH port", default="22")
         
-        repo_path = f"sftp://{user}@{host}{path}"
+        # Build Kopia command parameters
+        kopia_params = f"sftp --path {user}@{host}:{path}"
+        if port != "22":
+            kopia_params += f" --sftp-port {port}"
         
         instructions = f"""
 ✓ SFTP backend configured.
@@ -52,6 +56,6 @@ Test connection:
 """
         
         return {
-            'repository_path': repo_path,
+            'kopia_params': kopia_params,
             'instructions': instructions,
         }

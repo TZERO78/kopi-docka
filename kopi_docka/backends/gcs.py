@@ -29,7 +29,10 @@ class GCSBackend(BackendBase):
         bucket = typer.prompt("Bucket name")
         prefix = typer.prompt("Path prefix (optional)", default="kopia", show_default=True)
         
-        repo_path = f"gs://{bucket}/{prefix}" if prefix else f"gs://{bucket}"
+        # Build Kopia command parameters
+        kopia_params = f"gcs --bucket {bucket}"
+        if prefix:
+            kopia_params += f" --prefix {prefix}"
         
         instructions = """
 ⚠️  Authenticate with Google Cloud:
@@ -51,6 +54,6 @@ Required permissions:
 """
         
         return {
-            'repository_path': repo_path,
+            'kopia_params': kopia_params,
             'instructions': instructions,
         }

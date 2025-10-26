@@ -187,7 +187,7 @@ def cmd_new_config(
     if backend_class:
         backend = backend_class({})
         result = backend.configure()
-        repo_path = result['repository_path']
+        kopia_params = result.get('kopia_params', '')
         
         # Show setup instructions if provided
         if 'instructions' in result:
@@ -197,8 +197,9 @@ def cmd_new_config(
         # Fallback
         typer.echo(f"⚠️  Backend '{backend_type}' not found")
         repo_path = typer.prompt("Repository path", default="/backup/kopia-repository")
+        kopia_params = f"filesystem --path {repo_path}"
     
-    cfg.set('kopia', 'repository_path', repo_path)
+    cfg.set('kopia', 'kopia_params', kopia_params)
     typer.echo("")
     
     # ═══════════════════════════════════════════
@@ -259,7 +260,7 @@ def cmd_new_config(
     typer.echo(f"Config file:    {cfg.config_file}")
     password_file = cfg.config_file.parent / f".{cfg.config_file.stem}.password"
     typer.echo(f"Password file:  {password_file}")
-    typer.echo(f"Repository:     {repo_path}")
+    typer.echo(f"Kopia params:   {kopia_params}")
     typer.echo("")
     
     typer.echo("╭──────────────────────────────────────────╮")
