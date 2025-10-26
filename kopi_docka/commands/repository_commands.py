@@ -25,11 +25,16 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+from rich.console import Console
+from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
 
 from ..helpers import Config, get_logger, generate_secure_password
 from ..cores import KopiaRepository
 
 logger = get_logger(__name__)
+console = Console()
 
 
 def get_config(ctx: typer.Context) -> Optional[Config]:
@@ -231,20 +236,26 @@ def cmd_init(ctx: typer.Context):
     typer.echo("")
     
     try:
-        typer.echo("↻ Initializing repository...")
-        repo.initialize()
-        typer.echo("✓ Repository initialized successfully")
-        typer.echo("")
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Initializing repository...", total=None)
+            repo.initialize()
+            progress.update(task, completed=True)
         
-        typer.echo("─────────────────────────────────────────")
-        typer.echo("✓ Setup Complete!")
-        typer.echo("─────────────────────────────────────────")
-        typer.echo("")
-        typer.echo("Next steps:")
-        typer.echo("  • List Docker containers: kopi-docka list --units")
-        typer.echo("  • Test backup:             kopi-docka dry-run")
-        typer.echo("  • Create first backup:     kopi-docka backup")
-        typer.echo("")
+        console.print()
+        console.print(Panel.fit(
+            "[green]✓ Repository initialized successfully![/green]\n\n"
+            "[bold]Next steps:[/bold]\n"
+            "  • List Docker containers: [cyan]kopi-docka list --units[/cyan]\n"
+            "  • Test backup:             [cyan]kopi-docka dry-run[/cyan]\n"
+            "  • Create first backup:     [cyan]kopi-docka backup[/cyan]",
+            title="[bold green]Setup Complete[/bold green]",
+            border_style="green"
+        ))
+        console.print()
         
     except Exception as e:
         typer.echo(f"✗ Initialization failed: {e}")
@@ -269,31 +280,38 @@ def cmd_repo_status(ctx: typer.Context):
     repo = ensure_repository(ctx)
 
     try:
-        typer.echo("=" * 60)
-        typer.echo("KOPIA REPOSITORY STATUS")
-        typer.echo("=" * 60)
-
+        # Check connection status
         is_conn = False
         try:
             is_conn = repo.is_connected()
         except Exception:
             is_conn = False
 
-        typer.echo(f"\nProfile: {repo.profile_name}")
-        typer.echo(f"Kopia Params: {repo.kopia_params}")
-        typer.echo(f"Connected: {'✓' if is_conn else '✗'}")
-
+        # Get statistics
         snapshots = repo.list_snapshots()
         units = repo.list_backup_units()
-        typer.echo(f"\nTotal Snapshots: {len(snapshots)}")
-        typer.echo(f"Backup Units: {len(units)}")
 
-        _print_kopia_native_status(repo)
+        # Build status table
+        table = Table(title="Repository Status", show_header=True, header_style="bold cyan")
+        table.add_column("Property", style="cyan")
+        table.add_column("Value", style="green" if is_conn else "red")
+        
+        table.add_row("Profile", repo.profile_name)
+        table.add_row("Kopia Params", repo.kopia_params)
+        table.add_row("Connected", "✓ Yes" if is_conn else "✗ No")
+        table.add_row("Total Snapshots", str(len(snapshots)))
+        table.add_row("Backup Units", str(len(units)))
 
-        typer.echo("\n" + "=" * 60)
+        console.print()
+        console.print(table)
+        console.print()
+
+        # Show detailed Kopia status if requested (debug)
+        if ctx.obj.get('verbose'):
+            _print_kopia_native_status(repo)
 
     except Exception as e:
-        typer.echo(f"✗ Failed to get repository status: {e}")
+        console.print(f"[red]✗ Failed to get repository status: {e}[/red]")
         raise typer.Exit(code=1)
 
 
