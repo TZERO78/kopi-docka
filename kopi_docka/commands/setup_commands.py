@@ -111,121 +111,19 @@ def cmd_setup_wizard(
             typer.echo("✓ Docker found")
     
     # ═══════════════════════════════════════════
-    # Step 2: Backend Selection
+    # Step 2-3: Configuration (Backend + Password)
     # ═══════════════════════════════════════════
     typer.echo("")
     typer.echo("─" * 70)
-    typer.echo("Step 2/4: Backend Selection")
-    typer.echo("─" * 70)
-    typer.echo("")
-    typer.echo("Where should backups be stored?")
-    typer.echo("")
-    typer.echo("Available backends:")
-    typer.echo("  1. Local Filesystem  - Store on local disk/NAS mount")
-    typer.echo("  2. AWS S3           - Amazon S3 or compatible (Wasabi, MinIO)")
-    typer.echo("  3. Backblaze B2     - Cost-effective cloud storage")
-    typer.echo("  4. Azure Blob       - Microsoft Azure storage")
-    typer.echo("  5. Google Cloud     - GCS storage")
-    typer.echo("  6. SFTP             - Remote server via SSH")
-    typer.echo("  7. Tailscale        - P2P encrypted network")
-    typer.echo("")
-    
-    backend_choice = typer.prompt(
-        "Select backend",
-        type=int,
-        default=1,
-        show_default=True
-    )
-    
-    backend_map = {
-        1: "filesystem",
-        2: "s3",
-        3: "b2",
-        4: "azure",
-        5: "gcs",
-        6: "sftp",
-        7: "tailscale",
-    }
-    
-    backend_type = backend_map.get(backend_choice, "filesystem")
-    typer.echo(f"\n✓ Selected: {backend_type}")
-    
-    # ═══════════════════════════════════════════
-    # Step 3: Backend Configuration
-    # ═══════════════════════════════════════════
-    typer.echo("")
-    typer.echo("─" * 70)
-    typer.echo("Step 3/4: Backend Configuration")
+    typer.echo("Step 2/4: Configuration Setup")
     typer.echo("─" * 70)
     typer.echo("")
     
-    # Use backend module for configuration
-    backend_module = BACKEND_MODULES.get(backend_type)
+    # Use cmd_new_config for configuration - DRY!
+    from ..commands.config_commands import cmd_new_config
+    cfg = cmd_new_config(force=force, edit=False)
     
-    if backend_module:
-        # Call module's configure() function
-        result = backend_module.configure()
-        repo_path = result['repository_path']
-        
-        # Show setup instructions if provided
-        if 'instructions' in result:
-            typer.echo("")
-            typer.echo(result['instructions'])
-    else:
-        # Fallback for unknown backends
-        typer.echo(f"⚠️  Backend '{backend_type}' not found")
-        typer.echo("Using manual configuration...")
-        repo_path = typer.prompt("Repository path")
-    
-    # ═══════════════════════════════════════════
-    # Password Setup
-    # ═══════════════════════════════════════════
-    typer.echo("")
-    typer.echo("─" * 70)
-    typer.echo("Repository Encryption Password")
-    typer.echo("─" * 70)
-    typer.echo("")
-    typer.echo("This password encrypts your backups.")
-    typer.echo("⚠️  If you lose this password, backups are UNRECOVERABLE!")
-    typer.echo("")
-    
-    use_generated = typer.confirm("Generate secure random password?", default=True)
-    typer.echo("")
-    
-    if use_generated:
-        password = generate_secure_password()
-        typer.echo("═" * 70)
-        typer.echo("🔑 GENERATED PASSWORD (save this NOW!):")
-        typer.echo("")
-        typer.echo(f"   {password}")
-        typer.echo("")
-        typer.echo("═" * 70)
-        typer.echo("")
-        input("Press Enter to continue...")
-    else:
-        password = getpass.getpass("Enter password: ")
-        password_confirm = getpass.getpass("Confirm password: ")
-        
-        if password != password_confirm:
-            typer.echo("❌ Passwords don't match!")
-            raise typer.Exit(1)
-    
-    # ═══════════════════════════════════════════
-    # Create Config
-    # ═══════════════════════════════════════════
-    typer.echo("")
-    typer.echo("─" * 70)
-    typer.echo("Creating Configuration")
-    typer.echo("─" * 70)
-    
-    config_path = create_default_config(force=force)
-    cfg = Config(config_path)
-    cfg.set('kopia', 'repository_path', repo_path)
-    cfg.set_password(password, use_file=True)
-    
-    typer.echo(f"✓ Config created: {config_path}")
-    password_file = config_path.parent / f".{config_path.stem}.password"
-    typer.echo(f"✓ Password saved: {password_file}")
+    repo_path = cfg.get('kopia', 'repository_path')
     
     # ═══════════════════════════════════════════
     # Step 4: Repository Init (Optional)
@@ -263,9 +161,8 @@ def cmd_setup_wizard(
     typer.echo("═" * 70)
     typer.echo("")
     typer.echo("What's configured:")
-    typer.echo(f"  • Backend:    {backend_type}")
     typer.echo(f"  • Repository: {repo_path}")
-    typer.echo(f"  • Config:     {config_path}")
+    typer.echo(f"  • Config:     {cfg.config_file}")
     typer.echo("")
     typer.echo("Next steps:")
     typer.echo("  1. List Docker containers:")

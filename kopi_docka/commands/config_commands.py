@@ -23,8 +23,20 @@ from typing import Optional
 import typer
 
 from ..helpers import Config, create_default_config, get_logger, generate_secure_password
+from ..backends import local, s3, b2, azure, gcs, sftp, tailscale
 
 logger = get_logger(__name__)
+
+# Backend module registry (shared with setup)
+BACKEND_MODULES = {
+    'filesystem': local,
+    's3': s3,
+    'b2': b2,
+    'azure': azure,
+    'gcs': gcs,
+    'sftp': sftp,
+    'tailscale': tailscale,
+}
 
 
 def get_config(ctx: typer.Context) -> Optional[Config]:
@@ -58,8 +70,13 @@ def cmd_new_config(
     force: bool = False,
     edit: bool = True,
     path: Optional[Path] = None,
-):
-    """Create new configuration file with interactive setup wizard."""
+) -> Config:
+    """
+    Create new configuration file with interactive setup wizard.
+    
+    Returns:
+        Config: The created configuration object
+    """
     import getpass
     
     # Check if config exists
@@ -119,23 +136,61 @@ def cmd_new_config(
     cfg = Config(created_path)
     
     # ═══════════════════════════════════════════
-    # Phase 1: Repository Path
+    # Phase 1: Backend Selection & Configuration
     # ═══════════════════════════════════════════
     typer.echo("─────────────────────────────────────────")
-    typer.echo("→ Repository Storage Location")
+    typer.echo("→ Backend Selection")
     typer.echo("─────────────────────────────────────────")
     typer.echo("")
     typer.echo("Where should backups be stored?")
-    typer.echo("Examples:")
-    typer.echo("  • Local:      /backup/kopia-repository")
-    typer.echo("  • NAS:        /mnt/nas/backups")
-    typer.echo("  • B2:         b2://bucket-name/kopia")
-    typer.echo("  • S3:         s3://bucket-name/kopia")
-    typer.echo("  • Azure:      azure://container/kopia")
-    typer.echo("  • GCS:        gs://bucket-name/kopia")
+    typer.echo("")
+    typer.echo("Available backends:")
+    typer.echo("  1. Local Filesystem  - Store on local disk/NAS mount")
+    typer.echo("  2. AWS S3           - Amazon S3 or compatible (Wasabi, MinIO)")
+    typer.echo("  3. Backblaze B2     - Cost-effective cloud storage")
+    typer.echo("  4. Azure Blob       - Microsoft Azure storage")
+    typer.echo("  5. Google Cloud     - GCS storage")
+    typer.echo("  6. SFTP             - Remote server via SSH")
+    typer.echo("  7. Tailscale        - P2P encrypted network")
     typer.echo("")
     
-    repo_path = typer.prompt("Repository path", default="/backup/kopia-repository")
+    backend_choice = typer.prompt(
+        "Select backend",
+        type=int,
+        default=1,
+        show_default=True
+    )
+    
+    backend_map = {
+        1: "filesystem",
+        2: "s3",
+        3: "b2",
+        4: "azure",
+        5: "gcs",
+        6: "sftp",
+        7: "tailscale",
+    }
+    
+    backend_type = backend_map.get(backend_choice, "filesystem")
+    typer.echo(f"\n✓ Selected: {backend_type}")
+    typer.echo("")
+    
+    # Use backend module for configuration
+    backend_module = BACKEND_MODULES.get(backend_type)
+    
+    if backend_module:
+        result = backend_module.configure()
+        repo_path = result['repository_path']
+        
+        # Show setup instructions if provided
+        if 'instructions' in result:
+            typer.echo("")
+            typer.echo(result['instructions'])
+    else:
+        # Fallback
+        typer.echo(f"⚠️  Backend '{backend_type}' not found")
+        repo_path = typer.prompt("Repository path", default="/backup/kopia-repository")
+    
     cfg.set('kopia', 'repository_path', repo_path)
     typer.echo("")
     
@@ -230,6 +285,9 @@ def cmd_new_config(
             typer.echo("  • retention: daily/weekly/monthly/yearly")
             typer.echo("")
             subprocess.call([editor, str(created_path)])
+    
+    # Return config object (for use in setup wizard)
+    return cfg
 
 
 def cmd_edit_config(ctx: typer.Context, editor: Optional[str] = None):
