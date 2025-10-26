@@ -86,8 +86,8 @@ def cmd_install_deps(force: bool = False, dry_run: bool = False):
         typer.echo("✓ All required dependencies already installed")
 
     # Hint about config
-    if not Path.home().joinpath(".config/kopi-docka/config.conf").exists() and \
-       not Path("/etc/kopi-docka.conf").exists():
+    if not Path.home().joinpath(".config/kopi-docka/config.json").exists() and \
+       not Path("/etc/kopi-docka.json").exists():
         typer.echo("\n💡 Tip: Create config with: kopi-docka new-config")
 
 

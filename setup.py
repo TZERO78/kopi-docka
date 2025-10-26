@@ -49,8 +49,7 @@ setup(
     # Include template files
     package_data={
         "kopi_docka": [
-            "templates/*.conf",
-            "templates/*.ini",
+            "templates/*.json",
         ],
     },
     

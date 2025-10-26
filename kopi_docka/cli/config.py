@@ -485,8 +485,8 @@ def config_reset(
     
     # Show what will be reset
     existing_path = path or (
-        Path('/etc/kopi-docka.conf') if os.geteuid() == 0
-        else Path.home() / '.config' / 'kopi-docka' / 'config.conf'
+        Path('/etc/kopi-docka.json') if os.geteuid() == 0
+        else Path.home() / '.config' / 'kopi-docka' / 'config.json'
     )
     
     if existing_path.exists():

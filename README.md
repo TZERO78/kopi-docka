@@ -213,7 +213,7 @@ kopi-docka check
 
 # 2. Create configuration file
 kopi-docka new-config
-# Edit ~/.config/kopi-docka/config.conf:
+# Edit ~/.config/kopi-docka/config.json:
 #   - Set repository_path (local or cloud)
 #   - Set password (change this!)
 
@@ -240,8 +240,8 @@ sudo kopi-docka disaster-recovery
 ### Configuration
 
 Configuration file locations (in order of precedence):
-- **Root:** `/etc/kopi-docka.conf`
-- **User:** `~/.config/kopi-docka/config.conf`
+- **Root:** `/etc/kopi-docka.json`
+- **User:** `~/.config/kopi-docka/config.json`
 
 **Kopia Profile:** Kopi-Docka uses its own Kopia config file at `~/.config/kopia/repository-kopi-docka.config`. This ensures your existing Kopia backups (if any) are not affected.
 

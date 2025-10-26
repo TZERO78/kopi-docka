@@ -50,8 +50,8 @@ def deps_check(
     utils.print_header("Configuration Check")
     
     config_paths = [
-        Path("/etc/kopi-docka.conf"),
-        Path.home() / ".config" / "kopi-docka" / "config.conf"
+        Path("/etc/kopi-docka.json"),
+        Path.home() / ".config" / "kopi-docka" / "config.json"
     ]
     
     config_found = False
@@ -127,8 +127,8 @@ def deps_install(
         
         # Check config hint
         config_paths = [
-            Path("/etc/kopi-docka.conf"),
-            Path.home() / ".config" / "kopi-docka" / "config.conf"
+            Path("/etc/kopi-docka.json"),
+            Path.home() / ".config" / "kopi-docka" / "config.json"
         ]
         if not any(p.exists() for p in config_paths):
             utils.print_info("\n💡 Next: kopi-docka setup backend")
@@ -174,8 +174,8 @@ def deps_install(
                 
                 # Hint about next steps
                 config_paths = [
-                    Path("/etc/kopi-docka.conf"),
-                    Path.home() / ".config" / "kopi-docka" / "config.conf"
+                    Path("/etc/kopi-docka.json"),
+                    Path.home() / ".config" / "kopi-docka" / "config.json"
                 ]
                 if not any(p.exists() for p in config_paths):
                     utils.print_info("\n💡 Next: kopi-docka setup backend")
