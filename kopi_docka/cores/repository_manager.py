@@ -73,17 +73,11 @@ class KopiaRepository:
         """Build environment for Kopia CLI (password, cache dir)."""
         env = os.environ.copy()
         
-        # Hole Passwort dynamisch über Config.get_password()
-        try:
-            password = self.config.get_password()
-            if password:
-                env["KOPIA_PASSWORD"] = password
-        except ValueError as e:
-            logger.warning(f"Could not get password: {e}")
-            # Fallback zu direktem Config-Wert für Kompatibilität
-            password = self.config.get('kopia', 'password', fallback='')
-            if password:
-                env["KOPIA_PASSWORD"] = password
+        # Hole Passwort über Config.get_password() - ohne Fallback!
+        # Wenn Passwort fehlt, wirft get_password() ValueError
+        password = self.config.get_password()
+        if password:
+            env["KOPIA_PASSWORD"] = password
 
         cache_dir = self.config.kopia_cache_directory
         if cache_dir:
