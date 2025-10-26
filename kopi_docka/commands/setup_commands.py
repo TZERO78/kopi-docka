@@ -92,7 +92,7 @@ def cmd_setup_wizard(
         dep_mgr = DependencyManager()
         status = dep_mgr.check_all()
         
-        if not status['kopia']['installed']:
+        if not status.get('kopia', False):
             typer.echo("\n⚠️  Kopia not found!")
             if typer.confirm("Install Kopia automatically?", default=True):
                 from ..commands.dependency_commands import cmd_install_deps
@@ -104,7 +104,7 @@ def cmd_setup_wizard(
         else:
             typer.echo("✓ Kopia found")
         
-        if not status['docker']['installed']:
+        if not status.get('docker', False):
             typer.echo("⚠️  Docker not found - required for backups!")
             typer.echo("Install manually: https://docs.docker.com/engine/install/")
         else:
