@@ -162,6 +162,11 @@ def _import_backends():
         pass
     
     try:
+        from . import rclone  # noqa: F401
+    except ImportError:
+        pass
+    
+    try:
         from . import tailscale  # noqa: F401
     except ImportError:
         pass
