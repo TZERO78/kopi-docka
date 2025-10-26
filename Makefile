@@ -4,7 +4,7 @@
 # This makes sure 'make' always uses the right tools from the right workbench.
 PYTHON := .venv/bin/python3
 
-.PHONY: all clean install install-dev check-style format test build
+.PHONY: all clean install install-dev install-system uninstall-system check-style format test build
 
 # Default command when running 'make'
 all: build
@@ -53,6 +53,20 @@ test-fast:
 # Run specific test file
 test-file:
 	$(PYTHON) -m pytest $(FILE) -v
+
+# Install system-wide wrapper (for sudo usage)
+install-system:
+	@echo "Creating system wrapper for kopi-docka..."
+	@echo '#!/bin/bash' | sudo tee /usr/local/bin/kopi-docka > /dev/null
+	@echo 'exec $(shell pwd)/.venv/bin/python -m kopi_docka "$$@"' | sudo tee -a /usr/local/bin/kopi-docka > /dev/null
+	@sudo chmod +x /usr/local/bin/kopi-docka
+	@echo "✓ Installed: /usr/local/bin/kopi-docka"
+	@echo "Usage: sudo kopi-docka [command]"
+
+# Remove system-wide wrapper
+uninstall-system:
+	@sudo rm -f /usr/local/bin/kopi-docka
+	@echo "✓ Removed: /usr/local/bin/kopi-docka"
 
 # Build the standalone executable
 build:

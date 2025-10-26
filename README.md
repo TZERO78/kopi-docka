@@ -181,15 +181,20 @@ Finds running containers & volumes, groups them into **backup units** (Compose s
 git clone https://github.com/TZERO78/kopi-docka.git
 cd kopi-docka
 
-# Install
+# Install in development mode (in venv)
 pip install -e .
 
 # Or with development dependencies
 pip install -e ".[dev]"
 
+# Install system-wide wrapper (for sudo usage)
+make install-system
+
 # Verify installation
-kopi-docka --version
+sudo kopi-docka --help
 ```
+
+**Note:** Kopi-Docka requires root privileges for Docker access. The `make install-system` command creates a wrapper script that allows you to run `sudo kopi-docka` from anywhere.
 
 ### Alternative: Install directly from GitHub
 
