@@ -159,84 +159,22 @@ def cmd_setup_wizard(
     typer.echo("─" * 70)
     typer.echo("")
     
-    if backend_type == "filesystem":
-        typer.echo("Local filesystem storage selected.")
-        typer.echo("Examples:")
-        typer.echo("  • /backup/kopia-repository")
-        typer.echo("  • /mnt/nas/backups")
-        typer.echo("  • /media/usb-drive/kopia")
-        typer.echo("")
-        repo_path = typer.prompt("Repository path", default="/backup/kopia-repository")
-        
-    elif backend_type == "b2":
-        typer.echo("Backblaze B2 cloud storage selected.")
-        typer.echo("")
-        typer.echo("You'll need:")
-        typer.echo("  • B2 Application Key ID")
-        typer.echo("  • B2 Application Key")
-        typer.echo("  • Bucket name")
-        typer.echo("")
-        typer.echo("Get credentials: https://secure.backblaze.com/app_keys.htm")
-        typer.echo("")
-        bucket = typer.prompt("Bucket name")
-        repo_path = f"b2://{bucket}/kopia"
-        typer.echo("")
-        typer.echo("⚠️  Set these environment variables before running init:")
-        typer.echo(f"   export B2_APPLICATION_KEY_ID='your-key-id'")
-        typer.echo(f"   export B2_APPLICATION_KEY='your-key'")
-        
-    elif backend_type == "s3":
-        typer.echo("AWS S3 or compatible storage selected.")
-        typer.echo("")
-        bucket = typer.prompt("Bucket name")
-        region = typer.prompt("Region (optional)", default="", show_default=False)
-        repo_path = f"s3://{bucket}/kopia"
-        typer.echo("")
-        typer.echo("⚠️  Set these environment variables:")
-        typer.echo(f"   export AWS_ACCESS_KEY_ID='your-key-id'")
-        typer.echo(f"   export AWS_SECRET_ACCESS_KEY='your-secret'")
-        if region:
-            typer.echo(f"   export AWS_REGION='{region}'")
-        
-    elif backend_type == "azure":
-        typer.echo("Azure Blob Storage selected.")
-        typer.echo("")
-        container = typer.prompt("Container name")
-        repo_path = f"azure://{container}/kopia"
-        typer.echo("")
-        typer.echo("⚠️  Set these environment variables:")
-        typer.echo(f"   export AZURE_STORAGE_ACCOUNT='your-account'")
-        typer.echo(f"   export AZURE_STORAGE_KEY='your-key'")
-        
-    elif backend_type == "gcs":
-        typer.echo("Google Cloud Storage selected.")
-        typer.echo("")
-        bucket = typer.prompt("Bucket name")
-        repo_path = f"gs://{bucket}/kopia"
-        typer.echo("")
-        typer.echo("⚠️  Authenticate with gcloud or set:")
-        typer.echo(f"   export GOOGLE_APPLICATION_CREDENTIALS='path/to/key.json'")
-        
-    elif backend_type == "sftp":
-        typer.echo("SFTP storage selected.")
-        typer.echo("")
-        user = typer.prompt("SSH user")
-        host = typer.prompt("SSH host")
-        path = typer.prompt("Remote path", default="/backup/kopia")
-        repo_path = f"sftp://{user}@{host}{path}"
-        
-    elif backend_type == "tailscale":
-        typer.echo("Tailscale P2P storage selected.")
-        typer.echo("")
-        typer.echo("⚠️  Tailscale setup requires additional configuration!")
-        typer.echo("See: https://tailscale.com/kb/")
-        typer.echo("")
-        device = typer.prompt("Tailscale device name or IP")
-        path = typer.prompt("Remote path", default="/backup/kopia")
-        repo_path = f"{device}:{path}"
+    # Use backend module for configuration
+    backend_module = BACKEND_MODULES.get(backend_type)
     
+    if backend_module:
+        # Call module's configure() function
+        result = backend_module.configure()
+        repo_path = result['repository_path']
+        
+        # Show setup instructions if provided
+        if 'instructions' in result:
+            typer.echo("")
+            typer.echo(result['instructions'])
     else:
-        typer.echo(f"⚠️  Backend '{backend_type}' configuration not implemented")
+        # Fallback for unknown backends
+        typer.echo(f"⚠️  Backend '{backend_type}' not found")
+        typer.echo("Using manual configuration...")
         repo_path = typer.prompt("Repository path")
     
     # ═══════════════════════════════════════════
