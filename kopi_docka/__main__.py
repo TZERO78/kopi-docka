@@ -40,6 +40,7 @@ from .commands import (
     backup_commands,
     service_commands,
     dry_run_commands,
+    setup_commands,
 )
 
 app = typer.Typer(
@@ -116,12 +117,13 @@ def initialize_context(
 # -------------------------
 
 # Register all command modules
+setup_commands.register(app)  # Master wizard first - most important!
 config_commands.register(app)
 dependency_commands.register(app)
 repository_commands.register(app)
 backup_commands.register(app)
 service_commands.register(app)
-dry_run_commands.register(app)  
+dry_run_commands.register(app)
 
 
 
