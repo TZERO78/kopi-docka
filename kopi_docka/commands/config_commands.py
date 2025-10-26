@@ -445,8 +445,18 @@ def cmd_change_password(
 # -------------------------
 
 def register(app: typer.Typer):
-    """Register all configuration commands."""
-    
+    """Register configuration commands."""
+
+    @app.command("setup", hidden=False)
+    def setup_alias(
+        ctx: typer.Context,
+        force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing config (with warnings)"),
+        edit: bool = typer.Option(True, "--edit/--no-edit", help="Open in editor after creation"),
+        path: Optional[Path] = typer.Option(None, "--path", help="Custom config path"),
+    ):
+        """Interactive setup wizard (alias for new-config)."""
+        cmd_new_config(force=force, edit=edit, path=path)
+
     @app.command("show-config")
     def _config_cmd(ctx: typer.Context):
         """Show current configuration."""
