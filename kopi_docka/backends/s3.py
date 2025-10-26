@@ -5,61 +5,77 @@ Supports: AWS S3, Wasabi, MinIO, DigitalOcean Spaces, etc.
 """
 
 import typer
+from .base import BackendBase
 
 
-def configure() -> dict:
-    """
-    Interactive S3 configuration wizard.
+class S3Backend(BackendBase):
+    """AWS S3 and S3-compatible storage backend"""
+    
+    @property
+    def name(self) -> str:
+        return "s3"
+    
+    @property
+    def display_name(self) -> str:
+        return "AWS S3"
+    
+    @property
+    def description(self) -> str:
+        return "AWS S3 or compatible (Wasabi, MinIO, DigitalOcean)"
+    
+    def configure(self) -> dict:
+        """
+        Interactive S3 configuration wizard.
     
     Returns:
         dict with:
         - repository_path: S3 URL
         - env_vars: Required environment variables
         - instructions: Setup instructions
-    """
-    typer.echo("AWS S3 or S3-compatible storage selected.")
-    typer.echo("")
-    typer.echo("Supported services:")
-    typer.echo("  • AWS S3")
-    typer.echo("  • Wasabi")
-    typer.echo("  • MinIO")
-    typer.echo("  • DigitalOcean Spaces")
-    typer.echo("  • Any S3-compatible service")
-    typer.echo("")
-    
-    # Get bucket info
-    bucket = typer.prompt("Bucket name")
-    prefix = typer.prompt("Path prefix (optional)", default="kopia", show_default=True)
-    region = typer.prompt("Region (optional, e.g. us-east-1)", default="", show_default=False)
-    
-    # Ask for custom endpoint (for non-AWS services)
-    use_custom_endpoint = typer.confirm("Using non-AWS S3-compatible service (Wasabi, MinIO, etc.)?", default=False)
-    endpoint = ""
-    if use_custom_endpoint:
+        """
+        typer.echo("AWS S3 or S3-compatible storage selected.")
         typer.echo("")
-        typer.echo("Examples:")
-        typer.echo("  • Wasabi:     s3.wasabisys.com")
-        typer.echo("  • MinIO:      minio.example.com:9000")
-        typer.echo("  • DO Spaces:  nyc3.digitaloceanspaces.com")
-        endpoint = typer.prompt("Endpoint URL")
-    
-    # Build repository path
-    repo_path = f"s3://{bucket}/{prefix}" if prefix else f"s3://{bucket}"
-    
-    # Environment variables needed
-    env_vars = {
-        'AWS_ACCESS_KEY_ID': '<your-access-key-id>',
-        'AWS_SECRET_ACCESS_KEY': '<your-secret-access-key>',
-    }
-    
-    if region:
-        env_vars['AWS_REGION'] = region
-    
-    if endpoint:
-        env_vars['AWS_ENDPOINT'] = f"https://{endpoint}"
-    
-    # Build instructions
-    instructions = f"""
+        typer.echo("Supported services:")
+        typer.echo("  • AWS S3")
+        typer.echo("  • Wasabi")
+        typer.echo("  • MinIO")
+        typer.echo("  • DigitalOcean Spaces")
+        typer.echo("  • Any S3-compatible service")
+        typer.echo("")
+        
+        # Get bucket info
+        bucket = typer.prompt("Bucket name")
+        prefix = typer.prompt("Path prefix (optional)", default="kopia", show_default=True)
+        region = typer.prompt("Region (optional, e.g. us-east-1)", default="", show_default=False)
+        
+        # Ask for custom endpoint (for non-AWS services)
+        use_custom_endpoint = typer.confirm("Using non-AWS S3-compatible service (Wasabi, MinIO, etc.)?", default=False)
+        endpoint = ""
+        if use_custom_endpoint:
+            typer.echo("")
+            typer.echo("Examples:")
+            typer.echo("  • Wasabi:     s3.wasabisys.com")
+            typer.echo("  • MinIO:      minio.example.com:9000")
+            typer.echo("  • DO Spaces:  nyc3.digitaloceanspaces.com")
+            endpoint = typer.prompt("Endpoint URL")
+        
+        # Build repository path
+        repo_path = f"s3://{bucket}/{prefix}" if prefix else f"s3://{bucket}"
+        
+        # Environment variables needed
+        env_vars = {
+            'AWS_ACCESS_KEY_ID': '<your-access-key-id>',
+            'AWS_SECRET_ACCESS_KEY': '<your-secret-access-key>',
+        }
+        
+        if region:
+            env_vars['AWS_REGION'] = region
+        
+        if endpoint:
+            env_vars['AWS_ENDPOINT'] = f"https://{endpoint}"
+        
+        # Build instructions
+        instructions = f"""
 ⚠️  Set these environment variables before running init:
 
 {_format_env_vars(env_vars)}
@@ -73,14 +89,14 @@ Get credentials from:
   • Wasabi: https://console.wasabisys.com/#/access_keys
   • MinIO: Your MinIO admin panel
 """
-    
-    return {
-        'repository_path': repo_path,
-        'env_vars': env_vars,
-        'instructions': instructions,
-        'endpoint': endpoint if use_custom_endpoint else None,
-        'region': region if region else None,
-    }
+        
+        return {
+            'repository_path': repo_path,
+            'env_vars': env_vars,
+            'instructions': instructions,
+            'endpoint': endpoint if use_custom_endpoint else None,
+            'region': region if region else None,
+        }
 
 
 def _format_env_vars(env_vars: dict) -> str:
