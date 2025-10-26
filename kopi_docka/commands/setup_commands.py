@@ -33,8 +33,20 @@ import typer
 
 from ..helpers import get_logger, Config, create_default_config, generate_secure_password
 from ..cores import DependencyManager
+from ..backends import local, s3, b2, azure, gcs, sftp, tailscale
 
 logger = get_logger(__name__)
+
+# Backend module registry
+BACKEND_MODULES = {
+    'filesystem': local,
+    's3': s3,
+    'b2': b2,
+    'azure': azure,
+    'gcs': gcs,
+    'sftp': sftp,
+    'tailscale': tailscale,
+}
 
 
 def cmd_setup_wizard(
