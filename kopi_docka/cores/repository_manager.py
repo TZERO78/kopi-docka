@@ -53,7 +53,13 @@ class KopiaRepository:
 
     def __init__(self, config: Config):
         self.config = config
-        self.repo_path = config.kopia_repository_path
+        # Neues System: kopia_params statt repository_path
+        self.kopia_params = config.get('kopia', 'kopia_params', fallback='')
+        # Legacy fallback für alte Configs
+        if not self.kopia_params:
+            self.repo_path = config.kopia_repository_path
+        else:
+            self.repo_path = None  # Not needed with kopia_params
         # Password wird dynamisch über get_password() geholt
         self.profile_name = config.kopia_profile
 
@@ -231,23 +237,29 @@ class KopiaRepository:
             logger.debug("Already connected to repository")
             return
         
-        backend, args = self._detect_backend(self.repo_path)
+        # Neues System: kopia_params direkt nutzen
+        if self.kopia_params:
+            import shlex
+            params = shlex.split(self.kopia_params)
+            cmd = ["kopia", "repository", "connect"] + params
+        else:
+            # Legacy: _detect_backend nutzen
+            backend, args = self._detect_backend(self.repo_path)
+            cmd = ["kopia", "repository", "connect", backend, *self._backend_args(backend, args)]
 
         # Try connect
-        proc = self._run([
-            "kopia", "repository", "connect", backend,
-            *self._backend_args(backend, args)
-        ], check=False)
+        proc = self._run(cmd, check=False)
         
         if proc.returncode == 0:
-            logger.info("Connected to repository (%s)", backend)
+            logger.info("Connected to repository")
             return
 
         # Failed - check why
         err_msg = (proc.stderr or proc.stdout or "").lower()
         if "not found" in err_msg or "does not exist" in err_msg or "not initialized" in err_msg:
+            repo_info = self.kopia_params or self.repo_path
             raise RuntimeError(
-                f"Repository not found at {self.repo_path}. "
+                f"Repository not found ({repo_info}). "
                 f"Run 'kopi-docka init' to create it first."
             )
         
@@ -264,26 +276,48 @@ class KopiaRepository:
 
     def initialize(self) -> None:
         """
-        Create new repository at repo_path and connect to it (idempotent).
+        Create new repository and connect to it (idempotent).
         If repository already exists, just connects to it.
         Verifies connection with 'repository status' and applies default policies.
         """
-        backend, args = self._detect_backend(self.repo_path)
-        
         # Check if already connected to this repo
         if self.is_connected():
             logger.info("Already connected to repository")
             return
         
-        if backend == "filesystem":
-            Path(args["path"]).expanduser().mkdir(parents=True, exist_ok=True)
+        # Neues System: kopia_params direkt nutzen
+        if self.kopia_params:
+            import shlex
+            params = shlex.split(self.kopia_params)
+            
+            # Für filesystem: Directory erstellen
+            if len(params) >= 2 and params[0] == "filesystem" and params[1] == "--path":
+                if len(params) >= 3:
+                    Path(params[2]).expanduser().mkdir(parents=True, exist_ok=True)
+            
+            cmd_create = ["kopia", "repository", "create"] + params + [
+                "--description", f"Kopi-Docka Backup Repository ({self.profile_name})"
+            ]
+            cmd_connect = ["kopia", "repository", "connect"] + params
+        else:
+            # Legacy: _detect_backend nutzen
+            backend, args = self._detect_backend(self.repo_path)
+            
+            if backend == "filesystem":
+                Path(args["path"]).expanduser().mkdir(parents=True, exist_ok=True)
+            
+            cmd_create = [
+                "kopia", "repository", "create", backend,
+                *self._backend_args(backend, args),
+                "--description", f"Kopi-Docka Backup Repository ({self.profile_name})"
+            ]
+            cmd_connect = [
+                "kopia", "repository", "connect", backend,
+                *self._backend_args(backend, args)
+            ]
 
         # Try to create (may fail if exists)
-        proc = self._run([
-            "kopia", "repository", "create", backend,
-            *self._backend_args(backend, args),
-            "--description", f"Kopi-Docka Backup Repository ({self.profile_name})",
-        ], check=False)
+        proc = self._run(cmd_create, check=False)
         
         # If create failed, check if it's because repo exists
         if proc.returncode != 0:
@@ -296,10 +330,7 @@ class KopiaRepository:
 
         # Connect (idempotent)
         try:
-            self._run([
-                "kopia", "repository", "connect", backend,
-                *self._backend_args(backend, args)
-            ], check=True)
+            self._run(cmd_connect, check=True)
         except Exception as e:
             logger.error(f"Failed to connect after create: {e}")
             raise
