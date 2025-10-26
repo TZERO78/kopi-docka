@@ -72,7 +72,7 @@ class TailscaleBackend(BackendBase):
     
     def setup_interactive(self) -> Dict[str, Any]:
         """Interactive setup for Tailscale backend using Rich CLI"""
-        from kopi_docka.cli import utils
+        from kopi_docka.helpers import ui_utils as utils
         from kopi_docka.i18n import t, get_current_language
         
         lang = get_current_language()
@@ -259,7 +259,7 @@ class TailscaleBackend(BackendBase):
     
     def _start_tailscale(self) -> bool:
         """Start Tailscale"""
-        from kopi_docka.cli import utils
+        from kopi_docka.helpers import ui_utils as utils
         from kopi_docka.i18n import t, get_current_language
         
         lang = get_current_language()
@@ -354,7 +354,7 @@ class TailscaleBackend(BackendBase):
     
     def _setup_ssh_key(self, hostname: str, key_path: Path) -> bool:
         """Setup SSH key for passwordless access"""
-        from kopi_docka.cli import utils
+        from kopi_docka.helpers import ui_utils as utils
         from kopi_docka.i18n import t, get_current_language
         
         lang = get_current_language()

@@ -139,51 +139,127 @@ def _print_kopia_native_status(repo: KopiaRepository) -> None:
 
 def cmd_init(ctx: typer.Context):
     """Initialize (or connect to) the Kopia repository."""
+    import getpass
+    
     if not shutil.which("kopia"):
         typer.echo("❌ Kopia is not installed!")
         typer.echo("Install with: kopi-docka install-deps")
         raise typer.Exit(code=1)
 
     cfg = ensure_config(ctx)
-    repo = KopiaRepository(cfg)
-
-    typer.echo(f"Using profile: {repo.profile_name}")
-    typer.echo(f"Repository: {repo.repo_path}")
     
-    # Warnung bei Standard-Passwort
+    # ═══════════════════════════════════════════
+    # Phase 1: Password Check & Setup (if needed)
+    # ═══════════════════════════════════════════
     try:
         current_password = cfg.get_password()
-        if current_password == 'kopia-docka':
-            typer.echo("")
-            typer.echo("⚠️  WARNING: Using default password 'kopia-docka'!")
-            typer.echo("   This is INSECURE for production use.")
-            typer.echo("")
-            if not typer.confirm("Continue with default password?", default=False):
-                typer.echo("\nChange password first:")
-                typer.echo("  kopi-docka change-password")
-                raise typer.Exit(code=0)
     except ValueError as e:
         typer.echo(f"⚠️  Password issue: {e}")
-        typer.echo("Continuing anyway (will fail if repository needs password)...")
-
-    try:
-        repo.initialize()
-        typer.echo("✓ Repository initialized")
+        current_password = ''
+    
+    # Check for default/placeholder passwords
+    if current_password in ('kopia-docka', 'CHANGE_ME_TO_A_SECURE_PASSWORD', ''):
+        typer.echo("╭─────────────────────────────────────────╮")
+        typer.echo("│ Repository Password Setup                │")
+        typer.echo("╰─────────────────────────────────────────╯")
+        typer.echo("")
+        typer.echo("⚠️  Default or missing password detected!")
+        typer.echo("You need to set a secure password before initialization.")
+        typer.echo("")
+        typer.echo("This password will:")
+        typer.echo("  • Encrypt your backups")
+        typer.echo("  • Be required for ALL future operations")
+        typer.echo("  • Be UNRECOVERABLE if lost!")
+        typer.echo("")
         
-        # Erinnerung bei Standard-Passwort
-        try:
-            if cfg.get_password() == 'kopia-docka':
-                typer.echo("")
-                typer.echo("=" * 60)
-                typer.echo("⚠️  NEXT STEP: Change the default password NOW!")
-                typer.echo("=" * 60)
-                typer.echo("  kopi-docka change-password")
-                typer.echo("=" * 60)
-        except ValueError:
-            pass
+        use_generated = typer.confirm("Generate secure random password?", default=True)
+        typer.echo("")
+        
+        if use_generated:
+            new_password = generate_secure_password()
+            typer.echo("═════════════════════════════════════════════════════════════")
+            typer.echo("🔑 GENERATED PASSWORD (save this NOW!):")
+            typer.echo("")
+            typer.echo(f"   {new_password}")
+            typer.echo("")
+            typer.echo("═════════════════════════════════════════════════════════════")
+            typer.echo("⚠️  Copy this to:")
+            typer.echo("   • Password manager (recommended)")
+            typer.echo("   • Encrypted USB drive")
+            typer.echo("   • Secure physical location")
+            typer.echo("═════════════════════════════════════════════════════════════")
+            typer.echo("")
+            input("Press Enter to continue...")
+        else:
+            new_password = getpass.getpass("Enter password: ")
+            password_confirm = getpass.getpass("Confirm password: ")
+            
+            if new_password != password_confirm:
+                typer.echo("❌ Passwords don't match!")
+                raise typer.Exit(1)
+            
+            if len(new_password) < 12:
+                typer.echo(f"\n⚠️  WARNING: Password is short ({len(new_password)} chars)")
+                typer.echo("Recommended: At least 12 characters")
+                if not typer.confirm("Continue with this password?", default=False):
+                    typer.echo("Aborted.")
+                    raise typer.Exit(0)
+        
+        # Save password to config
+        typer.echo("\n↻ Saving password to config...")
+        cfg.set_password(new_password, use_file=True)
+        password_file = cfg.config_file.parent / f".{cfg.config_file.stem}.password"
+        typer.echo(f"✓ Password saved: {password_file}")
+        typer.echo("")
+        
+        # IMPORTANT: Reload config to get new password
+        cfg = Config(cfg.config_file)
+        typer.echo("─────────────────────────────────────────")
+        typer.echo("")
+    
+    # ═══════════════════════════════════════════
+    # Phase 2: Repository Initialization
+    # ═══════════════════════════════════════════
+    repo = KopiaRepository(cfg)
+    
+    typer.echo("╭─────────────────────────────────────────╮")
+    typer.echo("│ Repository Initialization                │")
+    typer.echo("╰─────────────────────────────────────────╯")
+    typer.echo("")
+    typer.echo(f"Profile:     {repo.profile_name}")
+    typer.echo(f"Repository:  {repo.repo_path}")
+    typer.echo("")
+    
+    try:
+        typer.echo("↻ Initializing repository...")
+        repo.initialize()
+        typer.echo("✓ Repository initialized successfully")
+        typer.echo("")
+        
+        typer.echo("─────────────────────────────────────────")
+        typer.echo("✓ Setup Complete!")
+        typer.echo("─────────────────────────────────────────")
+        typer.echo("")
+        typer.echo("Next steps:")
+        typer.echo("  • List Docker containers: kopi-docka list --units")
+        typer.echo("  • Test backup:             kopi-docka dry-run")
+        typer.echo("  • Create first backup:     kopi-docka backup")
+        typer.echo("")
         
     except Exception as e:
-        typer.echo(f"✗ Init failed: {e}")
+        typer.echo(f"✗ Initialization failed: {e}")
+        typer.echo("")
+        typer.echo("Common issues:")
+        typer.echo("  • Repository path not accessible")
+        typer.echo("  • Insufficient permissions")
+        typer.echo("  • Cloud credentials not configured")
+        typer.echo("  • Network connectivity issues")
+        typer.echo("")
+        typer.echo("For cloud storage (B2/S3/Azure/GCS):")
+        typer.echo("  • Check environment variables (AWS_*, B2_*, etc.)")
+        typer.echo("  • Verify bucket/container exists")
+        typer.echo("  • Test credentials separately")
+        typer.echo("")
         raise typer.Exit(code=1)
 
 

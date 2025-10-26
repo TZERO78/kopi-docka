@@ -56,7 +56,7 @@ class RcloneBackend(BackendBase):
     
     def setup_interactive(self) -> Dict[str, Any]:
         """Interactive setup for rclone backend using Rich CLI"""
-        from kopi_docka.cli import utils
+        from kopi_docka.helpers import ui_utils as utils
         from kopi_docka.i18n import t, get_current_language
         
         lang = get_current_language()
@@ -253,7 +253,7 @@ class RcloneBackend(BackendBase):
     
     def _create_new_remote(self) -> str:
         """Guide user to create new rclone remote"""
-        from kopi_docka.cli import utils
+        from kopi_docka.helpers import ui_utils as utils
         
         utils.print_separator()
         utils.print_info("Creating new rclone remote...")
