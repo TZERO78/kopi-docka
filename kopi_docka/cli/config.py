@@ -19,9 +19,260 @@ from kopi_docka.i18n import t, get_current_language
 # Create sub-app for config commands
 app = typer.Typer(
     help="Configuration management commands",
+    invoke_without_command=True,
+    no_args_is_help=False,
 )
 
 console = Console()
+
+
+@app.callback()
+def config_callback(ctx: typer.Context):
+    """Config callback - runs wizard if no subcommand"""
+    if ctx.invoked_subcommand is None:
+        # No subcommand provided, run the wizard
+        run_config_wizard()
+        raise typer.Exit(0)
+
+
+def run_config_wizard():
+    """
+    Interactive configuration wizard
+    
+    Guides the user through creating or editing configuration.
+    """
+    from kopi_docka.helpers.config import Config, create_default_config, generate_secure_password
+    
+    utils.print_header(
+        "⚙️  Configuration Wizard",
+        "Interactive configuration setup"
+    )
+    
+    # Check if config exists
+    config_path = None
+    existing_config = None
+    
+    try:
+        existing_config = Config()
+        config_path = existing_config.config_file
+        
+        console.print(f"[cyan]Found existing configuration:[/cyan] {config_path}")
+        console.print()
+        
+        if not typer.confirm("Edit existing configuration?", default=True):
+            utils.print_warning("Configuration unchanged")
+            return
+        
+        mode = "edit"
+    except Exception:
+        console.print("[yellow]No configuration found[/yellow]")
+        console.print()
+        mode = "new"
+    
+    utils.print_separator()
+    
+    # Repository Configuration
+    utils.print_header("📦 Repository Settings")
+    
+    default_repo_path = "/backup/kopia-repository"
+    if existing_config:
+        default_repo_path = existing_config.get("kopia", "repository_path", default_repo_path)
+    
+    repo_path = utils.prompt_text(
+        "Repository path",
+        default=default_repo_path
+    )
+    
+    # Encryption
+    encryption_options = [
+        "AES256-GCM-HMAC-SHA256 (Recommended)",
+        "AES256-GCM",
+        "CHACHA20-POLY1305",
+        "AES256-CBC-HMAC-SHA256",
+    ]
+    default_encryption = "AES256-GCM-HMAC-SHA256 (Recommended)"
+    if existing_config:
+        current_enc = existing_config.get("kopia", "encryption", "")
+        for opt in encryption_options:
+            if current_enc in opt:
+                default_encryption = opt
+                break
+    
+    # Reorder list so default is first
+    if default_encryption in encryption_options:
+        encryption_options.remove(default_encryption)
+        encryption_options.insert(0, default_encryption)
+    
+    encryption = utils.prompt_select(
+        "Encryption algorithm",
+        encryption_options
+    )
+    # Extract actual value
+    encryption = encryption.split(" ")[0]
+    
+    # Compression
+    compression_options = ["zstd (Recommended)", "s2", "pgzip", "none"]
+    default_compression = "zstd (Recommended)"
+    if existing_config:
+        current_comp = existing_config.get("kopia", "compression", "")
+        for opt in compression_options:
+            if current_comp in opt:
+                default_compression = opt
+                break
+    
+    # Reorder list so default is first
+    if default_compression in compression_options:
+        compression_options.remove(default_compression)
+        compression_options.insert(0, default_compression)
+    
+    compression = utils.prompt_select(
+        "Compression algorithm",
+        compression_options
+    )
+    # Extract actual value
+    compression = compression.split(" ")[0]
+    
+    utils.print_separator()
+    
+    # Password Configuration
+    utils.print_header("🔐 Password Settings")
+    
+    if mode == "new":
+        console.print("[yellow]A strong password will be generated for you[/yellow]")
+        console.print()
+        
+        if typer.confirm("Generate random password?", default=True):
+            password = generate_secure_password()
+            console.print()
+            console.print("=" * 70)
+            console.print("[yellow]GENERATED PASSWORD:[/yellow]")
+            console.print(f"[cyan]{password}[/cyan]")
+            console.print("=" * 70)
+            console.print()
+            console.print("[red]⚠️  IMPORTANT: Save this password securely![/red]")
+            console.print()
+        else:
+            password = getpass.getpass("Enter password: ")
+            password_confirm = getpass.getpass("Confirm password: ")
+            if password != password_confirm:
+                utils.print_error("Passwords don't match!")
+                raise typer.Exit(1)
+    else:
+        console.print("[dim]Password configuration unchanged[/dim]")
+        console.print("[dim]Use 'config change-password' to change password[/dim]")
+        password = None
+    
+    utils.print_separator()
+    
+    # Backup Settings
+    utils.print_header("💾 Backup Settings")
+    
+    default_base_path = "/backup/kopi-docka"
+    if existing_config:
+        default_base_path = existing_config.get("backup", "base_path", default_base_path)
+    
+    base_path = utils.prompt_text(
+        "Backup base path",
+        default=default_base_path
+    )
+    
+    default_workers = "auto"
+    if existing_config:
+        default_workers = existing_config.get("backup", "parallel_workers", "auto")
+    
+    workers = utils.prompt_text(
+        "Parallel workers (auto or number)",
+        default=str(default_workers)
+    )
+    
+    utils.print_separator()
+    
+    # Recovery Settings
+    utils.print_header("🔄 Recovery Settings")
+    
+    default_recovery_path = "/backup/recovery"
+    if existing_config:
+        default_recovery_path = existing_config.get("backup", "recovery_bundle_path", default_recovery_path)
+    
+    recovery_path = utils.prompt_text(
+        "Recovery bundle path",
+        default=default_recovery_path
+    )
+    
+    default_retention = "3"
+    if existing_config:
+        default_retention = existing_config.get("backup", "recovery_bundle_retention", "3")
+    
+    retention = utils.prompt_text(
+        "Recovery bundle retention (number of old bundles to keep)",
+        default=str(default_retention)
+    )
+    
+    utils.print_separator()
+    
+    # Summary
+    utils.print_header("📋 Configuration Summary")
+    console.print()
+    console.print("[cyan]Repository:[/cyan]")
+    console.print(f"  Path: {repo_path}")
+    console.print(f"  Encryption: {encryption}")
+    console.print(f"  Compression: {compression}")
+    console.print()
+    console.print("[cyan]Backup:[/cyan]")
+    console.print(f"  Base path: {base_path}")
+    console.print(f"  Workers: {workers}")
+    console.print()
+    console.print("[cyan]Recovery:[/cyan]")
+    console.print(f"  Bundle path: {recovery_path}")
+    console.print(f"  Retention: {retention}")
+    console.print()
+    
+    if not typer.confirm("Save configuration?", default=True):
+        utils.print_warning("Configuration not saved")
+        return
+    
+    # Save configuration
+    try:
+        if mode == "new":
+            # Create new config
+            config_path = create_default_config(force=True)
+            cfg = Config(config_path)
+        else:
+            # Use existing config
+            cfg = existing_config
+        
+        # Update values
+        cfg.set("kopia", "repository_path", repo_path)
+        cfg.set("kopia", "encryption", encryption)
+        cfg.set("kopia", "compression", compression)
+        cfg.set("backup", "base_path", base_path)
+        cfg.set("backup", "parallel_workers", workers)
+        cfg.set("backup", "recovery_bundle_path", recovery_path)
+        cfg.set("backup", "recovery_bundle_retention", retention)
+        
+        if password:
+            cfg.set_password(password, use_file=True)
+        
+        # Save config
+        cfg.save()
+        
+        utils.print_separator()
+        utils.print_success("✓ Configuration saved successfully!")
+        console.print()
+        console.print(f"[cyan]Config file:[/cyan] {cfg.config_file}")
+        
+        if password:
+            password_file = cfg.config_file.parent / f".{cfg.config_file.stem}.password"
+            console.print(f"[cyan]Password file:[/cyan] {password_file}")
+        
+        console.print()
+        console.print("Next steps:")
+        console.print("  1. Initialize repository: kopi-docka repo init")
+        console.print("  2. Check dependencies: kopi-docka deps check")
+        
+    except Exception as e:
+        utils.print_error(f"Failed to save configuration: {e}")
+        raise typer.Exit(1)
 
 
 @app.command(name="show")
