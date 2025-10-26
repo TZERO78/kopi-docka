@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from rich.markup import escape
+
 from .base import BackendBase, ConfigurationError, DependencyError
 from ..i18n import _
 from ..helpers.dependency_installer import DependencyInstaller
@@ -45,7 +47,7 @@ class TailscaleBackend(BackendBase):
     
     @property
     def description(self) -> str:
-        return _("🔥 Secure offsite backups over your private Tailscale network (recommended!)")
+        return _("🔥Secure offsite backups over your private Tailscale network (recommended!)")
     
     def check_dependencies(self) -> List[str]:
         """Check if Kopia and Tailscale are installed"""
@@ -126,7 +128,7 @@ class TailscaleBackend(BackendBase):
         # Get remote path
         default_path = "/backup/kopi-docka"
         remote_path = utils.prompt_text(
-            f"{t('tailscale.backup_path', lang)} [{default_path}]",
+            f"{t('tailscale.backup_path', lang)} {escape(f'[{default_path}]')}",
             default=default_path
         )
         
@@ -150,7 +152,7 @@ class TailscaleBackend(BackendBase):
         repository_path = f"sftp://{ssh_user}@{selected_peer.hostname}.tailnet:{remote_path}"
         
         utils.print_separator()
-        utils.print_success(f"Repository path: {repository_path}")
+        utils.print_success(f"Repository path: {escape(repository_path)}")
         
         return {
             "type": "sftp",  # Kopia uses SFTP backend

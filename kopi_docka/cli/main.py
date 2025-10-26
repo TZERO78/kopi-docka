@@ -15,6 +15,11 @@ from kopi_docka.i18n import set_language, get_current_language
 from kopi_docka.cli import utils
 from kopi_docka.cli import setup
 from kopi_docka.cli import repo
+from kopi_docka.cli import backup
+from kopi_docka.cli import deps
+from kopi_docka.cli import recovery
+from kopi_docka.cli import config
+from kopi_docka.cli import service
 
 # Create Typer app
 app = typer.Typer(
@@ -28,6 +33,11 @@ console = Console()
 # Register sub-commands
 setup.register_to_main_app(app)
 repo.register_to_main_app(app)
+backup.register_to_main_app(app)
+deps.register_to_main_app(app)
+recovery.register_to_main_app(app)
+config.register_to_main_app(app)
+service.register_to_main_app(app)
 
 
 @app.callback()
