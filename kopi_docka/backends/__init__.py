@@ -127,22 +127,12 @@ __all__ = [
 ]
 
 
-# Auto-import all backend implementations (will be added as we implement them)
+# Auto-import all backend implementations
 # This ensures they are registered when the module is imported
 def _import_backends():
     """Import all backend implementations to trigger registration"""
     try:
-        from . import filesystem  # noqa: F401
-    except ImportError:
-        pass
-    
-    try:
-        from . import rclone  # noqa: F401
-    except ImportError:
-        pass
-    
-    try:
-        from . import tailscale  # noqa: F401
+        from . import local  # noqa: F401
     except ImportError:
         pass
     
@@ -157,12 +147,22 @@ def _import_backends():
         pass
     
     try:
-        from . import webdav  # noqa: F401
+        from . import azure  # noqa: F401
     except ImportError:
         pass
     
     try:
-        from . import gdrive  # noqa: F401
+        from . import gcs  # noqa: F401
+    except ImportError:
+        pass
+    
+    try:
+        from . import sftp  # noqa: F401
+    except ImportError:
+        pass
+    
+    try:
+        from . import tailscale  # noqa: F401
     except ImportError:
         pass
 
