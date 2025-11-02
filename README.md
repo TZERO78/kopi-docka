@@ -369,7 +369,6 @@ Example configuration:
 | `list --snapshots` | Show all Kopia snapshots in repository |
 | `dry-run` | Simulate backup without making any changes |
 | `dry-run --unit NAME` | Simulate backup for specific unit only |
-| `dry-run-units` | Show detailed unit analysis |
 | `estimate-size` | Calculate estimated backup size for all units |
 | `backup` | Run full cold backup for all units |
 | `backup --unit NAME` | Backup specific unit(s) only |
@@ -377,6 +376,11 @@ Example configuration:
 | `backup --update-recovery` | Create/update disaster recovery bundle after backup |
 | `restore` | Interactive restore wizard |
 | `disaster-recovery` | Create disaster recovery bundle manually |
+
+### Setup & Configuration Wizard
+| Command | Description |
+|---------|-------------|
+| `setup` | Interactive setup wizard for first-time configuration |
 
 ### Service & Automation
 | Command | Description |
@@ -515,15 +519,22 @@ kopi-docka repo-maintenance
 
 ## Cloud Storage Backends
 
-Kopi-Docka supports all Kopia backends. Set up credentials and configure `repository_path`:
+Kopi-Docka supports 8 different storage backends via the interactive `new-config` wizard or manual configuration using `kopia_params`.
 
-### Local Filesystem
-```ini
-[kopia]
-repository_path = /backup/kopia-repository
+### 1. Local Filesystem
+**Perfect for:** NAS, external drives, local testing
+
+```json
+{
+  "kopia": {
+    "kopia_params": "filesystem --path /backup/kopia-repository"
+  }
+}
 ```
 
-### AWS S3 / Wasabi / MinIO
+### 2. AWS S3 / Wasabi / MinIO
+**Perfect for:** AWS users, S3-compatible storage
+
 ```bash
 # Set environment variables
 export AWS_ACCESS_KEY_ID="your-key-id"
@@ -531,38 +542,58 @@ export AWS_SECRET_ACCESS_KEY="your-secret"
 export AWS_REGION="us-east-1"  # optional
 ```
 
-```ini
-[kopia]
-repository_path = s3://my-bucket/kopia
-# Optional: specify endpoint for Wasabi/MinIO
-# Add to [kopia] section: s3_endpoint = s3.wasabisys.com
+```json
+{
+  "kopia": {
+    "kopia_params": "s3 --bucket my-bucket --prefix kopia"
+  }
+}
 ```
 
-### Backblaze B2 (Recommended - Cheap!)
+**For Wasabi/MinIO, add endpoint:**
+```json
+"kopia_params": "s3 --bucket my-bucket --prefix kopia --endpoint s3.wasabisys.com"
+```
+
+### 3. Backblaze B2 (Recommended!)
+**Perfect for:** Cost-effective cloud storage, homelab backups
+
+**Why B2?** Cheapest cloud storage (~$5/TB/month), no egress fees for first 3x storage
+
 ```bash
 # Set environment variables
 export B2_APPLICATION_KEY_ID="your-key-id"
 export B2_APPLICATION_KEY="your-key"
 ```
 
-```ini
-[kopia]
-repository_path = b2://my-bucket/kopia
+```json
+{
+  "kopia": {
+    "kopia_params": "b2 --bucket my-bucket --prefix kopia"
+  }
+}
 ```
 
-### Azure Blob Storage
+### 4. Azure Blob Storage
+**Perfect for:** Azure users, Microsoft ecosystem
+
 ```bash
-# Set environment variable
+# Set environment variables
 export AZURE_STORAGE_ACCOUNT="youraccount"
 export AZURE_STORAGE_KEY="your-key"
 ```
 
-```ini
-[kopia]
-repository_path = azure://container/kopia
+```json
+{
+  "kopia": {
+    "kopia_params": "azure --container my-container --prefix kopia"
+  }
+}
 ```
 
-### Google Cloud Storage
+### 5. Google Cloud Storage
+**Perfect for:** GCP users, Google ecosystem
+
 ```bash
 # Authenticate with gcloud
 gcloud auth application-default login
@@ -571,17 +602,99 @@ gcloud auth application-default login
 export GOOGLE_APPLICATION_CREDENTIALS="/path/to/key.json"
 ```
 
-```ini
-[kopia]
-repository_path = gs://my-bucket/kopia
+```json
+{
+  "kopia": {
+    "kopia_params": "gcs --bucket my-bucket --prefix kopia"
+  }
+}
 ```
 
-### SFTP
-```ini
-[kopia]
-repository_path = sftp://user@server/path/to/kopia
-# Configure SSH key authentication separately
+### 6. SFTP
+**Perfect for:** Remote servers, existing SSH access
+
+```json
+{
+  "kopia": {
+    "kopia_params": "sftp --path user@server:/path/to/repo --keyfile /home/user/.ssh/id_rsa"
+  }
+}
 ```
+
+**Note:** Configure SSH key authentication separately for passwordless access.
+
+### 7. Rclone (Universal Cloud Support)
+**Perfect for:** Any cloud provider (100+ supported!), complex setups
+
+Rclone backend supports **any** cloud storage that rclone supports:
+- OneDrive, Dropbox, Google Drive
+- Mega, pCloud, Box
+- WebDAV, FTP
+- And 100+ more!
+
+```bash
+# 1. Configure rclone remote first
+rclone config
+# Follow prompts to add your cloud storage
+
+# 2. Use in Kopi-Docka
+```
+
+```json
+{
+  "kopia": {
+    "kopia_params": "rclone --remote-path myremote:backup/kopia"
+  }
+}
+```
+
+**Example for OneDrive:**
+```bash
+rclone config  # Create remote named "onedrive"
+```
+```json
+"kopia_params": "rclone --remote-path onedrive:Backups/kopia"
+```
+
+### 8. Tailscale (Secure P2P)
+**Perfect for:** Private networks, secure backup between own machines
+
+Backup over Tailscale VPN to another machine in your Tailnet.
+
+```bash
+# 1. Install Tailscale on both machines
+# 2. Use setup wizard or configure manually
+```
+
+```json
+{
+  "kopia": {
+    "kopia_params": "sftp --path user@tailscale-hostname:/backup/kopia --keyfile /home/user/.ssh/id_rsa"
+  }
+}
+```
+
+**Or use Tailscale + any backend:**
+```json
+"kopia_params": "filesystem --path /mnt/tailscale-share/kopia"
+```
+
+---
+
+### Backend Selection Guide
+
+| Backend | Cost | Speed | Complexity | Best For |
+|---------|------|-------|------------|----------|
+| **Local** | Free | ⚡⚡⚡ | Easy | NAS, testing |
+| **B2** | $ | ⚡⚡ | Easy | Homelab, cost-conscious |
+| **S3** | $$ | ⚡⚡⚡ | Easy | AWS users |
+| **Azure** | $$ | ⚡⚡⚡ | Easy | Azure users |
+| **GCS** | $$ | ⚡⚡⚡ | Easy | GCP users |
+| **SFTP** | Varies | ⚡⚡ | Medium | Existing servers |
+| **Rclone** | Varies | ⚡ | Medium | Universal compatibility |
+| **Tailscale** | Free* | ⚡⚡ | Medium | Private networks |
+
+*Tailscale free for personal use (up to 100 devices)
 
 ---
 
@@ -893,6 +1006,18 @@ kopi-docka/
 │   ├── __main__.py              # CLI entry point (Typer)
 │   ├── types.py                 # Dataclasses (BackupUnit, etc.)
 │   │
+│   ├── backends/                # Storage backend implementations
+│   │   ├── __init__.py
+│   │   ├── base.py              # BackendBase abstract class
+│   │   ├── local.py             # Local filesystem
+│   │   ├── s3.py                # AWS S3 / Wasabi / MinIO
+│   │   ├── b2.py                # Backblaze B2
+│   │   ├── azure.py             # Azure Blob Storage
+│   │   ├── gcs.py               # Google Cloud Storage
+│   │   ├── sftp.py              # SFTP/SSH
+│   │   ├── rclone.py            # Rclone (universal)
+│   │   └── tailscale.py         # Tailscale P2P
+│   │
 │   ├── helpers/                 # Utility modules
 │   │   ├── __init__.py
 │   │   ├── config.py            # Config file handling
@@ -919,16 +1044,17 @@ kopi-docka/
 │   │   ├── dependency_commands.py # Deps check/install
 │   │   ├── repository_commands.py # Repo operations
 │   │   ├── service_commands.py  # Systemd setup
+│   │   ├── setup_commands.py    # Setup wizard
 │   │   └── dry_run_commands.py  # Simulation commands
 │   │
 │   └── templates/               # Config templates
-│       └── config_template.conf
+│       └── config_template.json # v3.0 JSON config
 │
 ├── tests/
 │   ├── conftest.py              # Pytest fixtures
 │   ├── pytest.ini               # Test configuration
 │   ├── unit/                    # Fast unit tests
-│   │   ├── test_main.py         # ✅ 10/10 passing
+│   │   ├── test_main.py
 │   │   ├── test_backup_commands.py
 │   │   ├── test_dependency_commands.py
 │   │   └── test_repository_commands.py
@@ -937,9 +1063,9 @@ kopi-docka/
 │
 ├── .github/
 │   └── workflows/
-│       └── python-app.yml       # CI/CD pipeline
+│       └── publish.yml          # PyPI auto-publish on tags
 │
-├── setup.py                     # Package configuration
+├── pyproject.toml               # Package configuration (PEP 517/518)
 ├── requirements.txt             # Dependencies
 ├── Makefile                     # Dev tasks
 ├── README.md                    # This file
