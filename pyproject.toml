@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kopi-docka"
-version = "2.0.3"
+version = "3.0.0"
 description = "Robust cold backups for Docker environments using Kopia"
 readme = "README.md"
 requires-python = ">=3.10"
