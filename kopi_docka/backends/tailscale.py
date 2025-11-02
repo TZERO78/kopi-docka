@@ -174,9 +174,9 @@ class TailscaleBackend(BackendBase):
         """Validate Tailscale configuration"""
         errors = []
         
-        # Check for kopia_params (new) or repository_path (legacy)
-        if "kopia_params" not in self.config and "repository_path" not in self.config:
-            errors.append(_("Missing kopia_params or repository_path"))
+        # Check for kopia_params
+        if "kopia_params" not in self.config:
+            errors.append(_("Missing kopia_params"))
             return (False, errors)
         
         if "credentials" not in self.config:

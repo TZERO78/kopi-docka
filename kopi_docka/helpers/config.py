@@ -81,18 +81,6 @@ class Config:
     # --------------- Properties ---------------
     
     @property
-    def kopia_repository_path(self) -> str:
-        """
-        DEPRECATED: Get kopia repository path from old config format.
-        Use kopia_params instead for new configs.
-        Returns empty string if not found.
-        """
-        try:
-            return self.get('kopia', 'repository_path')
-        except (ValueError, KeyError):
-            return ''
-    
-    @property
     def kopia_profile(self) -> str:
         """Get kopia profile name."""
         return self.get('kopia', 'profile', fallback='kopi-docka')
@@ -400,20 +388,11 @@ class Config:
         """
         errors = []
         
-        # Check kopia_params (new) or repository_path (legacy)
+        # Check kopia_params
         kopia_params = self.get('kopia', 'kopia_params', fallback='')
-        repo_path = self.get('kopia', 'repository_path', fallback='')
         
-        if not kopia_params and not repo_path:
-            errors.append("Missing 'kopia_params' or 'repository_path' in config")
-        
-        # Nur lokale Pfade validieren, keine Remote-Repos (s3://, b2://, etc.)
-        if repo_path and '://' not in repo_path:
-            path = Path(repo_path).expanduser()
-            if not path.exists():
-                errors.append(f"Repository path does not exist: {path}")
-            elif not os.access(path, os.W_OK):
-                errors.append(f"Repository path not writable: {path}")
+        if not kopia_params:
+            errors.append("Missing 'kopia_params' in config")
         
         # Check password
         try:
@@ -449,7 +428,7 @@ class Config:
         """
         return {
             'kopia': {
-                'repository_path': '/backup/kopia-repository',
+                'kopia_params': 'filesystem --path /backup/kopia-repository',
                 'password': 'kopia-docka',  # Standard-Passwort (ändern nach init!)
                 'password_file': '',  # Optional: Pfad zu Passwort-Datei
                 'profile': 'kopi-docka',

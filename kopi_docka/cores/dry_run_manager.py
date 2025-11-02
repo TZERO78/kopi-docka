@@ -98,27 +98,27 @@ class DryRunReport:
         print(f"CPU Cores: {self.utils.get_cpu_count()}")
         print(f"Parallel Workers: {self.config.parallel_workers}")
         print(f"Backup Path: {self.config.backup_base_path}")
-        # Show kopia_params (new) or repository_path (legacy)
+        # Show kopia_params
         kopia_params = self.config.get('kopia', 'kopia_params', fallback='')
-        repo_path = self.config.kopia_repository_path
-        
-        if kopia_params:
-            print(f"Kopia Params: {kopia_params}")
-        elif repo_path:
-            print(f"Repository Path (legacy): {repo_path}")
+        print(f"Kopia Params: {kopia_params}")
 
         # Determine a local path to check space against
         repo_parent_path_str: Optional[str] = None
-        # Get kopia_params or repository_path for display
-        kopia_params = self.config.get('kopia', 'kopia_params', fallback='')
-        repo_path = self.config.kopia_repository_path
-        repo_info = kopia_params if kopia_params else repo_path
         
-        try:
-            # Local repo -> Path-like with .parent
-            repo_parent_path_str = str(repo_path.parent)  # type: ignore[attr-defined]
-        except Exception:
-            # Remote repo (s3://, b2://, ...). Use backup base path disk as proxy.
+        # Parse kopia_params for filesystem path
+        if kopia_params and 'filesystem' in kopia_params and '--path' in kopia_params:
+            import shlex
+            parts = shlex.split(kopia_params)
+            try:
+                path_idx = parts.index('--path') + 1
+                if path_idx < len(parts):
+                    from pathlib import Path
+                    repo_parent_path_str = str(Path(parts[path_idx]).parent)
+            except (ValueError, IndexError):
+                pass
+        
+        # Fallback: Use backup base path disk as proxy for remote repos
+        if not repo_parent_path_str:
             repo_parent_path_str = str(self.config.backup_base_path)
 
         # Check disk space (approximation for remote repos)
@@ -253,14 +253,23 @@ class DryRunReport:
 
         # Check if enough local space (proxy for remote: use backup base path)
         repo_parent_path_str: Optional[str] = None
-        # Get kopia_params or repository_path
+        # Get kopia_params
         kopia_params = self.config.get('kopia', 'kopia_params', fallback='')
-        repo_path = self.config.kopia_repository_path
-        repo_info = kopia_params if kopia_params else repo_path
         
-        try:
-            repo_parent_path_str = str(repo_path.parent)  # type: ignore[attr-defined]
-        except Exception:
+        # Parse for filesystem path
+        repo_parent_path_str = None
+        if kopia_params and 'filesystem' in kopia_params and '--path' in kopia_params:
+            import shlex
+            parts = shlex.split(kopia_params)
+            try:
+                path_idx = parts.index('--path') + 1
+                if path_idx < len(parts):
+                    from pathlib import Path
+                    repo_parent_path_str = str(Path(parts[path_idx]).parent)
+            except (ValueError, IndexError):
+                pass
+        
+        if not repo_parent_path_str:
             repo_parent_path_str = str(self.config.backup_base_path)
 
         available_space_gb = self.utils.get_available_disk_space(repo_parent_path_str)
@@ -272,7 +281,7 @@ class DryRunReport:
         print("\n### CONFIGURATION REVIEW ###")
 
         config_items = [
-            ("Kopia Params/Path", kopia_params if kopia_params else self.config.kopia_repository_path),
+            ("Kopia Params", kopia_params),
             ("Backup Base Path", self.config.backup_base_path),
             ("Parallel Workers", self.config.parallel_workers),
             ("Stop Timeout", f"{self.config.get('backup', 'stop_timeout')}s"),
@@ -350,25 +359,17 @@ class DryRunReport:
             print("    - Recovery automation script")
             print("    - Current backup status")
 
-            # Check for local filesystem repo
+            # Check for cloud repository (non-filesystem)
             kopia_params = self.config.get('kopia', 'kopia_params', fallback='')
-            repo_path_str = str(self.config.kopia_repository_path) if self.config.kopia_repository_path else ''
             
-            # Parse kopia_params for filesystem path
-            if kopia_params and 'filesystem' in kopia_params and '--path' in kopia_params:
-                import shlex
-                parts = shlex.split(kopia_params)
-                try:
-                    path_idx = parts.index('--path') + 1
-                    if path_idx < len(parts):
-                        repo_path_str = parts[path_idx]
-                except (ValueError, IndexError):
-                    pass
-            if any(
-                repo_path_str.startswith(prefix)
-                for prefix in ("s3://", "b2://", "azure://", "gs://")
-            ):
-                print(f"\n  ✓ Cloud Repository Detected: {repo_path_str}")
+            # Check if it's a cloud backend (not filesystem)
+            is_cloud = any(
+                backend in kopia_params
+                for backend in ("s3", "b2", "azure", "gcs", "sftp", "rclone")
+            )
+            
+            if is_cloud:
+                print(f"\n  ✓ Cloud Repository Detected")
                 print("    Bundle will include reconnection guidance")
         else:
             print("Recovery Bundle: WILL NOT BE UPDATED")
