@@ -174,6 +174,19 @@ Finds running containers & volumes, groups them into **backup units** (Compose s
 - **Docker:** Docker Engine + Docker Compose
 - **Kopia:** Will be checked/installed by dependency manager
 
+### Install from PyPI (Recommended)
+
+```bash
+# Install latest version
+pip install kopi-docka
+
+# Or with pipx (isolated environment)
+pipx install kopi-docka
+
+# Verify installation
+kopi-docka --version
+```
+
 ### Install from Source
 
 ```bash
@@ -187,14 +200,9 @@ pip install -e .
 # Or with development dependencies
 pip install -e ".[dev]"
 
-# Install system-wide wrapper (for sudo usage)
-make install-system
-
 # Verify installation
-sudo kopi-docka --help
+kopi-docka --help
 ```
-
-**Note:** Kopi-Docka requires root privileges for Docker access. The `make install-system` command creates a wrapper script that allows you to run `sudo kopi-docka` from anywhere.
 
 ### Alternative: Install directly from GitHub
 
@@ -202,9 +210,11 @@ sudo kopi-docka --help
 # Install latest version
 pip install git+https://github.com/TZERO78/kopi-docka.git
 
-# Or specific version
-pip install git+https://github.com/TZERO78/kopi-docka.git@v2.0.0
+# Or specific version (e.g. v3.0.0)
+pip install git+https://github.com/TZERO78/kopi-docka.git@v3.0.0
 ```
+
+**Note:** Kopi-Docka requires root privileges for Docker access. Use `sudo` when running backup operations.
 
 ---
 
@@ -213,31 +223,29 @@ pip install git+https://github.com/TZERO78/kopi-docka.git@v2.0.0
 ### First-Time Setup
 
 ```bash
-# 1. Check system dependencies
-kopi-docka check
+# 1. Install dependencies
+sudo kopi-docka install-deps
 
-# 2. Create configuration file
-kopi-docka new-config
-# Edit ~/.config/kopi-docka/config.json:
-#   - Set repository_path (local or cloud)
-#   - Set password (change this!)
+# 2. Create configuration with interactive wizard
+sudo kopi-docka new-config
+# Wizard will guide you through:
+#   - Backend selection (Local, S3, B2, Azure, GCS, SFTP, Rclone, Tailscale)
+#   - Repository configuration
+#   - Password setup (secure random or custom)
 
 # 3. Initialize Kopia repository
-kopi-docka init
+sudo kopi-docka init
 
-# 4. IMPORTANT: Change default password!
-kopi-docka change-password
-
-# 5. See what would be backed up
+# 4. See what would be backed up
 kopi-docka list --units
 
-# 6. Test run (no changes)
+# 5. Test run (no changes)
 kopi-docka dry-run
 
-# 7. Create first backup
+# 6. Create first backup
 sudo kopi-docka backup
 
-# 8. Create disaster recovery bundle (IMPORTANT!)
+# 7. Create disaster recovery bundle (IMPORTANT!)
 sudo kopi-docka disaster-recovery
 # Copy bundle to safe storage (USB/phone/cloud vault)!
 ```
