@@ -22,7 +22,7 @@ Supports secure password storage via password files or direct plaintext.
 
 from __future__ import annotations
 
-import configparser
+import json
 import os
 import re
 import shutil
@@ -56,7 +56,7 @@ class Config:
     """
     Configuration manager for Kopi-Docka.
     
-    Loads and validates configuration from INI files.
+    Loads and validates configuration from JSON files.
     Provides secure password handling with multiple sources.
     """
     
@@ -67,8 +67,7 @@ class Config:
         Args:
             config_path: Optional path to config file
         """
-        # WICHTIG: Interpolation deaktivieren wegen % in Passwörtern
-        self._config = configparser.ConfigParser(interpolation=None)
+        self._config: Dict[str, Dict[str, Any]] = {}
         
         self.config_file = self._find_config_file(config_path)
         if not self.config_file.exists():
@@ -107,14 +106,24 @@ class Config:
     # Backup configuration properties
     
     @property
-    def backup_base_path(self) -> str:
-        """Get backup base path."""
-        return self.get('backup', 'base_path', fallback='/backup/kopi-docka')
+    def backup_base_path(self) -> Path:
+        """Get backup base path as Path object."""
+        path_str = self.get('backup', 'base_path', fallback='/backup/kopi-docka')
+        return Path(path_str).expanduser()
     
     @property
-    def parallel_workers(self) -> str:
-        """Get parallel workers setting (returns 'auto' or integer as string)."""
-        return self.get('backup', 'parallel_workers', fallback='auto')
+    def parallel_workers(self) -> int:
+        """Get parallel workers setting (returns integer, auto-calculates if needed)."""
+        value = self.get('backup', 'parallel_workers', fallback='auto')
+        
+        if value == 'auto':
+            from .system_utils import SystemUtils
+            return SystemUtils.get_optimal_workers()
+        
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return 4  # Fallback
     
     @property
     def stop_timeout(self) -> int:
@@ -148,27 +157,6 @@ class Config:
         """Get recovery bundle retention count."""
         return int(self.get('backup', 'recovery_bundle_retention', fallback=3))
     
-    @property
-    def backup_base_path(self) -> Path:
-        """Get backup base path as Path object."""
-        path_str = self.get('backup', 'base_path', fallback='/backup/kopi-docka')
-        return Path(path_str).expanduser()
-
-    @property
-    def parallel_workers(self) -> int:
-        """Get parallel workers setting (returns integer, auto-calculates if needed)."""
-        value = self.get('backup', 'parallel_workers', fallback='auto')
-        
-        if value == 'auto':
-            from .system_utils import SystemUtils
-            return SystemUtils.get_optimal_workers()
-        
-        try:
-            return int(value)
-        except (ValueError, TypeError):
-            return 4  # Fallback
-        
-
     # Kopia settings properties
     
     @property
@@ -274,10 +262,7 @@ class Config:
     
     def get(self, section: str, option: str, fallback: Any = None) -> Any:
         """Get configuration value with fallback."""
-        try:
-            return self._config.get(section, option)
-        except (configparser.NoSectionError, configparser.NoOptionError):
-            return fallback
+        return self._config.get(section, {}).get(option, fallback)
     
     def getint(self, section: str, option: str, fallback: int = 0) -> int:
         """
@@ -337,9 +322,9 @@ class Config:
     
     def set(self, section: str, option: str, value: Any) -> None:
         """Set configuration value."""
-        if not self._config.has_section(section):
-            self._config.add_section(section)
-        self._config.set(section, option, str(value))
+        if section not in self._config:
+            self._config[section] = {}
+        self._config[section][option] = value
     
     def save(self) -> None:
         """Save configuration to file atomically with proper permissions."""
@@ -351,9 +336,10 @@ class Config:
         )
         
         try:
-            # Schreibe mit UTF-8 encoding
+            # Schreibe mit UTF-8 encoding und schöner Formatierung
             with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
-                self._config.write(f)
+                json.dump(self._config, f, indent=2, ensure_ascii=False)
+                f.write('\n')  # Trailing newline
             
             # Atomic replace
             os.replace(temp_path, self.config_file)
@@ -385,14 +371,14 @@ class Config:
             re.IGNORECASE
         )
         
-        for section in self._config.sections():
+        for section, options in self._config.items():
             print(f"\n[{section}]")
-            for option, value in self._config.items(section):
+            for option, value in options.items():
                 # Check ob Option sensitiv ist
                 if sensitive_patterns.search(option):
                     # Zeige erste 3 Zeichen für Debugging
-                    if value and len(value) > 3:
-                        value = f"{value[:3]}***MASKED***"
+                    if value and len(str(value)) > 3:
+                        value = f"{str(value)[:3]}***MASKED***"
                     else:
                         value = '***MASKED***'
                 
@@ -548,11 +534,14 @@ class Config:
         return path
     
     def _load_config(self) -> None:
-        """Load configuration from file with UTF-8 encoding."""
+        """Load configuration from JSON file with UTF-8 encoding."""
         try:
             with open(self.config_file, 'r', encoding='utf-8') as f:
-                self._config.read_file(f)
+                self._config = json.load(f)
             logger.info(f"Configuration loaded from {self.config_file}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Config file JSON parsing error: {e}")
+            raise ValueError(f"Invalid JSON in config file {self.config_file}: {e}")
         except UnicodeDecodeError as e:
             logger.error(f"Config file encoding error (expected UTF-8): {e}")
             raise
@@ -572,7 +561,7 @@ class Config:
 
 def create_default_config(path: Optional[Path] = None, force: bool = False) -> Path:
     """
-    Create default configuration from template.
+    Create default configuration from JSON template.
     
     Args:
         path: Optional path where to create the config file
@@ -585,9 +574,9 @@ def create_default_config(path: Optional[Path] = None, force: bool = False) -> P
     
     if path is None:
         if os.geteuid() == 0:
-            path = Path('/etc/kopi-docka.conf')
+            path = Path('/etc/kopi-docka.json')
         else:
-            path = Path.home() / '.config' / 'kopi-docka' / 'config.conf'
+            path = Path.home() / '.config' / 'kopi-docka' / 'config.json'
     else:
         path = Path(path).expanduser()
     
@@ -597,8 +586,8 @@ def create_default_config(path: Optional[Path] = None, force: bool = False) -> P
     
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Copy template
-    template_path = Path(__file__).parent.parent / "templates" / "config_template.conf"
+    # Copy JSON template
+    template_path = Path(__file__).parent.parent / "templates" / "config_template.json"
     
     if not template_path.exists():
         raise FileNotFoundError(

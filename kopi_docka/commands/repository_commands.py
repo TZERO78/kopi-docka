@@ -25,11 +25,16 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+from rich.console import Console
+from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
 
 from ..helpers import Config, get_logger, generate_secure_password
 from ..cores import KopiaRepository
 
 logger = get_logger(__name__)
+console = Console()
 
 
 def get_config(ctx: typer.Context) -> Optional[Config]:
@@ -139,51 +144,133 @@ def _print_kopia_native_status(repo: KopiaRepository) -> None:
 
 def cmd_init(ctx: typer.Context):
     """Initialize (or connect to) the Kopia repository."""
+    import getpass
+    
     if not shutil.which("kopia"):
         typer.echo("❌ Kopia is not installed!")
         typer.echo("Install with: kopi-docka install-deps")
         raise typer.Exit(code=1)
 
     cfg = ensure_config(ctx)
-    repo = KopiaRepository(cfg)
-
-    typer.echo(f"Using profile: {repo.profile_name}")
-    typer.echo(f"Repository: {repo.repo_path}")
     
-    # Warnung bei Standard-Passwort
+    # ═══════════════════════════════════════════
+    # Phase 1: Password Check & Setup (if needed)
+    # ═══════════════════════════════════════════
     try:
         current_password = cfg.get_password()
-        if current_password == 'kopia-docka':
-            typer.echo("")
-            typer.echo("⚠️  WARNING: Using default password 'kopia-docka'!")
-            typer.echo("   This is INSECURE for production use.")
-            typer.echo("")
-            if not typer.confirm("Continue with default password?", default=False):
-                typer.echo("\nChange password first:")
-                typer.echo("  kopi-docka change-password")
-                raise typer.Exit(code=0)
     except ValueError as e:
         typer.echo(f"⚠️  Password issue: {e}")
-        typer.echo("Continuing anyway (will fail if repository needs password)...")
-
-    try:
-        repo.initialize()
-        typer.echo("✓ Repository initialized")
+        current_password = ''
+    
+    # Check for default/placeholder passwords
+    if current_password in ('kopia-docka', 'CHANGE_ME_TO_A_SECURE_PASSWORD', ''):
+        typer.echo("╭─────────────────────────────────────────╮")
+        typer.echo("│ Repository Password Setup                │")
+        typer.echo("╰─────────────────────────────────────────╯")
+        typer.echo("")
+        typer.echo("⚠️  Default or missing password detected!")
+        typer.echo("You need to set a secure password before initialization.")
+        typer.echo("")
+        typer.echo("This password will:")
+        typer.echo("  • Encrypt your backups")
+        typer.echo("  • Be required for ALL future operations")
+        typer.echo("  • Be UNRECOVERABLE if lost!")
+        typer.echo("")
         
-        # Erinnerung bei Standard-Passwort
-        try:
-            if cfg.get_password() == 'kopia-docka':
-                typer.echo("")
-                typer.echo("=" * 60)
-                typer.echo("⚠️  NEXT STEP: Change the default password NOW!")
-                typer.echo("=" * 60)
-                typer.echo("  kopi-docka change-password")
-                typer.echo("=" * 60)
-        except ValueError:
-            pass
+        use_generated = typer.confirm("Generate secure random password?", default=True)
+        typer.echo("")
+        
+        if use_generated:
+            new_password = generate_secure_password()
+            typer.echo("═════════════════════════════════════════════════════════════")
+            typer.echo("🔑 GENERATED PASSWORD (save this NOW!):")
+            typer.echo("")
+            typer.echo(f"   {new_password}")
+            typer.echo("")
+            typer.echo("═════════════════════════════════════════════════════════════")
+            typer.echo("⚠️  Copy this to:")
+            typer.echo("   • Password manager (recommended)")
+            typer.echo("   • Encrypted USB drive")
+            typer.echo("   • Secure physical location")
+            typer.echo("═════════════════════════════════════════════════════════════")
+            typer.echo("")
+            input("Press Enter to continue...")
+        else:
+            new_password = getpass.getpass("Enter password: ")
+            password_confirm = getpass.getpass("Confirm password: ")
+            
+            if new_password != password_confirm:
+                typer.echo("❌ Passwords don't match!")
+                raise typer.Exit(1)
+            
+            if len(new_password) < 12:
+                typer.echo(f"\n⚠️  WARNING: Password is short ({len(new_password)} chars)")
+                typer.echo("Recommended: At least 12 characters")
+                if not typer.confirm("Continue with this password?", default=False):
+                    typer.echo("Aborted.")
+                    raise typer.Exit(0)
+        
+        # Save password to config
+        typer.echo("\n↻ Saving password to config...")
+        cfg.set_password(new_password, use_file=True)
+        password_file = cfg.config_file.parent / f".{cfg.config_file.stem}.password"
+        typer.echo(f"✓ Password saved: {password_file}")
+        typer.echo("")
+        
+        # IMPORTANT: Reload config to get new password
+        cfg = Config(cfg.config_file)
+        typer.echo("─────────────────────────────────────────")
+        typer.echo("")
+    
+    # ═══════════════════════════════════════════
+    # Phase 2: Repository Initialization
+    # ═══════════════════════════════════════════
+    repo = KopiaRepository(cfg)
+    
+    typer.echo("╭─────────────────────────────────────────╮")
+    typer.echo("│ Repository Initialization                │")
+    typer.echo("╰─────────────────────────────────────────╯")
+    typer.echo("")
+    typer.echo(f"Profile:     {repo.profile_name}")
+    typer.echo(f"Kopia Params: {repo.kopia_params}")
+    typer.echo("")
+    
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Initializing repository...", total=None)
+            repo.initialize()
+            progress.update(task, completed=True)
+        
+        console.print()
+        console.print(Panel.fit(
+            "[green]✓ Repository initialized successfully![/green]\n\n"
+            "[bold]Next steps:[/bold]\n"
+            "  • List Docker containers: [cyan]kopi-docka list --units[/cyan]\n"
+            "  • Test backup:             [cyan]kopi-docka dry-run[/cyan]\n"
+            "  • Create first backup:     [cyan]kopi-docka backup[/cyan]",
+            title="[bold green]Setup Complete[/bold green]",
+            border_style="green"
+        ))
+        console.print()
         
     except Exception as e:
-        typer.echo(f"✗ Init failed: {e}")
+        typer.echo(f"✗ Initialization failed: {e}")
+        typer.echo("")
+        typer.echo("Common issues:")
+        typer.echo("  • Repository path not accessible")
+        typer.echo("  • Insufficient permissions")
+        typer.echo("  • Cloud credentials not configured")
+        typer.echo("  • Network connectivity issues")
+        typer.echo("")
+        typer.echo("For cloud storage (B2/S3/Azure/GCS):")
+        typer.echo("  • Check environment variables (AWS_*, B2_*, etc.)")
+        typer.echo("  • Verify bucket/container exists")
+        typer.echo("  • Test credentials separately")
+        typer.echo("")
         raise typer.Exit(code=1)
 
 
@@ -193,31 +280,38 @@ def cmd_repo_status(ctx: typer.Context):
     repo = ensure_repository(ctx)
 
     try:
-        typer.echo("=" * 60)
-        typer.echo("KOPIA REPOSITORY STATUS")
-        typer.echo("=" * 60)
-
+        # Check connection status
         is_conn = False
         try:
             is_conn = repo.is_connected()
         except Exception:
             is_conn = False
 
-        typer.echo(f"\nProfile: {repo.profile_name}")
-        typer.echo(f"Repository: {repo.repo_path}")
-        typer.echo(f"Connected: {'✓' if is_conn else '✗'}")
-
+        # Get statistics
         snapshots = repo.list_snapshots()
         units = repo.list_backup_units()
-        typer.echo(f"\nTotal Snapshots: {len(snapshots)}")
-        typer.echo(f"Backup Units: {len(units)}")
 
-        _print_kopia_native_status(repo)
+        # Build status table
+        table = Table(title="Repository Status", show_header=True, header_style="bold cyan")
+        table.add_column("Property", style="cyan")
+        table.add_column("Value", style="green" if is_conn else "red")
+        
+        table.add_row("Profile", repo.profile_name)
+        table.add_row("Kopia Params", repo.kopia_params)
+        table.add_row("Connected", "✓ Yes" if is_conn else "✗ No")
+        table.add_row("Total Snapshots", str(len(snapshots)))
+        table.add_row("Backup Units", str(len(units)))
 
-        typer.echo("\n" + "=" * 60)
+        console.print()
+        console.print(table)
+        console.print()
+
+        # Show detailed Kopia status if requested (debug)
+        if ctx.obj.get('verbose'):
+            _print_kopia_native_status(repo)
 
     except Exception as e:
-        typer.echo(f"✗ Failed to get repository status: {e}")
+        console.print(f"[red]✗ Failed to get repository status: {e}[/red]")
         raise typer.Exit(code=1)
 
 

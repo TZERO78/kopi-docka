@@ -23,8 +23,26 @@ from typing import Optional
 import typer
 
 from ..helpers import Config, create_default_config, get_logger, generate_secure_password
+from ..backends.local import LocalBackend
+from ..backends.s3 import S3Backend
+from ..backends.b2 import B2Backend
+from ..backends.azure import AzureBackend
+from ..backends.gcs import GCSBackend
+from ..backends.sftp import SFTPBackend
+from ..backends.tailscale import TailscaleBackend
 
 logger = get_logger(__name__)
+
+# Backend registry (shared with setup) - backend classes
+BACKEND_MODULES = {
+    'filesystem': LocalBackend,
+    's3': S3Backend,
+    'b2': B2Backend,
+    'azure': AzureBackend,
+    'gcs': GCSBackend,
+    'sftp': SFTPBackend,
+    'tailscale': TailscaleBackend,
+}
 
 
 def get_config(ctx: typer.Context) -> Optional[Config]:
@@ -58,8 +76,15 @@ def cmd_new_config(
     force: bool = False,
     edit: bool = True,
     path: Optional[Path] = None,
-):
-    """Create new configuration file."""
+) -> Config:
+    """
+    Create new configuration file with interactive setup wizard.
+    
+    Returns:
+        Config: The created configuration object
+    """
+    import getpass
+    
     # Check if config exists
     existing_cfg = None
     try:
@@ -107,19 +132,170 @@ def cmd_new_config(
         typer.echo(f"✓ Old config backed up to: {timestamp_backup}")
         typer.echo("")
 
-    typer.echo("Creating new configuration...")
+    # Create base config with template
+    typer.echo("╭─────────────────────────────────────────╮")
+    typer.echo("│ Kopi-Docka Setup Wizard                 │")
+    typer.echo("╰─────────────────────────────────────────╯")
+    typer.echo("")
+    
     created_path = create_default_config(path, force=True)
-    typer.echo(f"✓ Config created at: {created_path}")
-
-    if edit:
-        editor = os.environ.get('EDITOR', 'nano')
-        typer.echo(f"\nOpening in {editor} for initial setup...")
-        typer.echo("Important settings to review:")
-        typer.echo("  • repository_path: Where to store backups")
-        typer.echo("  • password: Default is 'kopia-docka' (change after init!)")
-        typer.echo("  • backup paths: Adjust for your system")
+    cfg = Config(created_path)
+    
+    # ═══════════════════════════════════════════
+    # Phase 1: Backend Selection & Configuration
+    # ═══════════════════════════════════════════
+    typer.echo("─────────────────────────────────────────")
+    typer.echo("→ Backend Selection")
+    typer.echo("─────────────────────────────────────────")
+    typer.echo("")
+    typer.echo("Where should backups be stored?")
+    typer.echo("")
+    typer.echo("Available backends:")
+    typer.echo("  1. Local Filesystem  - Store on local disk/NAS mount")
+    typer.echo("  2. AWS S3           - Amazon S3 or compatible (Wasabi, MinIO)")
+    typer.echo("  3. Backblaze B2     - Cost-effective cloud storage")
+    typer.echo("  4. Azure Blob       - Microsoft Azure storage")
+    typer.echo("  5. Google Cloud     - GCS storage")
+    typer.echo("  6. SFTP             - Remote server via SSH")
+    typer.echo("  7. Tailscale        - P2P encrypted network")
+    typer.echo("")
+    
+    backend_choice = typer.prompt(
+        "Select backend",
+        type=int,
+        default=1,
+        show_default=True
+    )
+    
+    backend_map = {
+        1: "filesystem",
+        2: "s3",
+        3: "b2",
+        4: "azure",
+        5: "gcs",
+        6: "sftp",
+        7: "tailscale",
+    }
+    
+    backend_type = backend_map.get(backend_choice, "filesystem")
+    typer.echo(f"\n✓ Selected: {backend_type}")
+    typer.echo("")
+    
+    # Use backend class for configuration
+    backend_class = BACKEND_MODULES.get(backend_type)
+    
+    if backend_class:
+        backend = backend_class({})
+        result = backend.configure()
+        kopia_params = result.get('kopia_params', '')
+        
+        # Show setup instructions if provided
+        if 'instructions' in result:
+            typer.echo("")
+            typer.echo(result['instructions'])
+    else:
+        # Fallback
+        typer.echo(f"⚠️  Backend '{backend_type}' not found")
+        repo_path = typer.prompt("Repository path", default="/backup/kopia-repository")
+        kopia_params = f"filesystem --path {repo_path}"
+    
+    cfg.set('kopia', 'kopia_params', kopia_params)
+    typer.echo("")
+    
+    # ═══════════════════════════════════════════
+    # Phase 2: Password Setup
+    # ═══════════════════════════════════════════
+    typer.echo("─────────────────────────────────────────")
+    typer.echo("→ Repository Encryption Password")
+    typer.echo("─────────────────────────────────────────")
+    typer.echo("")
+    typer.echo("This password encrypts your backups.")
+    typer.echo("⚠️  If you lose this password, backups are UNRECOVERABLE!")
+    typer.echo("")
+    
+    use_generated = typer.confirm("Generate secure random password?", default=True)
+    typer.echo("")
+    
+    if use_generated:
+        password = generate_secure_password()
+        typer.echo("═════════════════════════════════════════════════════════════")
+        typer.echo("🔑 GENERATED PASSWORD (save this NOW!):")
         typer.echo("")
-        subprocess.call([editor, str(created_path)])
+        typer.echo(f"   {password}")
+        typer.echo("")
+        typer.echo("═════════════════════════════════════════════════════════════")
+        typer.echo("⚠️  Copy this to:")
+        typer.echo("   • Password manager (recommended)")
+        typer.echo("   • Encrypted USB drive")
+        typer.echo("   • Secure physical location")
+        typer.echo("═════════════════════════════════════════════════════════════")
+        typer.echo("")
+        input("Press Enter to continue...")
+    else:
+        password = getpass.getpass("Enter password: ")
+        password_confirm = getpass.getpass("Confirm password: ")
+        
+        if password != password_confirm:
+            typer.echo("❌ Passwords don't match!")
+            raise typer.Exit(1)
+        
+        if len(password) < 12:
+            typer.echo(f"\n⚠️  WARNING: Password is short ({len(password)} chars)")
+            typer.echo("Recommended: At least 12 characters")
+            if not typer.confirm("Continue with this password?", default=False):
+                typer.echo("Aborted.")
+                raise typer.Exit(0)
+    
+    # Save password to config
+    cfg.set_password(password, use_file=True)
+    typer.echo("")
+    
+    # ═══════════════════════════════════════════
+    # Phase 3: Summary & Next Steps
+    # ═══════════════════════════════════════════
+    typer.echo("─────────────────────────────────────────")
+    typer.echo("✓ Configuration Created Successfully")
+    typer.echo("─────────────────────────────────────────")
+    typer.echo("")
+    typer.echo(f"Config file:    {cfg.config_file}")
+    password_file = cfg.config_file.parent / f".{cfg.config_file.stem}.password"
+    typer.echo(f"Password file:  {password_file}")
+    typer.echo(f"Kopia params:   {kopia_params}")
+    typer.echo("")
+    
+    typer.echo("╭──────────────────────────────────────────╮")
+    typer.echo("│ Setup Complete! Next Steps:              │")
+    typer.echo("╰──────────────────────────────────────────╯")
+    typer.echo("")
+    typer.echo("1. Initialize repository:")
+    typer.echo("   sudo kopi-docka init")
+    typer.echo("")
+    typer.echo("2. List Docker containers:")
+    typer.echo("   sudo kopi-docka list --units")
+    typer.echo("")
+    typer.echo("3. Test backup (dry-run):")
+    typer.echo("   sudo kopi-docka dry-run")
+    typer.echo("")
+    typer.echo("4. Create first backup:")
+    typer.echo("   sudo kopi-docka backup")
+    typer.echo("")
+    
+    # Optional: Open in editor for advanced settings
+    if edit:
+        typer.echo("─────────────────────────────────────────")
+        if typer.confirm("Open config in editor for advanced settings?", default=False):
+            editor = os.environ.get('EDITOR', 'nano')
+            typer.echo(f"\nOpening in {editor}...")
+            typer.echo("Advanced settings you can adjust:")
+            typer.echo("  • compression: zstd, s2, pgzip")
+            typer.echo("  • encryption: AES256-GCM-HMAC-SHA256, etc.")
+            typer.echo("  • parallel_workers: auto, or specific number")
+            typer.echo("  • retention: daily/weekly/monthly/yearly")
+            typer.echo("")
+            subprocess.call([editor, str(created_path)])
+    
+    # Return config object (for use in setup wizard)
+    return cfg
 
 
 def cmd_edit_config(ctx: typer.Context, editor: Optional[str] = None):
@@ -335,8 +511,8 @@ def cmd_change_password(
 # -------------------------
 
 def register(app: typer.Typer):
-    """Register all configuration commands."""
-    
+    """Register configuration commands."""
+
     @app.command("show-config")
     def _config_cmd(ctx: typer.Context):
         """Show current configuration."""

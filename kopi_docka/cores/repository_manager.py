@@ -53,8 +53,12 @@ class KopiaRepository:
 
     def __init__(self, config: Config):
         self.config = config
-        self.repo_path = config.kopia_repository_path
-        # Password wird dynamisch über get_password() geholt
+        self.kopia_params = config.get('kopia', 'kopia_params', fallback='')
+        if not self.kopia_params:
+            raise ValueError(
+                "Config missing 'kopia_params'. "
+                "Please create a new config with 'kopi-docka new-config'."
+            )
         self.profile_name = config.kopia_profile
 
     # --------------- Low-level helpers ---------------
@@ -69,17 +73,11 @@ class KopiaRepository:
         """Build environment for Kopia CLI (password, cache dir)."""
         env = os.environ.copy()
         
-        # Hole Passwort dynamisch über Config.get_password()
-        try:
-            password = self.config.get_password()
-            if password:
-                env["KOPIA_PASSWORD"] = password
-        except ValueError as e:
-            logger.warning(f"Could not get password: {e}")
-            # Fallback zu direktem Config-Wert für Kompatibilität
-            password = self.config.get('kopia', 'password', fallback='')
-            if password:
-                env["KOPIA_PASSWORD"] = password
+        # Hole Passwort über Config.get_password() - ohne Fallback!
+        # Wenn Passwort fehlt, wirft get_password() ValueError
+        password = self.config.get_password()
+        if password:
+            env["KOPIA_PASSWORD"] = password
 
         cache_dir = self.config.kopia_cache_directory
         if cache_dir:
@@ -107,73 +105,6 @@ class KopiaRepository:
             msg = proc.stderr.strip() or proc.stdout.strip()
             raise RuntimeError(f"{' '.join(args)} failed: {msg}")
         return proc
-
-    # --------------- Backend helpers ---------------
-
-    def _detect_backend(self, repo_path: Union[str, Path]) -> Tuple[str, Dict[str, str]]:
-        """Detect Kopia backend and split args for create/connect."""
-        if isinstance(repo_path, Path):
-            return "filesystem", {"path": str(repo_path)}
-
-        rp = str(repo_path)
-        if "://" not in rp:
-            return "filesystem", {"path": rp}
-
-        rp_lower = rp.lower()
-        if rp_lower.startswith("s3://"):
-            bucket, prefix = self._split_bucket_prefix(rp[5:])
-            args = {"bucket": bucket}
-            if prefix:
-                args["prefix"] = prefix
-            return "s3", args
-
-        if rp_lower.startswith("b2://"):
-            bucket, prefix = self._split_bucket_prefix(rp[5:])
-            args = {"bucket": bucket}
-            if prefix:
-                args["prefix"] = prefix
-            return "b2", args
-
-        if rp_lower.startswith("azure://"):
-            container, prefix = self._split_bucket_prefix(rp[8:])
-            args = {"container": container}
-            if prefix:
-                args["prefix"] = prefix
-            return "azure", args
-
-        if rp_lower.startswith("gs://"):
-            bucket, prefix = self._split_bucket_prefix(rp[5:])
-            args = {"bucket": bucket}
-            if prefix:
-                args["prefix"] = prefix
-            return "gcs", args
-
-        logger.warning("Unrecognized repository scheme '%s', assuming filesystem", rp)
-        return "filesystem", {"path": rp}
-
-    @staticmethod
-    def _backend_args(backend: str, args: Dict[str, str]) -> List[str]:
-        """Map parsed args to Kopia CLI flags for create/connect."""
-        if backend == "filesystem":
-            return ["--path", args["path"]]
-        if backend in {"s3", "b2", "gcs"}:
-            out = ["--bucket", args["bucket"]]
-            if args.get("prefix"):
-                out += ["--prefix", args["prefix"]]
-            return out
-        if backend == "azure":
-            out = ["--container", args["container"]]
-            if args.get("prefix"):
-                out += ["--prefix", args["prefix"]]
-            return out
-        return []
-
-    @staticmethod
-    def _split_bucket_prefix(rest: str) -> Tuple[str, str]:
-        parts = rest.split("/", 1)
-        if len(parts) == 1:
-            return parts[0], ""
-        return parts[0], parts[1]
 
     # --------------- Status / Connect / Create ---------------
 
@@ -231,23 +162,22 @@ class KopiaRepository:
             logger.debug("Already connected to repository")
             return
         
-        backend, args = self._detect_backend(self.repo_path)
+        import shlex
+        params = shlex.split(self.kopia_params)
+        cmd = ["kopia", "repository", "connect"] + params
 
         # Try connect
-        proc = self._run([
-            "kopia", "repository", "connect", backend,
-            *self._backend_args(backend, args)
-        ], check=False)
+        proc = self._run(cmd, check=False)
         
         if proc.returncode == 0:
-            logger.info("Connected to repository (%s)", backend)
+            logger.info("Connected to repository")
             return
 
         # Failed - check why
         err_msg = (proc.stderr or proc.stdout or "").lower()
         if "not found" in err_msg or "does not exist" in err_msg or "not initialized" in err_msg:
             raise RuntimeError(
-                f"Repository not found at {self.repo_path}. "
+                f"Repository not found ({self.kopia_params}). "
                 f"Run 'kopi-docka init' to create it first."
             )
         
@@ -264,26 +194,30 @@ class KopiaRepository:
 
     def initialize(self) -> None:
         """
-        Create new repository at repo_path and connect to it (idempotent).
+        Create new repository and connect to it (idempotent).
         If repository already exists, just connects to it.
         Verifies connection with 'repository status' and applies default policies.
         """
-        backend, args = self._detect_backend(self.repo_path)
-        
         # Check if already connected to this repo
         if self.is_connected():
             logger.info("Already connected to repository")
             return
         
-        if backend == "filesystem":
-            Path(args["path"]).expanduser().mkdir(parents=True, exist_ok=True)
+        import shlex
+        params = shlex.split(self.kopia_params)
+        
+        # Für filesystem: Directory erstellen
+        if len(params) >= 2 and params[0] == "filesystem" and params[1] == "--path":
+            if len(params) >= 3:
+                Path(params[2]).expanduser().mkdir(parents=True, exist_ok=True)
+        
+        cmd_create = ["kopia", "repository", "create"] + params + [
+            "--description", f"Kopi-Docka Backup Repository ({self.profile_name})"
+        ]
+        cmd_connect = ["kopia", "repository", "connect"] + params
 
         # Try to create (may fail if exists)
-        proc = self._run([
-            "kopia", "repository", "create", backend,
-            *self._backend_args(backend, args),
-            "--description", f"Kopi-Docka Backup Repository ({self.profile_name})",
-        ], check=False)
+        proc = self._run(cmd_create, check=False)
         
         # If create failed, check if it's because repo exists
         if proc.returncode != 0:
@@ -296,10 +230,7 @@ class KopiaRepository:
 
         # Connect (idempotent)
         try:
-            self._run([
-                "kopia", "repository", "connect", backend,
-                *self._backend_args(backend, args)
-            ], check=True)
+            self._run(cmd_connect, check=True)
         except Exception as e:
             logger.error(f"Failed to connect after create: {e}")
             raise

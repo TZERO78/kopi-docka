@@ -36,9 +36,9 @@ VERSION = "2.0.3"
 
 # Default config paths
 DEFAULT_CONFIG_PATHS = {
-    "root": Path("/etc/kopi-docka.conf"),
+    "root": Path("/etc/kopi-docka.json"),
     # fixed app folder name (was 'kopi-docker')
-    "user": Path.home() / ".config" / "kopi-docka" / "config.conf",
+    "user": Path.home() / ".config" / "kopi-docka" / "config.json",
 }
 
 # Docker labels

@@ -20,45 +20,50 @@ def cli_runner():
 @pytest.fixture
 def tmp_config(tmp_path):
     """Create a temporary kopi-docka config file."""
-    config_content = """[kopia]
-repository_path = /tmp/test-repo
-password = test-password-123
-profile = test-profile
-compression = zstd
-encryption = AES256-GCM-HMAC-SHA256
-cache_directory = /tmp/kopia-cache
-
-[backup]
-base_path = /tmp/kopi-test
-parallel_workers = 2
-stop_timeout = 30
-start_timeout = 60
-database_backup = true
-task_timeout = 0
-update_recovery_bundle = false
-recovery_bundle_path = /tmp/recovery
-recovery_bundle_retention = 3
-exclude_patterns = 
-
-[docker]
-socket = /var/run/docker.sock
-compose_timeout = 300
-prune_stopped_containers = false
-
-[retention]
-daily = 7
-weekly = 4
-monthly = 12
-yearly = 5
-
-[logging]
-level = INFO
-file = /tmp/kopi-docka.log
-max_size_mb = 100
-backup_count = 5
-"""
-    config_file = tmp_path / "test-config.conf"
-    config_file.write_text(config_content)
+    import json
+    
+    config_content = {
+        "kopia": {
+            "repository_path": "/tmp/test-repo",
+            "password": "test-password-123",
+            "profile": "test-profile",
+            "compression": "zstd",
+            "encryption": "AES256-GCM-HMAC-SHA256",
+            "cache_directory": "/tmp/kopia-cache"
+        },
+        "backup": {
+            "base_path": "/tmp/kopi-test",
+            "parallel_workers": "2",
+            "stop_timeout": "30",
+            "start_timeout": "60",
+            "database_backup": "true",
+            "task_timeout": "0",
+            "update_recovery_bundle": "false",
+            "recovery_bundle_path": "/tmp/recovery",
+            "recovery_bundle_retention": "3",
+            "exclude_patterns": ""
+        },
+        "docker": {
+            "socket": "/var/run/docker.sock",
+            "compose_timeout": "300",
+            "prune_stopped_containers": "false"
+        },
+        "retention": {
+            "daily": "7",
+            "weekly": "4",
+            "monthly": "12",
+            "yearly": "5"
+        },
+        "logging": {
+            "level": "INFO",
+            "file": "/tmp/kopi-docka.log",
+            "max_size_mb": "100",
+            "backup_count": "5"
+        }
+    }
+    
+    config_file = tmp_path / "test-config.json"
+    config_file.write_text(json.dumps(config_content, indent=2))
     return config_file
 
 
