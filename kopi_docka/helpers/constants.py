@@ -32,7 +32,7 @@ Notes:
 from pathlib import Path
 
 # Version information
-VERSION = "2.0.3"
+VERSION = "3.0.2"
 
 # Default config paths
 DEFAULT_CONFIG_PATHS = {
