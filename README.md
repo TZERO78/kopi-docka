@@ -2007,5 +2007,9 @@ Copyright (c) 2025 Markus F. (TZERO78)
 
 ---
 
-**Note:** Kopi-Docka is a private open-source project without commercial intentions.
-No business is operated and no revenue is generated.
+**Hinweis:** Kopi-Docka ist ein privates Open-Source-Projekt ohne kommerzielle Absichten.
+Es wird kein Gewerbe betrieben und es werden keine Einnahmen generiert.
+
+---
+
+**Love Kopi-Docka?** Give us a ⭐ on GitHub!
