@@ -1,7 +1,7 @@
 {
-  "version": "2.1",
+  "version": "3.0",
   "kopia": {
-    "repository_path": "/backup/kopia-repository",
+    "kopia_params": "filesystem --path /backup/kopia-repository",
     "password": "CHANGE_ME_TO_A_SECURE_PASSWORD",
     "password_file": null,
     "compression": "zstd",

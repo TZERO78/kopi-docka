@@ -258,45 +258,74 @@ Configuration file locations (in order of precedence):
 
 **Kopia Profile:** Kopi-Docka uses its own Kopia config file at `~/.config/kopia/repository-kopi-docka.config`. This ensures your existing Kopia backups (if any) are not affected.
 
+**Note:** v3.0.0 uses JSON configuration format and `kopia_params` instead of `repository_path`.
+
 Example configuration:
-```ini
-[kopia]
-repository_path = b2://my-backup-bucket/kopia
-password = your-secure-password-here
-profile = kopi-docka
-compression = zstd
-encryption = AES256-GCM-HMAC-SHA256
-cache_directory = /var/cache/kopia
+```json
+{
+  "version": "3.0",
+  "kopia": {
+    "kopia_params": "b2 --bucket my-backup-bucket --prefix kopia",
+    "password": "your-secure-password-here",
+    "password_file": null,
+    "compression": "zstd",
+    "encryption": "AES256-GCM-HMAC-SHA256",
+    "cache_directory": "/var/cache/kopi-docka"
+  },
+  "backup": {
+    "base_path": "/backup/kopi-docka",
+    "parallel_workers": "auto",
+    "stop_timeout": 30,
+    "start_timeout": 60,
+    "task_timeout": 0,
+    "update_recovery_bundle": false,
+    "recovery_bundle_path": "/backup/recovery",
+    "recovery_bundle_retention": 3,
+    "exclude_patterns": [],
+    "hooks": {
+      "pre_backup": null,
+      "post_backup": null
+    }
+  },
+  "docker": {
+    "socket": "/var/run/docker.sock",
+    "compose_timeout": 300,
+    "prune_stopped_containers": false
+  },
+  "retention": {
+    "daily": 7,
+    "weekly": 4,
+    "monthly": 12,
+    "yearly": 5
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "/var/log/kopi-docka.log",
+    "max_size_mb": 100,
+    "backup_count": 5
+  }
+}
+```
 
-[backup]
-base_path = /backup/kopi-docka
-parallel_workers = 4
-stop_timeout = 30
-start_timeout = 60
-task_timeout = 0
-update_recovery_bundle = false
-recovery_bundle_path = /backup/recovery
-recovery_bundle_retention = 3
-exclude_patterns = 
-pre_backup_hook = 
-post_backup_hook = 
+**kopia_params examples:**
+```json
+// Local filesystem
+"kopia_params": "filesystem --path /backup/kopia-repository"
 
-[retention]
-daily = 7
-weekly = 4
-monthly = 12
-yearly = 5
+// Backblaze B2
+"kopia_params": "b2 --bucket my-bucket --prefix kopia"
 
-[docker]
-socket = /var/run/docker.sock
-compose_timeout = 300
-prune_stopped_containers = false
+// AWS S3
+"kopia_params": "s3 --bucket my-bucket --prefix kopia"
 
-[logging]
-level = INFO
-file = /var/log/kopi-docka.log
-max_size_mb = 100
-backup_count = 5
+// Azure Blob
+"kopia_params": "azure --container my-container --prefix kopia"
+
+// Google Cloud Storage
+"kopia_params": "gcs --bucket my-bucket --prefix kopia"
+
+// SFTP
+"kopia_params": "sftp --path user@server:/path/to/repo"
 ```
 
 ---
