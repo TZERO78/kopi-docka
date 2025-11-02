@@ -98,11 +98,22 @@ class DryRunReport:
         print(f"CPU Cores: {self.utils.get_cpu_count()}")
         print(f"Parallel Workers: {self.config.parallel_workers}")
         print(f"Backup Path: {self.config.backup_base_path}")
-        print(f"Repository Path: {self.config.kopia_repository_path}")
+        # Show kopia_params (new) or repository_path (legacy)
+        kopia_params = self.config.get('kopia', 'kopia_params', fallback='')
+        repo_path = self.config.kopia_repository_path
+        
+        if kopia_params:
+            print(f"Kopia Params: {kopia_params}")
+        elif repo_path:
+            print(f"Repository Path (legacy): {repo_path}")
 
         # Determine a local path to check space against
         repo_parent_path_str: Optional[str] = None
+        # Get kopia_params or repository_path for display
+        kopia_params = self.config.get('kopia', 'kopia_params', fallback='')
         repo_path = self.config.kopia_repository_path
+        repo_info = kopia_params if kopia_params else repo_path
+        
         try:
             # Local repo -> Path-like with .parent
             repo_parent_path_str = str(repo_path.parent)  # type: ignore[attr-defined]
@@ -242,7 +253,11 @@ class DryRunReport:
 
         # Check if enough local space (proxy for remote: use backup base path)
         repo_parent_path_str: Optional[str] = None
+        # Get kopia_params or repository_path
+        kopia_params = self.config.get('kopia', 'kopia_params', fallback='')
         repo_path = self.config.kopia_repository_path
+        repo_info = kopia_params if kopia_params else repo_path
+        
         try:
             repo_parent_path_str = str(repo_path.parent)  # type: ignore[attr-defined]
         except Exception:
@@ -257,7 +272,7 @@ class DryRunReport:
         print("\n### CONFIGURATION REVIEW ###")
 
         config_items = [
-            ("Repository Path", self.config.kopia_repository_path),
+            ("Kopia Params/Path", kopia_params if kopia_params else self.config.kopia_repository_path),
             ("Backup Base Path", self.config.backup_base_path),
             ("Parallel Workers", self.config.parallel_workers),
             ("Stop Timeout", f"{self.config.get('backup', 'stop_timeout')}s"),
@@ -335,7 +350,20 @@ class DryRunReport:
             print("    - Recovery automation script")
             print("    - Current backup status")
 
-            repo_path_str = str(self.config.kopia_repository_path)
+            # Check for local filesystem repo
+            kopia_params = self.config.get('kopia', 'kopia_params', fallback='')
+            repo_path_str = str(self.config.kopia_repository_path) if self.config.kopia_repository_path else ''
+            
+            # Parse kopia_params for filesystem path
+            if kopia_params and 'filesystem' in kopia_params and '--path' in kopia_params:
+                import shlex
+                parts = shlex.split(kopia_params)
+                try:
+                    path_idx = parts.index('--path') + 1
+                    if path_idx < len(parts):
+                        repo_path_str = parts[path_idx]
+                except (ValueError, IndexError):
+                    pass
             if any(
                 repo_path_str.startswith(prefix)
                 for prefix in ("s3://", "b2://", "azure://", "gs://")

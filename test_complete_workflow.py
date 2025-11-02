@@ -81,7 +81,7 @@ def test_config_creation():
     # Create test config
     config = {
         "type": "filesystem",
-        "repository_path": "/tmp/kopia-test",
+        "kopia_params": "filesystem --path /tmp/kopia-test",
         "credentials": {}
     }
     

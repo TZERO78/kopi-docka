@@ -358,8 +358,17 @@ def cmd_reset_config(path: Optional[Path] = None):
         # Try to show current repository path
         try:
             cfg = Config(existing_path)
-            repo_path = cfg.get('kopia', 'repository_path')
-            typer.echo(f"Current repository: {repo_path}")
+            # Show both kopia_params (new) and repository_path (legacy) if present
+            kopia_params = cfg.get('kopia', 'kopia_params', fallback='')
+            repo_path = cfg.get('kopia', 'repository_path', fallback='')
+            
+            if kopia_params:
+                typer.echo(f"Current kopia_params: {kopia_params}")
+            if repo_path:
+                typer.echo(f"Legacy repository_path: {repo_path}")
+            
+            if not kopia_params and not repo_path:
+                typer.echo("⚠️  No repository configured")
             typer.echo("")
             typer.echo("⚠️  If you want to KEEP this repository, you must:")
             typer.echo("  1. Backup your current password from the config")

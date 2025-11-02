@@ -24,7 +24,7 @@ def tmp_config(tmp_path):
     
     config_content = {
         "kopia": {
-            "repository_path": "/tmp/test-repo",
+            "kopia_params": "filesystem --path /tmp/test-repo",
             "password": "test-password-123",
             "profile": "test-profile",
             "compression": "zstd",

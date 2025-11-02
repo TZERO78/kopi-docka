@@ -82,8 +82,15 @@ class Config:
     
     @property
     def kopia_repository_path(self) -> str:
-        """Get kopia repository path."""
-        return self.get('kopia', 'repository_path')
+        """
+        DEPRECATED: Get kopia repository path from old config format.
+        Use kopia_params instead for new configs.
+        Returns empty string if not found.
+        """
+        try:
+            return self.get('kopia', 'repository_path')
+        except (ValueError, KeyError):
+            return ''
     
     @property
     def kopia_profile(self) -> str:
@@ -393,8 +400,12 @@ class Config:
         """
         errors = []
         
-        # Check repository path
-        repo_path = self.get('kopia', 'repository_path')
+        # Check kopia_params (new) or repository_path (legacy)
+        kopia_params = self.get('kopia', 'kopia_params', fallback='')
+        repo_path = self.get('kopia', 'repository_path', fallback='')
+        
+        if not kopia_params and not repo_path:
+            errors.append("Missing 'kopia_params' or 'repository_path' in config")
         
         # Nur lokale Pfade validieren, keine Remote-Repos (s3://, b2://, etc.)
         if repo_path and '://' not in repo_path:

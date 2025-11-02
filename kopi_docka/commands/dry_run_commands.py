@@ -249,7 +249,11 @@ def cmd_estimate_size(ctx: typer.Context):
     typer.echo("=" * 70)
     
     # Check available space
-    repo_path = cfg.kopia_repository_path
+    # Get kopia_params (new) or repository_path (legacy)
+    kopia_params = cfg.get('kopia', 'kopia_params', fallback='')
+    repo_path = cfg.kopia_repository_path  # Use property which handles legacy
+    
+    repo_info = kopia_params if kopia_params else repo_path
     try:
         # Try to get disk space for local repos
         if '://' not in str(repo_path):

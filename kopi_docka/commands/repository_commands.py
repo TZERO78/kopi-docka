@@ -81,7 +81,7 @@ def ensure_repository(ctx: typer.Context) -> KopiaRepository:
         repo.connect()
     except Exception as e:
         typer.echo(f"✗ Connect failed: {e}")
-        typer.echo("  Check: repository_path, password, permissions, mounts.")
+        typer.echo("  Check: kopia_params, password, permissions, mounts.")
         raise typer.Exit(code=1)
 
     if not repo.is_connected():
@@ -446,17 +446,19 @@ def cmd_repo_selftest(
     conf_path = conf_dir / f"selftest-{stamp}.conf"
 
     conf_path.write_text(
-        f"""[kopia]
-repository_path = {repo_dir}
-password = {password}
-profile = {test_profile}
-
-[retention]
-daily = 7
-weekly = 4
-monthly = 12
-yearly = 3
-""",
+        f"""{{
+  "kopia": {{
+    "kopia_params": "filesystem --path {repo_dir}",
+    "password": "{password}",
+    "profile": "{test_profile}"
+  }},
+  "retention": {{
+    "daily": 7,
+    "weekly": 4,
+    "monthly": 12,
+    "yearly": 3
+  }}
+}}""",
         encoding="utf-8",
     )
 

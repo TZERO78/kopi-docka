@@ -152,15 +152,15 @@ class TailscaleBackend(BackendBase):
             default="root"
         )
         
-        # Build SFTP URL
-        repository_path = f"sftp://{ssh_user}@{selected_peer.hostname}.tailnet:{remote_path}"
+        # Build Kopia SFTP parameters
+        kopia_params = f"sftp --path={selected_peer.hostname}:{remote_path} --host={selected_peer.hostname}"
         
         utils.print_separator()
-        utils.print_success(f"Repository path: {escape(repository_path)}")
+        utils.print_success(f"Kopia params: {escape(kopia_params)}")
         
         return {
             "type": "sftp",  # Kopia uses SFTP backend
-            "repository_path": repository_path,
+            "kopia_params": kopia_params,
             "credentials": {
                 "peer_hostname": selected_peer.hostname,
                 "peer_ip": selected_peer.ip,
@@ -174,8 +174,9 @@ class TailscaleBackend(BackendBase):
         """Validate Tailscale configuration"""
         errors = []
         
-        if "repository_path" not in self.config:
-            errors.append(_("Missing repository_path"))
+        # Check for kopia_params (new) or repository_path (legacy)
+        if "kopia_params" not in self.config and "repository_path" not in self.config:
+            errors.append(_("Missing kopia_params or repository_path"))
             return (False, errors)
         
         if "credentials" not in self.config:

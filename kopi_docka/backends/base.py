@@ -97,7 +97,7 @@ class BackendBase(ABC):
         Example return:
             {
                 "type": "tailscale",
-                "repository_path": "sftp://backup-nas.tailnet:/backup/kopia",
+                "kopia_params": "sftp --path=backup-nas.tailnet:/backup/kopia --host=backup-nas.tailnet",
                 "credentials": {
                     "ssh_key": "~/.ssh/kopi-docka_ed25519",
                     "ssh_user": "root"
