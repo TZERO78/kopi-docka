@@ -368,16 +368,22 @@ class Config:
         
         for section, options in self._config.items():
             print(f"\n[{section}]")
-            for option, value in options.items():
-                # Check ob Option sensitiv ist
-                if sensitive_patterns.search(option):
-                    # Zeige erste 3 Zeichen für Debugging
-                    if value and len(str(value)) > 3:
-                        value = f"{str(value)[:3]}***MASKED***"
-                    else:
-                        value = '***MASKED***'
-                
-                print(f"  {option} = {value}")
+            
+            # Handle both dict and non-dict values
+            if isinstance(options, dict):
+                for option, value in options.items():
+                    # Check ob Option sensitiv ist
+                    if sensitive_patterns.search(option):
+                        # Zeige erste 3 Zeichen für Debugging
+                        if value and len(str(value)) > 3:
+                            value = f"{str(value)[:3]}***MASKED***"
+                        else:
+                            value = '***MASKED***'
+                    
+                    print(f"  {option} = {value}")
+            else:
+                # If section value is not a dict, display it directly
+                print(f"  {options}")
     
     def validate(self) -> List[str]:
         """
