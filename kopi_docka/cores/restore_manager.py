@@ -627,11 +627,38 @@ class RestoreManager:
     def _display_restart_instructions(self, recipe_dir: Path):
         """Show modern docker compose restart steps (no legacy fallback)."""
         compose_file = recipe_dir / "docker-compose.yml"
+        project_files_dir = recipe_dir / "project-files"
+        
         print("\n   🐳 Service Restart:")
         print("   " + "-" * 40)
+        
+        # Check if project files exist
+        if project_files_dir.exists() and any(project_files_dir.iterdir()):
+            config_files = list(project_files_dir.glob("*"))
+            print(f"\n   📁 Restored {len(config_files)} project configuration files:")
+            for cf in sorted(config_files)[:10]:  # Show max 10
+                print(f"      • {cf.name}")
+            if len(config_files) > 10:
+                print(f"      ... and {len(config_files) - 10} more")
+            
+            print(f"\n   📋 To use these config files:")
+            print(f"   1. Copy them to your deployment directory:")
+            print(f"      cp {project_files_dir}/* /path/to/your/project/")
+            print(f"")
+            print(f"   2. Or interactively select destination:")
+            print(f"      cd {recipe_dir}")
+            print(f"      # Review files in project-files/")
+            print(f"      # Copy needed files to your docker compose directory")
+            print(f"")
+        
         if compose_file.exists():
-            print(f"   cd {recipe_dir}")
-            print(f"   docker compose up -d  # ensure volumes are restored BEFORE this")
+            print(f"   3. Navigate to your project directory and start:")
+            print(f"      cd /path/to/your/project  # where you copied the files")
+            print(f"      docker compose up -d")
+            print(f"")
+            print(f"   💡 Tip: Original compose file also available at:")
+            print(f"      {compose_file}")
         else:
+            print(f"   ⚠️  No docker-compose.yml found in backup")
             print(f"   Review the inspect files in: {recipe_dir}")
             print(f"   Recreate containers with appropriate 'docker run' options")
