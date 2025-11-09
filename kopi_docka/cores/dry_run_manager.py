@@ -280,6 +280,9 @@ class DryRunReport:
         """Print configuration review."""
         print("\n### CONFIGURATION REVIEW ###")
 
+        # Get kopia_params from config
+        kopia_params = self.config.get('kopia', 'kopia_params', fallback='')
+        
         config_items = [
             ("Kopia Params", kopia_params),
             ("Backup Base Path", self.config.backup_base_path),
