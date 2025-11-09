@@ -40,11 +40,19 @@ from pathlib import Path
 from typing import List
 from contextlib import contextmanager
 
+from rich.console import Console
+from rich.prompt import Prompt
+
 from ..helpers.logging import get_logger
 from ..types import RestorePoint
 from ..helpers.config import Config
 from ..cores.repository_manager import KopiaRepository
 from ..helpers.constants import RECIPE_BACKUP_DIR, VOLUME_BACKUP_DIR, CONTAINER_START_TIMEOUT
+from ..helpers import (
+    check_file_conflicts,
+    create_file_backup,
+    copy_with_rollback,
+)
 
 logger = get_logger(__name__)
 
@@ -681,11 +689,14 @@ class RestoreManager:
     def _interactive_copy_configs(self, recipe_dir: Path, unit_name: str) -> None:
         """
         Interactively copy configuration files to deployment directory.
+        With conflict handling and VPS-optimized backups (Phase 2).
         
         Args:
             recipe_dir: Path to recipes directory
             unit_name: Name of the backup unit
         """
+        console = Console()
+        
         # Step 1: Collect files
         compose_file = recipe_dir / "docker-compose.yml"
         project_files_dir = recipe_dir / "project-files"
@@ -693,126 +704,142 @@ class RestoreManager:
         files_to_copy = []
         if compose_file.exists():
             files_to_copy.append(compose_file)
-        
-        if project_files_dir.exists() and project_files_dir.is_dir():
-            files_to_copy.extend([f for f in project_files_dir.iterdir() if f.is_file()])
+        if project_files_dir.exists():
+            files_to_copy.extend([f for f in project_files_dir.glob("*") if f.is_file()])
         
         if not files_to_copy:
-            logger.debug("No configuration files to copy")
+            logger.debug("No config files to copy")
             return
         
         # Step 2: Display files
-        print("\n" + "=" * 60)
-        print("📁 Restored configuration files:")
-        print("=" * 60)
-        for f in sorted(files_to_copy, key=lambda x: x.name):
-            print(f"   • {f.name}")
-        print("")
+        console.print("\n📁 [bold]Restored configuration files:[/bold]")
+        for file in files_to_copy:
+            console.print(f"   • {file.name}")
         
-        # Step 3: Ask user
-        try:
-            choice = input("🎯 Copy files to deployment directory? (yes/no/q) [yes]: ").strip().lower()
+        # Step 3: Ask user - Copy?
+        copy = Prompt.ask(
+            "\n🎯 Copy files to deployment directory?",
+            choices=["yes", "no", "q"],
+            default="yes"
+        )
+        
+        if copy == "q":
+            return
+        
+        if copy == "no":
+            self._show_manual_instructions(recipe_dir)
+            return
+        
+        # Step 4: Loop for directory selection with conflict handling
+        default_target = f"/opt/stacks/{unit_name}"
+        
+        while True:
+            # Get target directory
+            target = Prompt.ask(
+                f"\n📂 Target directory",
+                default=default_target
+            )
+            target_path = Path(target).expanduser()
             
-            if choice == 'q':
-                print("   ⚠️  Copy cancelled.")
-                logger.info("Config copy cancelled by user")
-                return
+            # Check write permissions
+            parent_dir = target_path.parent if not target_path.exists() else target_path
+            if not os.access(parent_dir, os.W_OK):
+                console.print(f"[red]✗ No write permission for {parent_dir}[/red]")
+                console.print("Try running with sudo or choose different directory.")
+                retry = Prompt.ask("Try different directory?", choices=["yes", "no"], default="yes")
+                if retry == "no":
+                    return
+                continue
             
-            if choice in ('no', 'n'):
-                print("   ℹ️  Files not copied. Manual instructions:")
-                self._display_manual_copy_instructions(recipe_dir)
-                return
-            
-            # Default to 'yes' if empty or 'yes'/'y'
-            if choice not in ('yes', 'y', ''):
-                print("   ⚠️  Invalid choice. Skipping copy.")
-                return
-            
-            # Step 4: Get target directory
-            default_target = f"/opt/stacks/{unit_name}"
-            target_input = input(f"📂 Target directory [{default_target}]: ").strip()
-            target_path = Path(target_input or default_target).expanduser()
-            
-            # Step 5: Create directory if needed
+            # Create directory if needed
             try:
                 target_path.mkdir(parents=True, exist_ok=True)
-                logger.info(f"Target directory: {target_path}")
             except Exception as e:
-                print(f"   ❌ Failed to create directory: {e}")
-                logger.error(f"Failed to create target directory: {e}")
-                return
+                console.print(f"[red]✗ Cannot create directory: {e}[/red]")
+                continue
             
-            # Step 6 & 7: Copy files with permissions
-            uid, gid, username = self._get_real_user_ids()
-            copied_count = 0
+            # Check for conflicts using helper function
+            conflicts = check_file_conflicts(target_path, files_to_copy)
             
-            print("\n   📋 Copying files...")
+            if not conflicts:
+                # No conflicts, proceed to copy
+                console.print(f"✓ Target directory is ready")
+                break
             
-            # Copy compose file if exists
-            if compose_file.exists():
-                try:
-                    copied_count += self._copy_with_permissions(compose_file, target_path, uid, gid)
-                except Exception as e:
-                    print(f"   ⚠️  Failed to copy {compose_file.name}: {e}")
-                    logger.error(f"Failed to copy compose file: {e}")
+            # Conflicts found - show them
+            console.print("\n⚠️  [bold yellow]Existing files detected:[/bold yellow]")
+            for conflict in conflicts:
+                console.print(f"   • {conflict.name}")
             
-            # Copy project files if exist
-            if project_files_dir.exists():
-                try:
-                    copied_count += self._copy_with_permissions(project_files_dir, target_path, uid, gid)
-                except Exception as e:
-                    print(f"   ⚠️  Failed to copy project files: {e}")
-                    logger.error(f"Failed to copy project files: {e}")
+            console.print("\n[bold]What do you want to do?[/bold]")
+            console.print("1. Overwrite existing files")
+            console.print("2. Create backup first (recommended)")
+            console.print("3. Choose different directory")
+            console.print("4. Skip copying (manual restore)")
             
-            # Step 8: Success message
-            if copied_count > 0:
-                print(f"\n   ✅ Successfully copied {copied_count} file(s) to: {target_path}")
-                print(f"   👤 Owner: {username} (uid:{uid}, gid:{gid})")
-                print(f"\n   💡 To start containers:")
-                print(f"      cd {target_path}")
-                print(f"      docker compose up -d")
-                print("")
+            choice = Prompt.ask("Your choice", choices=["1", "2", "3", "4"], default="2")
+            
+            if choice == "1":
+                # Overwrite without backup
+                console.print("\n⚠️  [yellow]Overwriting files without backup...[/yellow]")
+                break
                 
-                logger.info(
-                    f"Copied {copied_count} config files",
-                    extra={"target": str(target_path), "user": username}
-                )
-            else:
-                print("   ⚠️  No files were copied.")
+            elif choice == "2":
+                # Create backups using helper function
+                console.print("\n📦 Creating backups (existing .bak files will be overwritten)...")
+                backup_files = []
+                try:
+                    for conflict in conflicts:
+                        backup = create_file_backup(conflict)
+                        backup_files.append(backup)
+                        console.print(f"   ✓ {conflict.name} → {backup.name}")
+                except Exception as e:
+                    console.print(f"\n[red]✗ Backup failed: {e}[/red]")
+                    console.print("Aborting copy operation.")
+                    return
+                
+                console.print(f"\n✓ Created {len(backup_files)} backup(s)")
+                console.print("💡 Previous .bak files were overwritten (only last backup is kept)")
+                break
+                
+            elif choice == "3":
+                # Different directory - loop continues
+                continue
+                
+            elif choice == "4":
+                # Skip copying
+                console.print("\n[yellow]Skipping copy operation.[/yellow]")
+                self._show_manual_instructions(recipe_dir)
+                return
         
-        except KeyboardInterrupt:
-            print("\n   ⚠️  Copy cancelled by user.")
-            logger.info("Config copy interrupted")
-        except Exception as e:
-            print(f"\n   ❌ Error during copy: {e}")
-            logger.error(f"Config copy failed: {e}", exc_info=True)
-            print("\n   💡 You can copy files manually from:")
-            print(f"      {recipe_dir}")
+        # Step 5: Copy with rollback using helper function
+        success, copied_files = copy_with_rollback(files_to_copy, target_path, console)
+        
+        if success:
+            console.print(f"\n✓ [bold green]Files copied to: {target_path}[/bold green]")
+            console.print(f"\n📄 Copied files:")
+            for file in files_to_copy:
+                console.print(f"   • {file.name}")
+            console.print(f"\n💡 [bold]To start:[/bold] cd {target_path} && docker compose up -d")
+        else:
+            console.print("\n[red]Copy operation failed. See logs for details.[/red]")
+            self._show_manual_instructions(recipe_dir)
 
-    def _display_manual_copy_instructions(self, recipe_dir: Path) -> None:
-        """Show manual copy instructions when user declines interactive copy."""
-        compose_file = recipe_dir / "docker-compose.yml"
-        project_files_dir = recipe_dir / "project-files"
+    def _show_manual_instructions(self, recipe_dir: Path) -> None:
+        """
+        Show manual copy instructions when user declines or copy fails.
         
-        print("")
-        print("   📋 Manual copy instructions:")
-        print("   " + "-" * 40)
-        print(f"")
-        print(f"   Files are available at:")
-        print(f"   {recipe_dir}")
-        print(f"")
-        
-        if compose_file.exists():
-            print(f"   • docker-compose.yml")
-        if project_files_dir.exists():
-            print(f"   • project-files/ (config files)")
-        
-        print(f"")
-        print(f"   To copy manually:")
-        print(f"   cp {recipe_dir}/docker-compose.yml /your/target/dir/")
-        if project_files_dir.exists():
-            print(f"   cp {project_files_dir}/* /your/target/dir/")
-        print(f"")
+        Args:
+            recipe_dir: Path to recipes directory
+        """
+        console = Console()
+        console.print("\n📋 [bold]Manual restore instructions:[/bold]")
+        console.print(f"\n1. Copy files to your deployment directory:")
+        console.print(f"   sudo cp -r {recipe_dir}/* /path/to/your/project/")
+        console.print(f"\n2. Fix permissions:")
+        console.print(f"   sudo chown -R $USER:$USER /path/to/your/project/")
+        console.print(f"\n3. Start containers:")
+        console.print(f"   cd /path/to/your/project && docker compose up -d")
 
     def _display_restart_instructions(self, recipe_dir: Path):
         """Show modern docker compose restart steps (no legacy fallback)."""
