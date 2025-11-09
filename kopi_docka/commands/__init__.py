@@ -22,6 +22,8 @@ from . import (
     backup_commands,
     service_commands,
     dry_run_commands,
+    setup_commands,
+    disaster_recovery_commands,
 )
 
 __all__ = [
@@ -31,4 +33,6 @@ __all__ = [
     'backup_commands',
     'service_commands',
     'dry_run_commands',
+    'setup_commands',
+    'disaster_recovery_commands',
 ]

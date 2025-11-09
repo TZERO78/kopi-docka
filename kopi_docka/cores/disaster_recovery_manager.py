@@ -173,7 +173,9 @@ class DisasterRecoveryManager:
         except Exception as e:
             logger.warning(f"Could not get repository status: {e}")
 
-        repo_path = str(self.config.kopia_repository_path)
+        # Get repository path from kopia_params
+        kopia_params = self.config.get('kopia', 'kopia_params', fallback='')
+        repo_path = kopia_params
         repo_type, connection = self._detect_repo_connection(repo_path)
 
         return {
