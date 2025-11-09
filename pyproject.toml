@@ -53,10 +53,16 @@ Issues = "https://github.com/TZERO78/kopi-docka/issues"
 kopi-docka = "kopi_docka.__main__:main"
 
 [tool.setuptools]
-packages = ["kopi_docka", "kopi_docka.helpers", "kopi_docka.cores", "kopi_docka.commands", "kopi_docka.backends", "kopi_docka.locales"]
+packages = ["kopi_docka", "kopi_docka.helpers", "kopi_docka.cores", "kopi_docka.commands", "kopi_docka.backends"]
 
 [tool.setuptools.package-data]
-kopi_docka = ["templates/*.conf", "templates/*.ini"]
+kopi_docka = [
+    "templates/*.conf",
+    "templates/*.ini", 
+    "templates/*.json",
+    "locales/*/LC_MESSAGES/*.mo",
+    "locales/*/LC_MESSAGES/*.po"
+]
 
 [tool.black]
 line-length = 100
