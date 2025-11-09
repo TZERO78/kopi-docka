@@ -301,15 +301,53 @@ class BackupManager:
         """Backup compose files and container inspect data (with secret redaction)."""
         try:
             import tempfile
+            import shutil
 
             with tempfile.TemporaryDirectory() as tmpdir:
                 tmpdir = Path(tmpdir)
 
-                # Compose file
+                # Compose file + related project files
                 if unit.compose_file and unit.compose_file.exists():
+                    compose_dir = unit.compose_file.parent
+                    
+                    # Save main compose file
                     (tmpdir / "docker-compose.yml").write_text(
                         unit.compose_file.read_text()
                     )
+                    
+                    # Save all related files from compose directory
+                    project_files_dir = tmpdir / "project-files"
+                    project_files_dir.mkdir(exist_ok=True)
+                    
+                    # Common config file patterns
+                    config_patterns = [
+                        "*.yml", "*.yaml",  # Additional compose/config files
+                        ".env*",            # Environment files
+                        "*.conf", "*.config",  # Config files
+                        "*.json",           # JSON configs
+                        "*.toml",           # TOML configs
+                    ]
+                    
+                    backed_up_files = []
+                    for pattern in config_patterns:
+                        for config_file in compose_dir.glob(pattern):
+                            if config_file.is_file() and config_file != unit.compose_file:
+                                try:
+                                    rel_name = config_file.name
+                                    dest = project_files_dir / rel_name
+                                    shutil.copy2(config_file, dest)
+                                    backed_up_files.append(rel_name)
+                                except Exception as e:
+                                    logger.warning(
+                                        f"Could not backup config file {config_file.name}: {e}",
+                                        extra={"unit_name": unit.name}
+                                    )
+                    
+                    if backed_up_files:
+                        logger.info(
+                            f"Backed up {len(backed_up_files)} project files: {', '.join(backed_up_files[:5])}{'...' if len(backed_up_files) > 5 else ''}",
+                            extra={"unit_name": unit.name}
+                        )
 
                 # Inspect (redact env secrets)
                 import json as _json
