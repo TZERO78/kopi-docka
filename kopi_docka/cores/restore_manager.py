@@ -30,6 +30,7 @@ Uses cold backup strategy: restore recipes and volumes directly.
 """
 
 import json
+import os
 import subprocess
 import tempfile
 import shutil
@@ -312,8 +313,13 @@ class RestoreManager:
                 print("\n2️⃣ Volume restoration:")
                 self._display_volume_restore_instructions(rp, restore_dir)
 
-            # 3) Restart instructions (only modern docker compose)
-            print("\n3️⃣ Service restart instructions:")
+            # 3) Interactive config copy (NEW in v3.1.0)
+            if recipe_dir.exists():
+                print("\n3️⃣ Configuration files:")
+                self._interactive_copy_configs(recipe_dir, rp.unit_name)
+
+            # 4) Restart instructions
+            print("\n4️⃣ Service restart instructions:")
             self._display_restart_instructions(recipe_dir)
 
             print("\n" + "=" * 60)
@@ -624,40 +630,203 @@ class RestoreManager:
         except Exception as e:
             logger.debug(f"Backup cleanup failed: {e}")
 
+    def _get_real_user_ids(self) -> tuple:
+        """
+        Get real user IDs when running with sudo.
+        
+        Returns:
+            (uid, gid, username) tuple
+        """
+        uid = int(os.environ.get('SUDO_UID', os.getuid()))
+        gid = int(os.environ.get('SUDO_GID', os.getgid()))
+        user = os.environ.get('SUDO_USER', 'root')
+        return uid, gid, user
+
+    def _copy_with_permissions(self, source_path: Path, target_dir: Path, uid: int, gid: int) -> int:
+        """
+        Copy files from source to target with proper permissions.
+        
+        Args:
+            source_path: Source file or directory
+            target_dir: Target directory
+            uid: User ID for ownership
+            gid: Group ID for ownership
+            
+        Returns:
+            Number of files copied
+        """
+        count = 0
+        
+        if source_path.is_file():
+            # Copy single file
+            target_file = target_dir / source_path.name
+            shutil.copy2(source_path, target_file)
+            os.chown(target_file, uid, gid)
+            os.chmod(target_file, 0o644)
+            count = 1
+            logger.debug(f"Copied {source_path.name} with permissions", extra={"target": str(target_file)})
+        elif source_path.is_dir():
+            # Copy all files from directory
+            for item in source_path.iterdir():
+                if item.is_file():
+                    target_file = target_dir / item.name
+                    shutil.copy2(item, target_file)
+                    os.chown(target_file, uid, gid)
+                    os.chmod(target_file, 0o644)
+                    count += 1
+                    logger.debug(f"Copied {item.name} with permissions", extra={"target": str(target_file)})
+        
+        return count
+
+    def _interactive_copy_configs(self, recipe_dir: Path, unit_name: str) -> None:
+        """
+        Interactively copy configuration files to deployment directory.
+        
+        Args:
+            recipe_dir: Path to recipes directory
+            unit_name: Name of the backup unit
+        """
+        # Step 1: Collect files
+        compose_file = recipe_dir / "docker-compose.yml"
+        project_files_dir = recipe_dir / "project-files"
+        
+        files_to_copy = []
+        if compose_file.exists():
+            files_to_copy.append(compose_file)
+        
+        if project_files_dir.exists() and project_files_dir.is_dir():
+            files_to_copy.extend([f for f in project_files_dir.iterdir() if f.is_file()])
+        
+        if not files_to_copy:
+            logger.debug("No configuration files to copy")
+            return
+        
+        # Step 2: Display files
+        print("\n" + "=" * 60)
+        print("📁 Restored configuration files:")
+        print("=" * 60)
+        for f in sorted(files_to_copy, key=lambda x: x.name):
+            print(f"   • {f.name}")
+        print("")
+        
+        # Step 3: Ask user
+        try:
+            choice = input("🎯 Copy files to deployment directory? (yes/no/q) [yes]: ").strip().lower()
+            
+            if choice == 'q':
+                print("   ⚠️  Copy cancelled.")
+                logger.info("Config copy cancelled by user")
+                return
+            
+            if choice in ('no', 'n'):
+                print("   ℹ️  Files not copied. Manual instructions:")
+                self._display_manual_copy_instructions(recipe_dir)
+                return
+            
+            # Default to 'yes' if empty or 'yes'/'y'
+            if choice not in ('yes', 'y', ''):
+                print("   ⚠️  Invalid choice. Skipping copy.")
+                return
+            
+            # Step 4: Get target directory
+            default_target = f"/opt/stacks/{unit_name}"
+            target_input = input(f"📂 Target directory [{default_target}]: ").strip()
+            target_path = Path(target_input or default_target).expanduser()
+            
+            # Step 5: Create directory if needed
+            try:
+                target_path.mkdir(parents=True, exist_ok=True)
+                logger.info(f"Target directory: {target_path}")
+            except Exception as e:
+                print(f"   ❌ Failed to create directory: {e}")
+                logger.error(f"Failed to create target directory: {e}")
+                return
+            
+            # Step 6 & 7: Copy files with permissions
+            uid, gid, username = self._get_real_user_ids()
+            copied_count = 0
+            
+            print("\n   📋 Copying files...")
+            
+            # Copy compose file if exists
+            if compose_file.exists():
+                try:
+                    copied_count += self._copy_with_permissions(compose_file, target_path, uid, gid)
+                except Exception as e:
+                    print(f"   ⚠️  Failed to copy {compose_file.name}: {e}")
+                    logger.error(f"Failed to copy compose file: {e}")
+            
+            # Copy project files if exist
+            if project_files_dir.exists():
+                try:
+                    copied_count += self._copy_with_permissions(project_files_dir, target_path, uid, gid)
+                except Exception as e:
+                    print(f"   ⚠️  Failed to copy project files: {e}")
+                    logger.error(f"Failed to copy project files: {e}")
+            
+            # Step 8: Success message
+            if copied_count > 0:
+                print(f"\n   ✅ Successfully copied {copied_count} file(s) to: {target_path}")
+                print(f"   👤 Owner: {username} (uid:{uid}, gid:{gid})")
+                print(f"\n   💡 To start containers:")
+                print(f"      cd {target_path}")
+                print(f"      docker compose up -d")
+                print("")
+                
+                logger.info(
+                    f"Copied {copied_count} config files",
+                    extra={"target": str(target_path), "user": username}
+                )
+            else:
+                print("   ⚠️  No files were copied.")
+        
+        except KeyboardInterrupt:
+            print("\n   ⚠️  Copy cancelled by user.")
+            logger.info("Config copy interrupted")
+        except Exception as e:
+            print(f"\n   ❌ Error during copy: {e}")
+            logger.error(f"Config copy failed: {e}", exc_info=True)
+            print("\n   💡 You can copy files manually from:")
+            print(f"      {recipe_dir}")
+
+    def _display_manual_copy_instructions(self, recipe_dir: Path) -> None:
+        """Show manual copy instructions when user declines interactive copy."""
+        compose_file = recipe_dir / "docker-compose.yml"
+        project_files_dir = recipe_dir / "project-files"
+        
+        print("")
+        print("   📋 Manual copy instructions:")
+        print("   " + "-" * 40)
+        print(f"")
+        print(f"   Files are available at:")
+        print(f"   {recipe_dir}")
+        print(f"")
+        
+        if compose_file.exists():
+            print(f"   • docker-compose.yml")
+        if project_files_dir.exists():
+            print(f"   • project-files/ (config files)")
+        
+        print(f"")
+        print(f"   To copy manually:")
+        print(f"   cp {recipe_dir}/docker-compose.yml /your/target/dir/")
+        if project_files_dir.exists():
+            print(f"   cp {project_files_dir}/* /your/target/dir/")
+        print(f"")
+
     def _display_restart_instructions(self, recipe_dir: Path):
         """Show modern docker compose restart steps (no legacy fallback)."""
         compose_file = recipe_dir / "docker-compose.yml"
-        project_files_dir = recipe_dir / "project-files"
         
         print("\n   🐳 Service Restart:")
         print("   " + "-" * 40)
         
-        # Check if project files exist
-        if project_files_dir.exists() and any(project_files_dir.iterdir()):
-            config_files = list(project_files_dir.glob("*"))
-            print(f"\n   📁 Restored {len(config_files)} project configuration files:")
-            for cf in sorted(config_files)[:10]:  # Show max 10
-                print(f"      • {cf.name}")
-            if len(config_files) > 10:
-                print(f"      ... and {len(config_files) - 10} more")
-            
-            print(f"\n   📋 To use these config files:")
-            print(f"   1. Copy them to your deployment directory:")
-            print(f"      cp {project_files_dir}/* /path/to/your/project/")
-            print(f"")
-            print(f"   2. Or interactively select destination:")
-            print(f"      cd {recipe_dir}")
-            print(f"      # Review files in project-files/")
-            print(f"      # Copy needed files to your docker compose directory")
-            print(f"")
-        
         if compose_file.exists():
-            print(f"   3. Navigate to your project directory and start:")
-            print(f"      cd /path/to/your/project  # where you copied the files")
+            print(f"")
+            print(f"   💡 After copying files to your target directory:")
+            print(f"      cd /your/target/directory")
             print(f"      docker compose up -d")
             print(f"")
-            print(f"   💡 Tip: Original compose file also available at:")
-            print(f"      {compose_file}")
         else:
             print(f"   ⚠️  No docker-compose.yml found in backup")
             print(f"   Review the inspect files in: {recipe_dir}")
