@@ -245,6 +245,91 @@ class TailscaleBackend(BackendBase):
     def get_backend_type(self) -> str:
         """Kopia backend type"""
         return "sftp"
+
+    def get_status(self) -> dict:
+        """
+        Get detailed status information about the configured Tailscale peer.
+
+        This method is designed to be called AFTER setup when SSH keys are configured.
+        Returns detailed information including disk space, connectivity, etc.
+
+        Returns:
+            dict: Status information with keys:
+                - online: bool
+                - hostname: str
+                - ip: str
+                - ping_ms: Optional[int]
+                - disk_free_gb: Optional[float]
+                - disk_total_gb: Optional[float]
+                - ssh_connected: bool
+                - tailscale_running: bool
+        """
+        from kopi_docka.helpers import ui_utils as utils
+
+        status = {
+            "tailscale_running": self._is_running(),
+            "online": False,
+            "hostname": None,
+            "ip": None,
+            "ping_ms": None,
+            "disk_free_gb": None,
+            "disk_total_gb": None,
+            "ssh_connected": False,
+        }
+
+        # Check if we have a configured peer
+        if "credentials" not in self.config:
+            return status
+
+        creds = self.config["credentials"]
+        hostname = creds.get("peer_hostname")
+        ip = creds.get("peer_ip")
+        ssh_user = creds.get("ssh_user", "root")
+        ssh_key = creds.get("ssh_key")
+
+        if not hostname:
+            return status
+
+        status["hostname"] = hostname
+        status["ip"] = ip
+
+        # Check if peer is online via Tailscale
+        if status["tailscale_running"]:
+            status["ping_ms"] = self._ping_peer(hostname)
+            status["online"] = status["ping_ms"] is not None
+
+        # Check SSH connectivity and get disk info
+        if ssh_key and Path(ssh_key).exists():
+            try:
+                # Test SSH connection and get disk space in one go
+                result = subprocess.run(
+                    ["ssh",
+                     "-i", ssh_key,
+                     "-o", "StrictHostKeyChecking=no",
+                     "-o", "ConnectTimeout=3",
+                     "-o", "BatchMode=yes",
+                     f"{ssh_user}@{hostname}",
+                     "df", "/", "--output=size,avail", "--block-size=G"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+
+                if result.returncode == 0:
+                    status["ssh_connected"] = True
+
+                    # Parse disk space output
+                    lines = result.stdout.strip().split('\n')
+                    if len(lines) >= 2:
+                        # Second line contains: total_size available_size
+                        parts = lines[1].split()
+                        if len(parts) >= 2:
+                            status["disk_total_gb"] = float(parts[0].rstrip('G').strip())
+                            status["disk_free_gb"] = float(parts[1].rstrip('G').strip())
+            except Exception:
+                pass  # SSH connection failed
+
+        return status
     
     # Tailscale-specific helpers
     

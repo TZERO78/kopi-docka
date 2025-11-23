@@ -511,6 +511,152 @@ def cmd_change_password(
     typer.echo("=" * 70)
 
 
+def cmd_status(ctx: typer.Context):
+    """Show detailed status of configured backend (especially useful for Tailscale)."""
+    from rich.console import Console
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich import box
+
+    cfg = ensure_config(ctx)
+    console = Console()
+
+    # Get backend type from config
+    backend_type = cfg.get('backend', 'type', fallback='filesystem')
+
+    console.print(f"\n[bold cyan]Backend:[/bold cyan] {backend_type}")
+
+    # Special handling for Tailscale backend
+    if backend_type == 'tailscale':
+        backend_class = BACKEND_MODULES.get('tailscale')
+        if not backend_class:
+            typer.echo("❌ Tailscale backend not available")
+            raise typer.Exit(code=1)
+
+        # Load backend config
+        backend_config = {}
+
+        # Get kopia_params
+        kopia_params = cfg.get('kopia', 'kopia_params', fallback='')
+        if kopia_params:
+            backend_config['kopia_params'] = kopia_params
+
+        # Get credentials from config
+        try:
+            import json
+            creds_str = cfg.get('backend', 'credentials', fallback='{}')
+            credentials = json.loads(creds_str) if isinstance(creds_str, str) else creds_str
+            backend_config['credentials'] = credentials
+        except Exception:
+            credentials = {}
+            backend_config['credentials'] = credentials
+
+        # Get repository path
+        repo_path = cfg.get('kopia', 'repository_path', fallback='')
+        if repo_path:
+            backend_config['repository_path'] = repo_path
+
+        backend = backend_class(backend_config)
+
+        # Get status
+        console.print("\n[dim]Checking Tailscale peer status...[/dim]")
+        status = backend.get_status()
+
+        # Create status table
+        table = Table(title="Tailscale Backup Target Status", box=box.ROUNDED, show_header=False)
+        table.add_column("Property", style="cyan", width=20)
+        table.add_column("Value", style="white")
+
+        # Tailscale status
+        ts_status = "🟢 Running" if status["tailscale_running"] else "🔴 Not Running"
+        table.add_row("Tailscale", ts_status)
+
+        # Peer info
+        if status["hostname"]:
+            table.add_row("Hostname", status["hostname"])
+        if status["ip"]:
+            table.add_row("IP Address", status["ip"])
+
+        # Online status
+        online_status = "🟢 Online" if status["online"] else "🔴 Offline"
+        table.add_row("Peer Status", online_status)
+
+        # Latency
+        if status["ping_ms"] is not None:
+            latency_color = "green" if status["ping_ms"] < 50 else "yellow" if status["ping_ms"] < 150 else "red"
+            table.add_row("Latency", f"[{latency_color}]{status['ping_ms']}ms[/{latency_color}]")
+
+        # SSH status
+        ssh_status = "🟢 Connected" if status["ssh_connected"] else "🔴 No Connection"
+        table.add_row("SSH", ssh_status)
+
+        # Disk space (if available)
+        if status["disk_free_gb"] is not None and status["disk_total_gb"] is not None:
+            used_gb = status["disk_total_gb"] - status["disk_free_gb"]
+            used_percent = (used_gb / status["disk_total_gb"]) * 100
+
+            # Color based on usage
+            disk_color = "green" if used_percent < 70 else "yellow" if used_percent < 90 else "red"
+
+            disk_info = (
+                f"[{disk_color}]{status['disk_free_gb']:.1f}GB free[/{disk_color}] / "
+                f"{status['disk_total_gb']:.1f}GB total "
+                f"([{disk_color}]{used_percent:.1f}% used[/{disk_color}])"
+            )
+            table.add_row("Disk Space", disk_info)
+        elif status["ssh_connected"]:
+            table.add_row("Disk Space", "[yellow]Could not retrieve[/yellow]")
+
+        console.print()
+        console.print(table)
+        console.print()
+
+        # Health check summary
+        if not status["tailscale_running"]:
+            console.print(Panel(
+                "[red]⚠️  Tailscale is not running![/red]\nRun: [cyan]sudo tailscale up[/cyan]",
+                title="Warning",
+                border_style="red"
+            ))
+        elif not status["online"]:
+            console.print(Panel(
+                "[yellow]⚠️  Peer is offline![/yellow]\nMake sure the backup target is powered on and connected to Tailscale.",
+                title="Warning",
+                border_style="yellow"
+            ))
+        elif not status["ssh_connected"]:
+            console.print(Panel(
+                "[yellow]⚠️  SSH connection failed![/yellow]\nCheck SSH keys and permissions.",
+                title="Warning",
+                border_style="yellow"
+            ))
+        else:
+            console.print(Panel(
+                "[green]✓ All systems operational![/green]\nReady for backups.",
+                title="Status",
+                border_style="green"
+            ))
+
+    else:
+        # For other backends, show basic info
+        table = Table(title="Backend Configuration", box=box.ROUNDED, show_header=False)
+        table.add_column("Property", style="cyan", width=20)
+        table.add_column("Value", style="white")
+
+        kopia_params = cfg.get('kopia', 'kopia_params', fallback='')
+        if kopia_params:
+            table.add_row("Kopia Params", kopia_params)
+
+        repo_path = cfg.get('kopia', 'repository_path', fallback='')
+        if repo_path:
+            table.add_row("Repository", repo_path)
+
+        console.print()
+        console.print(table)
+        console.print()
+        console.print("[dim]💡 Detailed status is currently only available for Tailscale backend[/dim]\n")
+
+
 # -------------------------
 # Registration
 # -------------------------
@@ -555,3 +701,8 @@ def register(app: typer.Typer):
     ):
         """Change Kopia repository password."""
         cmd_change_password(ctx, new_password, use_file)
+
+    @app.command("status")
+    def _status_cmd(ctx: typer.Context):
+        """Show detailed backend status (disk space, connectivity, etc.)."""
+        cmd_status(ctx)
