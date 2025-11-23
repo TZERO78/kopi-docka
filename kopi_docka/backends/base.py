@@ -185,7 +185,7 @@ class BackendBase(ABC):
     def get_recovery_instructions(self) -> str:
         """
         Get backend-specific recovery instructions for DR bundles.
-        
+
         Returns:
             Markdown-formatted instructions
         """
@@ -197,7 +197,50 @@ class BackendBase(ABC):
 3. Test connection: kopia repository status
 4. Proceed with data restore
 """
-    
+
+    def get_status(self) -> dict:
+        """
+        Get detailed status information about the configured backend.
+
+        This method can be overridden by backend implementations to provide
+        backend-specific status information (e.g., disk space, connectivity).
+
+        Returns:
+            dict: Status information with at least these keys:
+                - backend_type: str (name of the backend)
+                - configured: bool (whether backend is configured)
+                - available: bool (whether backend is accessible)
+                - details: dict (backend-specific details)
+
+        Example return for filesystem backend:
+            {
+                "backend_type": "filesystem",
+                "configured": True,
+                "available": True,
+                "details": {
+                    "path": "/backup/kopia",
+                    "disk_free_gb": 450.5,
+                    "disk_total_gb": 1000.0,
+                    "writable": True
+                }
+            }
+        """
+        # Default implementation - just check if configured
+        status = {
+            "backend_type": self.name,
+            "configured": bool(self.config),
+            "available": False,
+            "details": {}
+        }
+
+        # Try to test connection
+        try:
+            status["available"] = self.test_connection()
+        except Exception:
+            pass
+
+        return status
+
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__}({self.name})>"
 

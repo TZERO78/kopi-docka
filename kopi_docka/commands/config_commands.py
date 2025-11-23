@@ -512,7 +512,7 @@ def cmd_change_password(
 
 
 def cmd_status(ctx: typer.Context):
-    """Show detailed status of configured backend (especially useful for Tailscale)."""
+    """Show detailed status of configured backend."""
     from rich.console import Console
     from rich.table import Table
     from rich.panel import Panel
@@ -526,135 +526,246 @@ def cmd_status(ctx: typer.Context):
 
     console.print(f"\n[bold cyan]Backend:[/bold cyan] {backend_type}")
 
-    # Special handling for Tailscale backend
+    # Get backend class
+    backend_class = BACKEND_MODULES.get(backend_type)
+    if not backend_class:
+        console.print(f"[red]❌ Backend '{backend_type}' not available[/red]\n")
+        raise typer.Exit(code=1)
+
+    # Load backend config
+    backend_config = {}
+
+    # Get kopia_params
+    kopia_params = cfg.get('kopia', 'kopia_params', fallback='')
+    if kopia_params:
+        backend_config['kopia_params'] = kopia_params
+
+    # Get credentials from config (if present)
+    try:
+        import json
+        creds_str = cfg.get('backend', 'credentials', fallback='{}')
+        credentials = json.loads(creds_str) if isinstance(creds_str, str) else creds_str
+        if credentials:
+            backend_config['credentials'] = credentials
+    except Exception:
+        pass
+
+    # Get repository path
+    repo_path = cfg.get('kopia', 'repository_path', fallback='')
+    if repo_path:
+        backend_config['repository_path'] = repo_path
+
+    # Initialize backend
+    backend = backend_class(backend_config)
+
+    # Get status
+    console.print("\n[dim]Checking backend status...[/dim]")
+    status = backend.get_status()
+
+    # Display based on backend type
     if backend_type == 'tailscale':
-        backend_class = BACKEND_MODULES.get('tailscale')
-        if not backend_class:
-            typer.echo("❌ Tailscale backend not available")
-            raise typer.Exit(code=1)
-
-        # Load backend config
-        backend_config = {}
-
-        # Get kopia_params
-        kopia_params = cfg.get('kopia', 'kopia_params', fallback='')
-        if kopia_params:
-            backend_config['kopia_params'] = kopia_params
-
-        # Get credentials from config
-        try:
-            import json
-            creds_str = cfg.get('backend', 'credentials', fallback='{}')
-            credentials = json.loads(creds_str) if isinstance(creds_str, str) else creds_str
-            backend_config['credentials'] = credentials
-        except Exception:
-            credentials = {}
-            backend_config['credentials'] = credentials
-
-        # Get repository path
-        repo_path = cfg.get('kopia', 'repository_path', fallback='')
-        if repo_path:
-            backend_config['repository_path'] = repo_path
-
-        backend = backend_class(backend_config)
-
-        # Get status
-        console.print("\n[dim]Checking Tailscale peer status...[/dim]")
-        status = backend.get_status()
-
-        # Create status table
-        table = Table(title="Tailscale Backup Target Status", box=box.ROUNDED, show_header=False)
-        table.add_column("Property", style="cyan", width=20)
-        table.add_column("Value", style="white")
-
-        # Tailscale status
-        ts_status = "🟢 Running" if status["tailscale_running"] else "🔴 Not Running"
-        table.add_row("Tailscale", ts_status)
-
-        # Peer info
-        if status["hostname"]:
-            table.add_row("Hostname", status["hostname"])
-        if status["ip"]:
-            table.add_row("IP Address", status["ip"])
-
-        # Online status
-        online_status = "🟢 Online" if status["online"] else "🔴 Offline"
-        table.add_row("Peer Status", online_status)
-
-        # Latency
-        if status["ping_ms"] is not None:
-            latency_color = "green" if status["ping_ms"] < 50 else "yellow" if status["ping_ms"] < 150 else "red"
-            table.add_row("Latency", f"[{latency_color}]{status['ping_ms']}ms[/{latency_color}]")
-
-        # SSH status
-        ssh_status = "🟢 Connected" if status["ssh_connected"] else "🔴 No Connection"
-        table.add_row("SSH", ssh_status)
-
-        # Disk space (if available)
-        if status["disk_free_gb"] is not None and status["disk_total_gb"] is not None:
-            used_gb = status["disk_total_gb"] - status["disk_free_gb"]
-            used_percent = (used_gb / status["disk_total_gb"]) * 100
-
-            # Color based on usage
-            disk_color = "green" if used_percent < 70 else "yellow" if used_percent < 90 else "red"
-
-            disk_info = (
-                f"[{disk_color}]{status['disk_free_gb']:.1f}GB free[/{disk_color}] / "
-                f"{status['disk_total_gb']:.1f}GB total "
-                f"([{disk_color}]{used_percent:.1f}% used[/{disk_color}])"
-            )
-            table.add_row("Disk Space", disk_info)
-        elif status["ssh_connected"]:
-            table.add_row("Disk Space", "[yellow]Could not retrieve[/yellow]")
-
-        console.print()
-        console.print(table)
-        console.print()
-
-        # Health check summary
-        if not status["tailscale_running"]:
-            console.print(Panel(
-                "[red]⚠️  Tailscale is not running![/red]\nRun: [cyan]sudo tailscale up[/cyan]",
-                title="Warning",
-                border_style="red"
-            ))
-        elif not status["online"]:
-            console.print(Panel(
-                "[yellow]⚠️  Peer is offline![/yellow]\nMake sure the backup target is powered on and connected to Tailscale.",
-                title="Warning",
-                border_style="yellow"
-            ))
-        elif not status["ssh_connected"]:
-            console.print(Panel(
-                "[yellow]⚠️  SSH connection failed![/yellow]\nCheck SSH keys and permissions.",
-                title="Warning",
-                border_style="yellow"
-            ))
-        else:
-            console.print(Panel(
-                "[green]✓ All systems operational![/green]\nReady for backups.",
-                title="Status",
-                border_style="green"
-            ))
-
+        _display_tailscale_status(console, status)
+    elif backend_type == 'filesystem':
+        _display_filesystem_status(console, status)
     else:
-        # For other backends, show basic info
-        table = Table(title="Backend Configuration", box=box.ROUNDED, show_header=False)
-        table.add_column("Property", style="cyan", width=20)
-        table.add_column("Value", style="white")
+        _display_generic_status(console, status, backend_type)
 
-        kopia_params = cfg.get('kopia', 'kopia_params', fallback='')
-        if kopia_params:
-            table.add_row("Kopia Params", kopia_params)
 
-        repo_path = cfg.get('kopia', 'repository_path', fallback='')
-        if repo_path:
-            table.add_row("Repository", repo_path)
+def _display_tailscale_status(console, status):
+    """Display Tailscale-specific status."""
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich import box
 
-        console.print()
-        console.print(table)
-        console.print()
-        console.print("[dim]💡 Detailed status is currently only available for Tailscale backend[/dim]\n")
+    # Create status table
+    table = Table(title="Tailscale Backup Target Status", box=box.ROUNDED, show_header=False)
+    table.add_column("Property", style="cyan", width=20)
+    table.add_column("Value", style="white")
+
+    # Tailscale status
+    ts_status = "🟢 Running" if status.get("tailscale_running") else "🔴 Not Running"
+    table.add_row("Tailscale", ts_status)
+
+    # Peer info
+    if status.get("hostname"):
+        table.add_row("Hostname", status["hostname"])
+    if status.get("ip"):
+        table.add_row("IP Address", status["ip"])
+
+    # Online status
+    online_status = "🟢 Online" if status.get("online") else "🔴 Offline"
+    table.add_row("Peer Status", online_status)
+
+    # Latency
+    if status.get("ping_ms") is not None:
+        latency_color = "green" if status["ping_ms"] < 50 else "yellow" if status["ping_ms"] < 150 else "red"
+        table.add_row("Latency", f"[{latency_color}]{status['ping_ms']}ms[/{latency_color}]")
+
+    # SSH status
+    ssh_status = "🟢 Connected" if status.get("ssh_connected") else "🔴 No Connection"
+    table.add_row("SSH", ssh_status)
+
+    # Disk space (if available)
+    if status.get("disk_free_gb") is not None and status.get("disk_total_gb") is not None:
+        used_gb = status["disk_total_gb"] - status["disk_free_gb"]
+        used_percent = (used_gb / status["disk_total_gb"]) * 100
+
+        # Color based on usage
+        disk_color = "green" if used_percent < 70 else "yellow" if used_percent < 90 else "red"
+
+        disk_info = (
+            f"[{disk_color}]{status['disk_free_gb']:.1f}GB free[/{disk_color}] / "
+            f"{status['disk_total_gb']:.1f}GB total "
+            f"([{disk_color}]{used_percent:.1f}% used[/{disk_color}])"
+        )
+        table.add_row("Disk Space", disk_info)
+    elif status.get("ssh_connected"):
+        table.add_row("Disk Space", "[yellow]Could not retrieve[/yellow]")
+
+    console.print()
+    console.print(table)
+    console.print()
+
+    # Health check summary
+    if not status.get("tailscale_running"):
+        console.print(Panel(
+            "[red]⚠️  Tailscale is not running![/red]\nRun: [cyan]sudo tailscale up[/cyan]",
+            title="Warning",
+            border_style="red"
+        ))
+    elif not status.get("online"):
+        console.print(Panel(
+            "[yellow]⚠️  Peer is offline![/yellow]\nMake sure the backup target is powered on and connected to Tailscale.",
+            title="Warning",
+            border_style="yellow"
+        ))
+    elif not status.get("ssh_connected"):
+        console.print(Panel(
+            "[yellow]⚠️  SSH connection failed![/yellow]\nCheck SSH keys and permissions.",
+            title="Warning",
+            border_style="yellow"
+        ))
+    else:
+        console.print(Panel(
+            "[green]✓ All systems operational![/green]\nReady for backups.",
+            title="Status",
+            border_style="green"
+        ))
+
+
+def _display_filesystem_status(console, status):
+    """Display filesystem-specific status."""
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich import box
+
+    details = status.get("details", {})
+
+    # Create status table
+    table = Table(title="Filesystem Backend Status", box=box.ROUNDED, show_header=False)
+    table.add_column("Property", style="cyan", width=20)
+    table.add_column("Value", style="white")
+
+    # Path
+    if details.get("path"):
+        table.add_row("Repository Path", details["path"])
+
+    # Exists status
+    exists_status = "🟢 Exists" if details.get("exists") else "🔴 Not Found"
+    table.add_row("Path Status", exists_status)
+
+    # Writable
+    if details.get("exists"):
+        writable_status = "🟢 Writable" if details.get("writable") else "🔴 Read-Only"
+        table.add_row("Write Access", writable_status)
+
+    # Disk space
+    if details.get("disk_free_gb") is not None and details.get("disk_total_gb") is not None:
+        used_gb = details["disk_total_gb"] - details["disk_free_gb"]
+        used_percent = (used_gb / details["disk_total_gb"]) * 100
+
+        # Color based on usage
+        disk_color = "green" if used_percent < 70 else "yellow" if used_percent < 90 else "red"
+
+        disk_info = (
+            f"[{disk_color}]{details['disk_free_gb']:.1f}GB free[/{disk_color}] / "
+            f"{details['disk_total_gb']:.1f}GB total "
+            f"([{disk_color}]{used_percent:.1f}% used[/{disk_color}])"
+        )
+        table.add_row("Disk Space", disk_info)
+
+    console.print()
+    console.print(table)
+    console.print()
+
+    # Health check
+    if not details.get("exists"):
+        console.print(Panel(
+            f"[red]⚠️  Repository path does not exist![/red]\nCreate it first or run: [cyan]kopi-docka init[/cyan]",
+            title="Warning",
+            border_style="red"
+        ))
+    elif not details.get("writable"):
+        console.print(Panel(
+            "[red]⚠️  Repository is not writable![/red]\nCheck permissions.",
+            title="Warning",
+            border_style="red"
+        ))
+    elif status.get("available"):
+        console.print(Panel(
+            "[green]✓ Filesystem backend ready![/green]\nReady for backups.",
+            title="Status",
+            border_style="green"
+        ))
+
+
+def _display_generic_status(console, status, backend_type):
+    """Display generic status for other backends."""
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich import box
+
+    # Create status table
+    table = Table(title=f"{backend_type.upper()} Backend Status", box=box.ROUNDED, show_header=False)
+    table.add_column("Property", style="cyan", width=20)
+    table.add_column("Value", style="white")
+
+    # Configured
+    configured_status = "🟢 Yes" if status.get("configured") else "🔴 No"
+    table.add_row("Configured", configured_status)
+
+    # Available
+    available_status = "🟢 Available" if status.get("available") else "🔴 Not Available"
+    table.add_row("Connection", available_status)
+
+    # Show any details
+    details = status.get("details", {})
+    for key, value in details.items():
+        if value is not None:
+            table.add_row(key.replace("_", " ").title(), str(value))
+
+    console.print()
+    console.print(table)
+    console.print()
+
+    if not status.get("configured"):
+        console.print(Panel(
+            f"[yellow]⚠️  Backend not configured![/yellow]\nRun: [cyan]kopi-docka new-config[/cyan]",
+            title="Warning",
+            border_style="yellow"
+        ))
+    elif not status.get("available"):
+        console.print(Panel(
+            f"[yellow]⚠️  Backend not available![/yellow]\nCheck configuration and connectivity.",
+            title="Warning",
+            border_style="yellow"
+        ))
+    else:
+        console.print(Panel(
+            f"[green]✓ {backend_type.title()} backend ready![/green]\nReady for backups.",
+            title="Status",
+            border_style="green"
+        ))
 
 
 # -------------------------

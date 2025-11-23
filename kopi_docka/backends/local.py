@@ -81,3 +81,69 @@ Make sure:
         import shlex
         kopia_params = self.config.get('kopia_params', '')
         return shlex.split(kopia_params) if kopia_params else []
+
+    def get_status(self) -> dict:
+        """Get filesystem backend status including disk space."""
+        import shutil
+        import os
+        from pathlib import Path
+
+        status = {
+            "backend_type": self.name,
+            "configured": bool(self.config),
+            "available": False,
+            "details": {
+                "path": None,
+                "exists": False,
+                "writable": False,
+                "disk_free_gb": None,
+                "disk_total_gb": None,
+            }
+        }
+
+        # Extract path from kopia_params
+        kopia_params = self.config.get('kopia_params', '')
+        if not kopia_params:
+            return status
+
+        # Parse path from "filesystem --path /backup/kopia-repository"
+        import shlex
+        try:
+            parts = shlex.split(kopia_params)
+            if '--path' in parts:
+                idx = parts.index('--path')
+                if idx + 1 < len(parts):
+                    path = Path(parts[idx + 1])
+                    status["details"]["path"] = str(path)
+
+                    # Check if path exists
+                    status["details"]["exists"] = path.exists()
+
+                    # Check if writable
+                    if path.exists():
+                        status["details"]["writable"] = os.access(path, os.W_OK)
+                        status["available"] = status["details"]["writable"]
+
+                        # Get disk space
+                        try:
+                            disk_usage = shutil.disk_usage(path)
+                            status["details"]["disk_total_gb"] = disk_usage.total / (1024**3)
+                            status["details"]["disk_free_gb"] = disk_usage.free / (1024**3)
+                        except Exception:
+                            pass
+                    elif path.parent.exists():
+                        # Path doesn't exist yet, but parent does - check parent
+                        status["details"]["writable"] = os.access(path.parent, os.W_OK)
+                        status["available"] = status["details"]["writable"]
+
+                        try:
+                            disk_usage = shutil.disk_usage(path.parent)
+                            status["details"]["disk_total_gb"] = disk_usage.total / (1024**3)
+                            status["details"]["disk_free_gb"] = disk_usage.free / (1024**3)
+                        except Exception:
+                            pass
+
+        except Exception:
+            pass
+
+        return status
