@@ -102,6 +102,63 @@ Get credentials from:
             'instructions': instructions,
         }
 
+    def get_status(self) -> dict:
+        """Get S3 backend status."""
+        import shlex
+
+        status = {
+            "backend_type": self.name,
+            "configured": bool(self.config),
+            "available": False,
+            "details": {
+                "bucket": None,
+                "prefix": None,
+                "endpoint": None,
+                "region": None,
+            }
+        }
+
+        # Parse kopia_params to extract S3 details
+        kopia_params = self.config.get('kopia_params', '')
+        if not kopia_params:
+            return status
+
+        try:
+            parts = shlex.split(kopia_params)
+
+            # Extract bucket
+            if '--bucket' in parts:
+                idx = parts.index('--bucket')
+                if idx + 1 < len(parts):
+                    status["details"]["bucket"] = parts[idx + 1]
+
+            # Extract prefix
+            if '--prefix' in parts:
+                idx = parts.index('--prefix')
+                if idx + 1 < len(parts):
+                    status["details"]["prefix"] = parts[idx + 1]
+
+            # Extract endpoint
+            if '--endpoint' in parts:
+                idx = parts.index('--endpoint')
+                if idx + 1 < len(parts):
+                    status["details"]["endpoint"] = parts[idx + 1]
+
+            # Extract region
+            if '--region' in parts:
+                idx = parts.index('--region')
+                if idx + 1 < len(parts):
+                    status["details"]["region"] = parts[idx + 1]
+
+            # Mark as configured if we have a bucket
+            if status["details"]["bucket"]:
+                status["configured"] = True
+                status["available"] = True  # Assume configured = available for cloud
+        except Exception:
+            pass
+
+        return status
+
 
 def _format_env_vars(env_vars: dict) -> str:
     """Format environment variables for display."""

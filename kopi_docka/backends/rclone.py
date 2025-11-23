@@ -188,3 +188,49 @@ Documentation:
         import shlex
         kopia_params = self.config.get('kopia_params', '')
         return shlex.split(kopia_params) if kopia_params else []
+
+    def get_status(self) -> dict:
+        """Get Rclone backend status."""
+        import shlex
+        import re
+
+        status = {
+            "backend_type": self.name,
+            "configured": bool(self.config),
+            "available": False,
+            "details": {
+                "remote_path": None,
+                "remote_name": None,
+                "config_file": None,
+            }
+        }
+
+        kopia_params = self.config.get('kopia_params', '')
+        if not kopia_params:
+            return status
+
+        try:
+            parts = shlex.split(kopia_params)
+
+            # Parse --remote-path
+            for part in parts:
+                if part.startswith('--remote-path='):
+                    remote_path = part.split('=', 1)[1]
+                    status["details"]["remote_path"] = remote_path
+                    # Extract remote name (before the colon)
+                    if ':' in remote_path:
+                        status["details"]["remote_name"] = remote_path.split(':')[0]
+
+            # Parse --rclone-config
+            for part in parts:
+                if part.startswith('--rclone-config='):
+                    config_file = part.split('=', 1)[1]
+                    status["details"]["config_file"] = config_file
+
+            if status["details"]["remote_path"]:
+                status["configured"] = True
+                status["available"] = True
+        except Exception:
+            pass
+
+        return status
