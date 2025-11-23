@@ -143,3 +143,4 @@ class RestorePoint:
     recipe_snapshots: List[Dict[str, Any]] = field(default_factory=list)
     volume_snapshots: List[Dict[str, Any]] = field(default_factory=list)
     database_snapshots: List[Dict[str, Any]] = field(default_factory=list)
+    network_snapshots: List[Dict[str, Any]] = field(default_factory=list)

@@ -47,7 +47,7 @@ from ..helpers.logging import get_logger
 from ..types import RestorePoint
 from ..helpers.config import Config
 from ..cores.repository_manager import KopiaRepository
-from ..helpers.constants import RECIPE_BACKUP_DIR, VOLUME_BACKUP_DIR, CONTAINER_START_TIMEOUT
+from ..helpers.constants import RECIPE_BACKUP_DIR, VOLUME_BACKUP_DIR, NETWORK_BACKUP_DIR, CONTAINER_START_TIMEOUT
 from ..helpers import (
     check_file_conflicts,
     create_file_backup,
@@ -239,6 +239,8 @@ class RestoreManager:
         print(f"\n✅ Selected: {sel.unit_name} from {sel.timestamp}")
         print("\n📝 This will guide you through restoring:")
         print(f"  - Recipe/configuration files")
+        if sel.network_snapshots:
+            print(f"  - {len(sel.network_snapshots)} network(s)")
         print(f"  - {len(sel.volume_snapshots)} volumes")
 
         confirm = input("\n⚠️ Proceed with restore? (yes/no/q): ").strip().lower()
@@ -280,6 +282,7 @@ class RestoreManager:
                         recipe_snapshots=[],
                         volume_snapshots=[],
                         database_snapshots=[],  # kept empty for type-compat
+                        network_snapshots=[],
                     )
 
                 # Nutze Type aus Tags statt path
@@ -287,6 +290,8 @@ class RestoreManager:
                     groups[key].recipe_snapshots.append(s)
                 elif snap_type == "volume":
                     groups[key].volume_snapshots.append(s)
+                elif snap_type == "networks":
+                    groups[key].network_snapshots.append(s)
 
             out = list(groups.values())
             out.sort(key=lambda x: x.timestamp, reverse=True)
@@ -316,18 +321,27 @@ class RestoreManager:
             print("\n1️⃣ Restoring recipes...")
             recipe_dir = self._restore_recipe(rp, restore_dir)
 
-            # 2) Volume instructions
+            # 2) Networks
+            if rp.network_snapshots:
+                print("\n2️⃣ Restoring networks...")
+                restored_networks = self._restore_networks(rp, restore_dir)
+                if restored_networks > 0:
+                    print(f"   ✅ Restored {restored_networks} network(s)")
+            else:
+                print("\n2️⃣ No networks to restore (or minimal backup scope)")
+
+            # 3) Volume instructions
             if rp.volume_snapshots:
-                print("\n2️⃣ Volume restoration:")
+                print("\n3️⃣ Volume restoration:")
                 self._display_volume_restore_instructions(rp, restore_dir)
 
-            # 3) Interactive config copy (NEW in v3.1.0)
+            # 4) Interactive config copy (NEW in v3.1.0)
             if recipe_dir.exists():
-                print("\n3️⃣ Configuration files:")
+                print("\n4️⃣ Configuration files:")
                 self._interactive_copy_configs(recipe_dir, rp.unit_name)
 
-            # 4) Restart instructions
-            print("\n4️⃣ Service restart instructions:")
+            # 5) Restart instructions
+            print("\n5️⃣ Service restart instructions:")
             self._display_restart_instructions(recipe_dir)
 
             print("\n" + "=" * 60)
@@ -379,6 +393,149 @@ class RestoreManager:
                 print(f"   ⚠️ Warning: Could not restore recipe: {e}")
 
         return recipe_dir
+
+    def _restore_networks(self, rp: RestorePoint, restore_dir: Path) -> int:
+        """
+        Restore Docker networks from snapshot.
+
+        Returns:
+            Number of networks restored
+        """
+        if not rp.network_snapshots:
+            logger.debug(
+                "No network snapshots found", extra={"unit_name": rp.unit_name}
+            )
+            return 0
+
+        networks_dir = restore_dir / "networks"
+        networks_dir.mkdir(parents=True, exist_ok=True)
+
+        restored_count = 0
+
+        for snap in rp.network_snapshots:
+            try:
+                snapshot_id = snap["id"]
+                print(f"   📥 Restoring network snapshot: {snapshot_id[:12]}...")
+
+                # Restore snapshot to directory
+                self.repo.restore_snapshot(snapshot_id, str(networks_dir))
+
+                # Read networks configuration
+                networks_file = networks_dir / "networks.json"
+                if not networks_file.exists():
+                    print(f"   ⚠️ Warning: networks.json not found in snapshot")
+                    continue
+
+                network_configs = json.loads(networks_file.read_text())
+
+                # Get list of existing networks
+                result = subprocess.run(
+                    ["docker", "network", "ls", "--format", "{{.Name}}"],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                existing_networks = set(result.stdout.strip().split("\n"))
+
+                # Restore each network
+                for net_config in network_configs:
+                    net_name = net_config.get("Name")
+                    if not net_name:
+                        continue
+
+                    # Check for conflicts
+                    if net_name in existing_networks:
+                        print(f"   ⚠️ Network '{net_name}' already exists")
+
+                        choice = input(f"      Recreate network '{net_name}'? (yes/no/q): ").strip().lower()
+
+                        if choice == 'q':
+                            print("\n   ⚠️ Network restore cancelled.")
+                            return restored_count
+
+                        if choice not in ('yes', 'y'):
+                            print(f"      ↷ Skipping '{net_name}'")
+                            continue
+
+                        # Remove existing network
+                        print(f"      🗑️  Removing existing network '{net_name}'...")
+                        try:
+                            subprocess.run(
+                                ["docker", "network", "rm", net_name],
+                                capture_output=True,
+                                text=True,
+                                check=True
+                            )
+                        except subprocess.CalledProcessError as e:
+                            print(f"      ❌ Failed to remove network: {e.stderr}")
+                            print(f"         Network may be in use. Stop containers first.")
+                            continue
+
+                    # Create network
+                    print(f"      🔧 Creating network '{net_name}'...")
+                    try:
+                        cmd = ["docker", "network", "create"]
+
+                        # Driver
+                        driver = net_config.get("Driver", "bridge")
+                        cmd.extend(["--driver", driver])
+
+                        # IPAM configuration
+                        ipam_config = net_config.get("IPAM", {})
+                        if ipam_config and ipam_config.get("Config"):
+                            for ipam_entry in ipam_config.get("Config", []):
+                                subnet = ipam_entry.get("Subnet")
+                                if subnet:
+                                    cmd.extend(["--subnet", subnet])
+
+                                gateway = ipam_entry.get("Gateway")
+                                if gateway:
+                                    cmd.extend(["--gateway", gateway])
+
+                                ip_range = ipam_entry.get("IPRange")
+                                if ip_range:
+                                    cmd.extend(["--ip-range", ip_range])
+
+                        # Labels
+                        labels = net_config.get("Labels", {})
+                        if labels:
+                            for key, value in labels.items():
+                                cmd.extend(["--label", f"{key}={value}"])
+
+                        # Options
+                        options = net_config.get("Options", {})
+                        if options:
+                            for key, value in options.items():
+                                cmd.extend(["--opt", f"{key}={value}"])
+
+                        # Network name
+                        cmd.append(net_name)
+
+                        # Execute
+                        subprocess.run(cmd, capture_output=True, text=True, check=True)
+                        print(f"      ✅ Network '{net_name}' created")
+                        restored_count += 1
+
+                        logger.info(
+                            f"Network {net_name} restored",
+                            extra={"unit_name": rp.unit_name, "network": net_name}
+                        )
+
+                    except subprocess.CalledProcessError as e:
+                        print(f"      ❌ Failed to create network: {e.stderr}")
+                        logger.error(
+                            f"Network creation failed: {e.stderr}",
+                            extra={"unit_name": rp.unit_name, "network": net_name}
+                        )
+
+            except Exception as e:
+                logger.error(
+                    f"Failed to restore network snapshot: {e}",
+                    extra={"unit_name": rp.unit_name}
+                )
+                print(f"   ⚠️ Warning: Could not restore networks: {e}")
+
+        return restored_count
 
     def _check_for_secrets(self, recipe_dir: Path):
         """Warn if redacted secrets are present in inspect JSONs."""
