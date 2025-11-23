@@ -103,19 +103,17 @@ class TailscaleBackend(BackendBase):
             "Available Backup Targets",
             [
                 ("Status", "white", 8),
-                ("Hostname", "cyan", 20),
+                ("Hostname", "cyan", 25),
                 ("IP", "white", 15),
-                ("Disk Free", "green", 12),
                 ("Latency", "yellow", 10),
             ]
         )
-        
+
         for peer in peers:
             status = "🟢 Online" if peer.online else "🔴 Offline"
-            disk_info = f"{peer.disk_free_gb:.1f}GB" if peer.disk_free_gb else "?"
             ping_info = f"{peer.ping_ms}ms" if peer.ping_ms else "?"
-            
-            table.add_row(status, peer.hostname, peer.ip, disk_info, ping_info)
+
+            table.add_row(status, peer.hostname, peer.ip, ping_info)
         
         utils.console.print(table)
         
@@ -302,12 +300,11 @@ class TailscaleBackend(BackendBase):
                     online=online,
                     os=os
                 )
-                
-                # Try to get disk space (best effort)
+
+                # Get latency via Tailscale ping (no SSH required)
                 if online:
-                    peer.disk_free_gb = self._get_disk_space(hostname)
                     peer.ping_ms = self._ping_peer(hostname)
-                
+
                 peers.append(peer)
             
             # Sort by online status and ping
@@ -318,26 +315,7 @@ class TailscaleBackend(BackendBase):
         except Exception as e:
             print(f"⚠️  {_('Failed to list peers')}: {e}")
             return []
-    
-    def _get_disk_space(self, hostname: str) -> Optional[float]:
-        """Get disk space on remote peer (in GB)"""
-        try:
-            result = subprocess.run(
-                ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=2",
-                 f"root@{hostname}.tailnet", "df", "/", "--output=avail", "--block-size=G"],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if result.returncode == 0:
-                lines = result.stdout.strip().split('\n')
-                if len(lines) >= 2:
-                    # Remove 'G' suffix and convert to float
-                    return float(lines[1].rstrip('G'))
-        except Exception:
-            pass
-        return None
-    
+
     def _ping_peer(self, hostname: str) -> Optional[int]:
         """Ping peer and return latency in ms"""
         try:
