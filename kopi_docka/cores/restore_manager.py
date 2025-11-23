@@ -47,6 +47,7 @@ from ..helpers.logging import get_logger
 from ..types import RestorePoint
 from ..helpers.config import Config
 from ..cores.repository_manager import KopiaRepository
+from ..cores.hooks_manager import HooksManager
 from ..helpers.constants import RECIPE_BACKUP_DIR, VOLUME_BACKUP_DIR, NETWORK_BACKUP_DIR, CONTAINER_START_TIMEOUT
 from ..helpers import (
     check_file_conflicts,
@@ -63,6 +64,7 @@ class RestoreManager:
     def __init__(self, config: Config):
         self.config = config
         self.repo = KopiaRepository(config)
+        self.hooks_manager = HooksManager(config)
         self.start_timeout = self.config.getint(
             "backup", "start_timeout", CONTAINER_START_TIMEOUT
         )
@@ -312,6 +314,16 @@ class RestoreManager:
             extra={"unit_name": rp.unit_name},
         )
 
+        # Pre-restore hook
+        print("\n🔧 Executing pre-restore hook...")
+        if not self.hooks_manager.execute_pre_restore(rp.unit_name):
+            print("❌ Pre-restore hook failed")
+            logger.error(
+                "Pre-restore hook failed, aborting restore",
+                extra={"unit_name": rp.unit_name}
+            )
+            return
+
         safe_unit = re.sub(r"[^A-Za-z0-9._-]+", "_", rp.unit_name)
         restore_dir = Path(tempfile.mkdtemp(prefix=f"kopia-docka-restore-{safe_unit}-"))
         print(f"\n📂 Restore directory: {restore_dir}")
@@ -343,6 +355,15 @@ class RestoreManager:
             # 5) Restart instructions
             print("\n5️⃣ Service restart instructions:")
             self._display_restart_instructions(recipe_dir)
+
+            # 6) Post-restore hook
+            print("\n🔧 Executing post-restore hook...")
+            if not self.hooks_manager.execute_post_restore(rp.unit_name):
+                print("⚠️ Post-restore hook failed")
+                logger.warning(
+                    "Post-restore hook failed",
+                    extra={"unit_name": rp.unit_name}
+                )
 
             print("\n" + "=" * 60)
             print("✅ Restoration guide complete!")

@@ -42,6 +42,7 @@ from ..types import BackupUnit, ContainerInfo, VolumeInfo, BackupMetadata
 from ..helpers.config import Config
 from ..cores.repository_manager import KopiaRepository
 from ..cores.kopia_policy_manager import KopiaPolicyManager
+from ..cores.hooks_manager import HooksManager
 from ..helpers.constants import (
     CONTAINER_STOP_TIMEOUT,
     CONTAINER_START_TIMEOUT,
@@ -63,6 +64,7 @@ class BackupManager:
         self.config = config
         self.repo = KopiaRepository(config)
         self.policy_manager = KopiaPolicyManager(self.repo)
+        self.hooks_manager = HooksManager(config)
         self.max_workers = config.parallel_workers
 
         self.stop_timeout = self.config.getint(
@@ -105,6 +107,17 @@ class BackupManager:
         try:
             # Apply retention policies up front
             self._ensure_policies(unit)
+
+            # 0) Pre-backup hook
+            logger.info("Executing pre-backup hook...", extra={"unit_name": unit.name})
+            if not self.hooks_manager.execute_pre_backup(unit.name):
+                logger.warning(
+                    "Pre-backup hook failed, aborting backup",
+                    extra={"unit_name": unit.name}
+                )
+                metadata.errors.append("Pre-backup hook failed")
+                metadata.success = False
+                return metadata
 
             # 1) Stop containers
             logger.info(
@@ -192,6 +205,18 @@ class BackupManager:
                 extra={"unit_name": unit.name},
             )
             self._start_containers(unit.containers)
+
+            # 5) Post-backup hook
+            logger.info("Executing post-backup hook...", extra={"unit_name": unit.name})
+            if not self.hooks_manager.execute_post_backup(unit.name):
+                logger.warning(
+                    "Post-backup hook failed",
+                    extra={"unit_name": unit.name}
+                )
+                metadata.errors.append("Post-backup hook failed")
+
+        # Track executed hooks
+        metadata.hooks_executed = self.hooks_manager.get_executed_hooks()
 
         # Duration & success
         metadata.duration_seconds = time.time() - start_time
