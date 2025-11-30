@@ -698,12 +698,12 @@ sudo systemctl start kopi-docka-backup.service
 
 ---
 
-## What's New in v3.2.0
+## What's New in v3.3.0
 
 ### 🎯 Backup Scope Selection
 **Choose what to backup - from minimal to complete system backup**
 
-Kopi-Docka v3.2.0 introduces three backup scopes:
+Kopi-Docka v3.3.0 introduces three backup scopes:
 
 ```bash
 # Minimal - Only container data (volumes)
@@ -1446,6 +1446,7 @@ Setup SSH key for passwordless access? Yes
 | `edit-config` | Open config in editor ($EDITOR or nano) |
 | `reset-config` | ⚠️ Reset config (new password!) |
 | `change-password` | Safely change repository password |
+| `status` | **Show backend status** (disk space, connectivity, ping) |
 
 ### System & Dependencies
 | Command | Description |
@@ -1510,6 +1511,9 @@ sudo kopi-docka backup --unit webapp --unit database
 
 # Repository status
 sudo kopi-docka repo-status
+
+# Backend status (disk space, connectivity)
+sudo kopi-docka status
 
 # Show all snapshots
 sudo kopi-docka list --snapshots
@@ -2020,9 +2024,9 @@ make test-coverage
 
 ## Status & Development
 
-### Current Version: v3.2.0
+### Current Version: v3.3.0
 
-Version 3.2.0 brings **production-ready features** for advanced backup scenarios:
+Version 3.3.0 brings **production-ready features** for advanced backup scenarios:
 - ✅ **Backup Scope Selection** - minimal/standard/full
 - ✅ **Docker Network Backup** - Complete IPAM configuration
 - ✅ **Pre/Post Backup Hooks** - Custom scripts for maintenance mode
@@ -2033,10 +2037,10 @@ Version 3.2.0 brings **production-ready features** for advanced backup scenarios
 - ✅ Comprehensive journald logging
 
 **The project lives from testing and feedback!** Current priorities:
-1. **Testing** - Thoroughly test new v3.2.0 features
+1. **Testing** - Thoroughly test new v3.3.0 features
 2. **Bug-Fixing** - Fix known issues
 3. **Stability** - Improve robustness
-4. **Documentation** - User guides for hooks
+4. **Documentation** - User guides and best practices
 
 ### Planned Features
 

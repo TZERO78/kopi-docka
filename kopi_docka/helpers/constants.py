@@ -32,7 +32,7 @@ Notes:
 from pathlib import Path
 
 # Version information
-VERSION = "3.2.0"
+VERSION = "3.3.0"
 
 # Backup Scope Levels
 BACKUP_SCOPE_MINIMAL = "minimal"      # Only volumes
