@@ -1,0 +1,48 @@
+{
+  "version": "3.0",
+  "kopia": {
+    "kopia_params": "filesystem --path /backup/kopia-repository",
+    "password": "CHANGE_ME_use_kopi-docka_new-config_wizard",
+    "password_file": null,
+    "compression": "zstd",
+    "encryption": "AES256-GCM-HMAC-SHA256",
+    "cache_directory": "/var/cache/kopi-docka"
+  },
+  "backup": {
+    "base_path": "/backup/kopi-docka",
+    "parallel_workers": "auto",
+    "stop_timeout": 30,
+    "start_timeout": 60,
+    "task_timeout": 0,
+    "update_recovery_bundle": true,
+    "recovery_bundle_path": "/backup/recovery",
+    "recovery_bundle_retention": 3,
+    "exclude_patterns": [
+      "*.log",
+      "*.tmp",
+      "cache/*"
+    ],
+    "hooks": {
+      "pre_backup": "/opt/hooks/pre-backup.sh",
+      "post_backup": "/opt/hooks/post-backup.sh",
+      "pre_restore": null,
+      "post_restore": null
+    }
+  },
+  "docker": {
+    "socket": "/var/run/docker.sock",
+    "compose_timeout": 300
+  },
+  "retention": {
+    "daily": 7,
+    "weekly": 4,
+    "monthly": 12,
+    "yearly": 5
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "/var/log/kopi-docka.log",
+    "max_size_mb": 100,
+    "backup_count": 5
+  }
+}

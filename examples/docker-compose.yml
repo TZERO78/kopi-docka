@@ -1,0 +1,60 @@
+# Example Docker Compose Stack for Kopi-Docka Testing
+
+version: '3.8'
+
+services:
+  web:
+    image: nginx:alpine
+    container_name: example_web
+    ports:
+      - "8080:80"
+    volumes:
+      - web_data:/usr/share/nginx/html
+    networks:
+      - frontend
+    labels:
+      com.docker.compose.project: example
+      com.docker.compose.service: web
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  db:
+    image: mariadb:10
+    container_name: example_db
+    environment:
+      MYSQL_ROOT_PASSWORD: changeme
+      MYSQL_DATABASE: exampledb
+      MYSQL_USER: exampleuser
+      MYSQL_PASSWORD: examplepass
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - backend
+    labels:
+      com.docker.compose.project: example
+      com.docker.compose.service: db
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  web_data:
+    driver: local
+  db_data:
+    driver: local
+
+networks:
+  frontend:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1
+  backend:
+    driver: bridge
