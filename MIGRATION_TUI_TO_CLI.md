@@ -1,5 +1,13 @@
 # Migration Guide: Textual TUI → Pure CLI
 
+> ⚠️ **DEPRECATED / VERALTET**
+>
+> Diese Dokumentation bezieht sich auf eine veraltete v2-Entwicklungsversion.
+> Die aktuelle Version (v3.3.0) verwendet bereits die Pure CLI-Architektur.
+> Dieses Dokument dient nur zu historischen Referenzzwecken.
+
+---
+
 ## 🎯 Was hat sich geändert?
 
 Kopi-Docka v2 wurde von einer **Textual TUI** (Terminal User Interface) zu einer **Pure CLI** (Command Line Interface) mit Rich migriert.

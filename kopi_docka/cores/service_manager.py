@@ -6,7 +6,7 @@
 # @description: Systemd-friendly daemon orchestrating scheduled cold backups.
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
-# @version:     1.0.0
+# @version:     3.3.0
 #
 # ------------------------------------------------------------------------------
 # Copyright (c) 2025 Markus F. (TZERO78)

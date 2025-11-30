@@ -6,7 +6,7 @@
 # @description: System-level helpers for resource probing and scheduling decisions.
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
-# @version:     1.0.0
+# @version:     3.3.0
 #
 # ------------------------------------------------------------------------------
 # Copyright (c) 2025 Markus F. (TZERO78)

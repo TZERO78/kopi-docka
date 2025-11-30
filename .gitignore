@@ -21,4 +21,17 @@ dist/
 
 # Ignore IDE specific files
 # This prevents personal editor settings from being shared.
-.vscode/su 
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Ignore OS specific files
+.DS_Store
+Thumbs.db
+
+# Ignore config and credential files
+*.password
+.kopi-docka.password
+*.secret

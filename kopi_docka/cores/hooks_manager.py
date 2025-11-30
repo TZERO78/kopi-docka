@@ -7,7 +7,7 @@
 # @description: Manages pre/post backup hooks for custom user scripts
 # @author:      Markus F. (TZERO78) & Claude AI
 # @repository:  https://github.com/TZERO78/kopi-docka
-# @version:     3.2.0
+# @version:     3.3.0
 #
 # ------------------------------------------------------------------------------
 # Copyright (c) 2025 Markus F. (TZERO78)

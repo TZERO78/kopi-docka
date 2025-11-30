@@ -1,25 +1,41 @@
 # Makefile for Kopi-Docka
 
-# Explicitly define the Python interpreter from our virtual environment.
-# This makes sure 'make' always uses the right tools from the right workbench.
-PYTHON := .venv/bin/python3
+# Determine Python interpreter (prefer venv if available, fallback to system)
+PYTHON := $(shell test -f .venv/bin/python3 && echo .venv/bin/python3 || echo python3)
+PIP := $(shell test -f .venv/bin/pip && echo .venv/bin/pip || echo pip)
 
-.PHONY: all clean install install-dev install-system uninstall-system check-style format test build
+.PHONY: all clean install install-dev install-system uninstall-system check-style format test build venv check-venv
 
 # Default command when running 'make'
 all: build
 
+# Check if venv exists
+check-venv:
+	@if [ ! -d .venv ]; then \
+		echo "⚠️  Virtual environment not found. Creating..."; \
+		$(MAKE) venv; \
+	fi
+
+# Create virtual environment
+venv:
+	python3 -m venv .venv
+	.venv/bin/pip install --upgrade pip setuptools wheel
+	@echo "✓ Virtual environment created at .venv"
+	@echo "  Activate with: source .venv/bin/activate"
+
 # Clean up build artifacts
 clean:
 	rm -rf build/ dist/ *.egg-info .pytest_cache
+	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+	find . -name "*.pyc" -delete 2>/dev/null || true
 
 # Install the package for production
 install:
-	pip install .
+	$(PIP) install .
 
 # Install for development, including test tools
-install-dev:
-	pip install -e ".[dev]"
+install-dev: check-venv
+	$(PIP) install -e ".[dev]"
 
 # Run style and format checks
 check-style:

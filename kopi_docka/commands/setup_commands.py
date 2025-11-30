@@ -6,7 +6,7 @@
 # @description: Master setup wizard - orchestrates complete setup flow
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
-# @version:     2.0.0
+# @version:     3.3.0
 #
 # ------------------------------------------------------------------------------
 # MIT-Lizenz: siehe LICENSE oder https://opensource.org/licenses/MIT
