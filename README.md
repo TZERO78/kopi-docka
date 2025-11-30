@@ -698,6 +698,160 @@ sudo systemctl start kopi-docka-backup.service
 
 ---
 
+## What's New in v3.2.0
+
+### 🎯 Backup Scope Selection
+**Choose what to backup - from minimal to complete system backup**
+
+Kopi-Docka v3.2.0 introduces three backup scopes:
+
+```bash
+# Minimal - Only container data (volumes)
+sudo kopi-docka backup --scope minimal
+
+# Standard - Volumes + Recipes + Networks (Recommended, Default)
+sudo kopi-docka backup --scope standard
+
+# Full - Everything including Docker daemon config (Complete)
+sudo kopi-docka backup --scope full
+```
+
+**Scope Overview:**
+
+| Scope | Volumes | docker-compose.yml | Networks | Docker Config | Use Case |
+|-------|---------|-------------------|----------|---------------|----------|
+| **minimal** | ✅ | ❌ | ❌ | ❌ | Fast data backup only |
+| **standard** | ✅ | ✅ | ✅ | ❌ | **Recommended** - Complete stack backup |
+| **full** | ✅ | ✅ | ✅ | ✅ | Disaster recovery - Complete system |
+
+**Why Scopes?**
+- **Minimal:** Fast daily backups when config rarely changes
+- **Standard:** Best balance - complete stack recovery (default)
+- **Full:** Complete disaster recovery including Docker daemon settings
+
+---
+
+### 🌐 Docker Network Backup & Restore
+**Automatic backup of custom Docker networks with IPAM configuration**
+
+Kopi-Docka now backs up your custom Docker networks including:
+- Network driver configuration
+- IPAM settings (subnets, gateways, IP ranges)
+- Labels and options
+- Custom network names
+
+**What gets backed up:**
+```bash
+# Your custom networks
+docker network ls
+# → nextcloud_network (subnet: 172.20.0.0/16)
+# → traefik_proxy (gateway: 172.21.0.1)
+# → app_backend
+
+# Kopi-Docka automatically backs up:
+# - Network configuration (driver, IPAM, labels)
+# - Subnet and gateway settings
+# - Custom options
+# Skips: bridge, host, none (default networks)
+```
+
+**Restore with conflict detection:**
+```bash
+sudo kopi-docka restore
+
+# Interactive wizard shows:
+# → 2️⃣ Restoring networks...
+#    ⚠️ Network 'nextcloud_network' already exists
+#       Recreate network 'nextcloud_network'? (yes/no/q):
+```
+
+**Features:**
+- ✅ Automatic detection of custom networks
+- ✅ Export of complete IPAM configuration
+- ✅ Interactive conflict resolution during restore
+- ✅ Preserves network topology
+
+---
+
+### 🔧 Pre/Post Backup Hooks
+**Run custom scripts before and after backups - perfect for maintenance mode**
+
+**Example: Nextcloud Maintenance Mode**
+
+**1. Create hook scripts:**
+```bash
+# /opt/hooks/nextcloud-pre-backup.sh
+#!/bin/bash
+docker exec nextcloud php occ maintenance:mode --on
+echo "Nextcloud maintenance mode enabled"
+
+# /opt/hooks/nextcloud-post-backup.sh
+#!/bin/bash
+docker exec nextcloud php occ maintenance:mode --off
+echo "Nextcloud maintenance mode disabled"
+
+# Make executable
+chmod +x /opt/hooks/nextcloud-*.sh
+```
+
+**2. Configure in config.json:**
+```json
+{
+  "backup": {
+    "hooks": {
+      "pre_backup": "/opt/hooks/nextcloud-pre-backup.sh",
+      "post_backup": "/opt/hooks/nextcloud-post-backup.sh",
+      "pre_restore": "/opt/hooks/nextcloud-pre-restore.sh",
+      "post_restore": "/opt/hooks/nextcloud-post-restore.sh"
+    }
+  }
+}
+```
+
+**3. Hooks run automatically:**
+```bash
+sudo kopi-docka backup
+
+# Flow:
+# 1. 🔧 Execute pre-backup hook (enable maintenance)
+# 2. 🛑 Stop containers
+# 3. 💾 Backup volumes + recipes + networks
+# 4. ▶️  Start containers
+# 5. 🔧 Execute post-backup hook (disable maintenance)
+```
+
+**Hook Environment Variables:**
+```bash
+# Available in your scripts:
+KOPI_DOCKA_HOOK_TYPE=pre_backup    # or post_backup, pre_restore, post_restore
+KOPI_DOCKA_UNIT_NAME=nextcloud     # Name of backup unit
+```
+
+**Use Cases:**
+- Enable/disable application maintenance mode
+- Custom database dumps before backup
+- Send notifications (Telegram, email, Slack)
+- Stop/start related services
+- Custom pre-flight checks
+- Cleanup tasks after backup
+
+**Logging:**
+All hook executions are logged to journald with stdout/stderr:
+```bash
+# View hook logs
+sudo journalctl -u kopi-docka.service | grep -i hook
+
+# Example output:
+# Executing pre_backup hook: /opt/hooks/nextcloud-pre-backup.sh
+# Hook pre_backup completed successfully in 2.3s
+```
+
+**Error Handling:**
+- Pre-backup hook fails → Backup aborts (containers not stopped)
+- Post-backup hook fails → Warning logged, containers already restarted
+
+---
+
 ## Why Kopi-Docka?
 
 ### Feature Comparison
@@ -707,6 +861,9 @@ sudo systemctl start kopi-docka-backup.service
 | **Docker-native** | ✅ | ✅ | ❌ | ❌ |
 | **Cold Backups** | ✅ | ✅ | ❌ | ❌ |
 | **Compose-Stack-Aware** | ✅ | ❌ | ❌ | ❌ |
+| **Network Backup** | ✅ | ❌ | ❌ | ❌ |
+| **Backup Scopes** | ✅ | ❌ | ❌ | ❌ |
+| **Pre/Post Hooks** | ✅ | ⚠️ | ❌ | ❌ |
 | **DR Bundles** | ✅ | ❌ | ❌ | ❌ |
 | **Tailscale Integration** | ✅ | ❌ | ❌ | ❌ |
 | **systemd-native** | ✅ | ❌ | ❌ | ❌ |
@@ -1105,7 +1262,13 @@ kopi-docka --config /path/to/config.json <command>
     "update_recovery_bundle": false,
     "recovery_bundle_path": "/backup/recovery",
     "recovery_bundle_retention": 3,
-    "exclude_patterns": []
+    "exclude_patterns": [],
+    "hooks": {
+      "pre_backup": "/opt/hooks/pre-backup.sh",
+      "post_backup": "/opt/hooks/post-backup.sh",
+      "pre_restore": "/opt/hooks/pre-restore.sh",
+      "post_restore": "/opt/hooks/post-restore.sh"
+    }
   },
   "docker": {
     "socket": "/var/run/docker.sock",
@@ -1309,7 +1472,10 @@ Setup SSH key for passwordless access? Yes
 | `dry-run` | Simulate backup (no changes) |
 | `dry-run --unit NAME` | Simulate specific unit |
 | `estimate-size` | Calculate backup size |
-| `backup` | **Full backup** (all units) |
+| `backup` | **Full backup** (all units, default scope: standard) |
+| `backup --scope minimal` | Backup volumes only (fast) |
+| `backup --scope standard` | Backup volumes + recipes + networks (default) |
+| `backup --scope full` | Complete system backup (everything) |
 | `backup --unit NAME` | Backup specific unit(s) only |
 | `backup --update-recovery` | Update DR bundle after backup |
 | `restore` | **Interactive restore wizard** |
@@ -1854,31 +2020,27 @@ make test-coverage
 
 ## Status & Development
 
-### Current Version: v3.0
+### Current Version: v3.2.0
 
-Version 3.0 provides a **solid foundation** with stable architecture:
+Version 3.2.0 brings **production-ready features** for advanced backup scenarios:
+- ✅ **Backup Scope Selection** - minimal/standard/full
+- ✅ **Docker Network Backup** - Complete IPAM configuration
+- ✅ **Pre/Post Backup Hooks** - Custom scripts for maintenance mode
+- ✅ **Conflict Detection** - Interactive restore with conflict resolution
 - ✅ Modular structure (helpers, cores, commands)
-- ✅ JSON config instead of INI
-- ✅ Clean type definitions
-- ✅ Testable code structure
+- ✅ JSON config with hooks support
 - ✅ Production-ready systemd integration
-- ✅ Four unique core features
+- ✅ Comprehensive journald logging
 
 **The project lives from testing and feedback!** Current priorities:
-1. **Testing** - Thoroughly test existing features
+1. **Testing** - Thoroughly test new v3.2.0 features
 2. **Bug-Fixing** - Fix known issues
 3. **Stability** - Improve robustness
-4. **Documentation** - Close gaps
+4. **Documentation** - User guides for hooks
 
 ### Planned Features
 
-These features are **prepared but not yet implemented**:
-
-**Pre/Post-Backup Hooks**
-- Config structure present (in older versions)
-- Enables custom scripts before/after backups
-- Use cases: Database dumps, notifications, custom checks
-- Status: ⏳ Planned, no concrete timeline
+These features are **ideas for future releases**:
 
 **Extended Exclude Patterns**
 - More granular control over excluded files
