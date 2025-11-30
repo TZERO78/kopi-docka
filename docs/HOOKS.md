@@ -497,13 +497,14 @@ Default timeout is 300 seconds (5 minutes). Adjust if needed:
 # Or split into multiple hooks
 ```
 
-## Advanced Examples
+## Example Scripts
 
-See the `examples/hooks/` directory for more complete examples:
+See the `examples/hooks/` directory for ready-to-use examples:
 
-- `examples/hooks/nextcloud-maintenance.sh` - Full Nextcloud maintenance mode
-- `examples/hooks/database-dump.sh` - Complete database dump workflow
-- `examples/hooks/telegram-notify.sh` - Telegram notifications
-- `examples/hooks/health-check.sh` - Comprehensive pre-flight checks
+- `examples/hooks/nextcloud-pre-backup.sh` - Enable Nextcloud maintenance mode before backup
+- `examples/hooks/nextcloud-post-backup.sh` - Disable Nextcloud maintenance mode after backup
+- `examples/hooks/database-dump.sh` - Create database dump before backup
+
+All examples in this guide can be adapted for your specific needs.
 
 [← Back to README](../README.md)
