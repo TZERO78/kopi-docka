@@ -113,6 +113,9 @@ class BackupMetadata:
     volumes_backed_up: int = 0
     databases_backed_up: int = 0
     errors: List[str] = field(default_factory=list)
+    backup_scope: str = "standard"  # minimal, standard, full
+    networks_backed_up: int = 0
+    hooks_executed: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -126,6 +129,9 @@ class BackupMetadata:
             "volumes_backed_up": self.volumes_backed_up,
             "databases_backed_up": self.databases_backed_up,
             "errors": self.errors,
+            "backup_scope": self.backup_scope,
+            "networks_backed_up": self.networks_backed_up,
+            "hooks_executed": self.hooks_executed,
         }
 
 
@@ -137,3 +143,4 @@ class RestorePoint:
     recipe_snapshots: List[Dict[str, Any]] = field(default_factory=list)
     volume_snapshots: List[Dict[str, Any]] = field(default_factory=list)
     database_snapshots: List[Dict[str, Any]] = field(default_factory=list)
+    network_snapshots: List[Dict[str, Any]] = field(default_factory=list)

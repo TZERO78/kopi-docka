@@ -35,18 +35,23 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from ..helpers.logging import get_logger
 from ..types import BackupUnit, ContainerInfo, VolumeInfo, BackupMetadata
 from ..helpers.config import Config
 from ..cores.repository_manager import KopiaRepository
 from ..cores.kopia_policy_manager import KopiaPolicyManager
+from ..cores.hooks_manager import HooksManager
 from ..helpers.constants import (
     CONTAINER_STOP_TIMEOUT,
     CONTAINER_START_TIMEOUT,
     RECIPE_BACKUP_DIR,
     VOLUME_BACKUP_DIR,
+    NETWORK_BACKUP_DIR,
+    BACKUP_SCOPE_MINIMAL,
+    BACKUP_SCOPE_STANDARD,
+    BACKUP_SCOPE_FULL,
 )
 
 logger = get_logger(__name__)
@@ -59,6 +64,7 @@ class BackupManager:
         self.config = config
         self.repo = KopiaRepository(config)
         self.policy_manager = KopiaPolicyManager(self.repo)
+        self.hooks_manager = HooksManager(config)
         self.max_workers = config.parallel_workers
 
         self.stop_timeout = self.config.getint(
@@ -71,7 +77,9 @@ class BackupManager:
         self.exclude_patterns = self.config.getlist("backup", "exclude_patterns", [])
 
     def backup_unit(
-        self, unit: BackupUnit, update_recovery_bundle: bool = None
+        self, unit: BackupUnit,
+        backup_scope: str = BACKUP_SCOPE_STANDARD,
+        update_recovery_bundle: bool = None
     ) -> BackupMetadata:
         """
         Perform full cold backup of a unit.
@@ -80,23 +88,36 @@ class BackupManager:
             BackupMetadata
         """
         logger.info(
-            f"Starting backup of unit: {unit.name}", extra={"unit_name": unit.name}
+            f"Starting backup of unit: {unit.name} (scope: {backup_scope})",
+            extra={"unit_name": unit.name, "backup_scope": backup_scope}
         )
         start_time = time.time()
-        
+
         # Create a consistent backup_id for all snapshots in this run (required)
         backup_id = str(uuid.uuid4())
-        
+
         metadata = BackupMetadata(
             unit_name=unit.name,
             timestamp=datetime.now(),
             duration_seconds=0,
             backup_id=backup_id,
+            backup_scope=backup_scope,
         )
 
         try:
             # Apply retention policies up front
             self._ensure_policies(unit)
+
+            # 0) Pre-backup hook
+            logger.info("Executing pre-backup hook...", extra={"unit_name": unit.name})
+            if not self.hooks_manager.execute_pre_backup(unit.name):
+                logger.warning(
+                    "Pre-backup hook failed, aborting backup",
+                    extra={"unit_name": unit.name}
+                )
+                metadata.errors.append("Pre-backup hook failed")
+                metadata.success = False
+                return metadata
 
             # 1) Stop containers
             logger.info(
@@ -105,11 +126,30 @@ class BackupManager:
             )
             self._stop_containers(unit.containers)
 
-            # 2) Recipes
-            logger.info("Backing up recipes...", extra={"unit_name": unit.name})
-            recipe_snapshot = self._backup_recipes(unit, backup_id)
-            if recipe_snapshot:
-                metadata.kopia_snapshot_ids.append(recipe_snapshot)
+            # 2) Recipes (skip for minimal scope)
+            if backup_scope != BACKUP_SCOPE_MINIMAL:
+                logger.info("Backing up recipes...", extra={"unit_name": unit.name})
+                recipe_snapshot = self._backup_recipes(unit, backup_id)
+                if recipe_snapshot:
+                    metadata.kopia_snapshot_ids.append(recipe_snapshot)
+            else:
+                logger.info(
+                    "Skipping recipes backup (minimal scope)",
+                    extra={"unit_name": unit.name}
+                )
+
+            # 2.5) Networks (standard and full scopes)
+            if backup_scope in [BACKUP_SCOPE_STANDARD, BACKUP_SCOPE_FULL]:
+                logger.info("Backing up networks...", extra={"unit_name": unit.name})
+                network_snapshot, network_count = self._backup_networks(unit, backup_id)
+                if network_snapshot:
+                    metadata.kopia_snapshot_ids.append(network_snapshot)
+                    metadata.networks_backed_up = network_count
+            else:
+                logger.debug(
+                    f"Skipping networks backup (scope: {backup_scope})",
+                    extra={"unit_name": unit.name}
+                )
 
             # 3) Volumes (parallel)
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
@@ -165,6 +205,18 @@ class BackupManager:
                 extra={"unit_name": unit.name},
             )
             self._start_containers(unit.containers)
+
+            # 5) Post-backup hook
+            logger.info("Executing post-backup hook...", extra={"unit_name": unit.name})
+            if not self.hooks_manager.execute_post_backup(unit.name):
+                logger.warning(
+                    "Post-backup hook failed",
+                    extra={"unit_name": unit.name}
+                )
+                metadata.errors.append("Post-backup hook failed")
+
+        # Track executed hooks
+        metadata.hooks_executed = self.hooks_manager.get_executed_hooks()
 
         # Duration & success
         metadata.duration_seconds = time.time() - start_time
@@ -401,6 +453,119 @@ class BackupManager:
             )
             return None
 
+    def _backup_networks(self, unit: BackupUnit, backup_id: str) -> Tuple[Optional[str], int]:
+        """
+        Backup custom Docker networks used by this unit.
+
+        Returns:
+            Tuple of (snapshot_id, network_count)
+        """
+        try:
+            import tempfile
+            import json as _json
+
+            # Collect all networks from unit's containers
+            networks_to_backup = set()
+            default_networks = {'bridge', 'host', 'none'}
+
+            for container in unit.containers:
+                inspect_data = container.inspect_data
+                if not inspect_data:
+                    continue
+
+                container_networks = inspect_data.get('NetworkSettings', {}).get('Networks', {})
+
+                for net_name in container_networks.keys():
+                    if net_name not in default_networks:
+                        networks_to_backup.add(net_name)
+
+            if not networks_to_backup:
+                logger.debug(
+                    f"No custom networks found for unit {unit.name}",
+                    extra={"unit_name": unit.name}
+                )
+                return None, 0
+
+            logger.info(
+                f"Backing up {len(networks_to_backup)} custom networks: {', '.join(sorted(networks_to_backup))}",
+                extra={"unit_name": unit.name}
+            )
+
+            # Export network configurations
+            network_configs = []
+            for net_name in networks_to_backup:
+                try:
+                    result = subprocess.run(
+                        ["docker", "network", "inspect", net_name],
+                        capture_output=True,
+                        text=True,
+                        check=True
+                    )
+                    net_data = _json.loads(result.stdout)
+                    if isinstance(net_data, list) and net_data:
+                        network_configs.append(net_data[0])
+                except subprocess.CalledProcessError as e:
+                    logger.warning(
+                        f"Failed to inspect network {net_name}: {e.stderr}",
+                        extra={"unit_name": unit.name, "network": net_name}
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Error inspecting network {net_name}: {e}",
+                        extra={"unit_name": unit.name, "network": net_name}
+                    )
+
+            if not network_configs:
+                logger.warning(
+                    f"Could not retrieve any network configurations for unit {unit.name}",
+                    extra={"unit_name": unit.name}
+                )
+                return None, 0
+
+            # Save to temporary directory and create snapshot
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmpdir = Path(tmpdir)
+
+                # Save network configurations
+                networks_file = tmpdir / "networks.json"
+                networks_file.write_text(_json.dumps(network_configs, indent=2))
+
+                # Create metadata file with additional info
+                metadata_file = tmpdir / "networks_metadata.json"
+                metadata = {
+                    "unit_name": unit.name,
+                    "backup_timestamp": datetime.now().isoformat(),
+                    "network_count": len(network_configs),
+                    "network_names": [nc.get('Name') for nc in network_configs],
+                }
+                metadata_file.write_text(_json.dumps(metadata, indent=2))
+
+                # Create snapshot
+                snapshot_id = self.repo.create_snapshot(
+                    str(tmpdir),
+                    tags={
+                        "type": "networks",
+                        "unit": unit.name,
+                        "backup_id": backup_id,
+                        "timestamp": datetime.now().isoformat(),
+                        "network_count": str(len(network_configs)),
+                    }
+                )
+
+                logger.info(
+                    f"Successfully backed up {len(network_configs)} networks for {unit.name}",
+                    extra={"unit_name": unit.name, "network_count": len(network_configs)}
+                )
+
+                return snapshot_id, len(network_configs)
+
+        except Exception as e:
+            logger.error(
+                f"Failed to backup networks for {unit.name}: {e}",
+                extra={"unit_name": unit.name}
+            )
+            return None, 0
+
     def _backup_volume(
         self, volume: VolumeInfo, unit: BackupUnit, backup_id: str
     ) -> Optional[str]:
@@ -483,10 +648,11 @@ class BackupManager:
         )
 
     def _ensure_policies(self, unit: BackupUnit):
-        """Set Kopia retention policies for this unit (volumes + recipes)."""
+        """Set Kopia retention policies for this unit (volumes + recipes + networks)."""
         targets = [
             f"{VOLUME_BACKUP_DIR}/{unit.name}",
             f"{RECIPE_BACKUP_DIR}/{unit.name}",
+            f"{NETWORK_BACKUP_DIR}/{unit.name}",
         ]
 
         for target in targets:

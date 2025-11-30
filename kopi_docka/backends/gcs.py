@@ -58,6 +58,45 @@ Required permissions:
             'instructions': instructions,
         }
 
+    def get_status(self) -> dict:
+        """Get GCS backend status."""
+        import shlex
+
+        status = {
+            "backend_type": self.name,
+            "configured": bool(self.config),
+            "available": False,
+            "details": {
+                "bucket": None,
+                "prefix": None,
+            }
+        }
+
+        kopia_params = self.config.get('kopia_params', '')
+        if not kopia_params:
+            return status
+
+        try:
+            parts = shlex.split(kopia_params)
+
+            if '--bucket' in parts:
+                idx = parts.index('--bucket')
+                if idx + 1 < len(parts):
+                    status["details"]["bucket"] = parts[idx + 1]
+
+            if '--prefix' in parts:
+                idx = parts.index('--prefix')
+                if idx + 1 < len(parts):
+                    status["details"]["prefix"] = parts[idx + 1]
+
+            if status["details"]["bucket"]:
+                status["configured"] = True
+                status["available"] = True
+        except Exception:
+            pass
+
+        return status
+
 
 # Add abstract method implementations
 GCSBackend.check_dependencies = lambda self: []

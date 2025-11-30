@@ -32,7 +32,36 @@ Notes:
 from pathlib import Path
 
 # Version information
-VERSION = "3.0.2"
+VERSION = "3.3.0"
+
+# Backup Scope Levels
+BACKUP_SCOPE_MINIMAL = "minimal"      # Only volumes
+BACKUP_SCOPE_STANDARD = "standard"    # Volumes + recipes + networks (default)
+BACKUP_SCOPE_FULL = "full"           # Everything including daemon config
+
+BACKUP_SCOPES = {
+    BACKUP_SCOPE_MINIMAL: {
+        "name": "Minimal",
+        "description": "Only container data (volumes)",
+        "includes": ["volumes"],
+        "fast": True,
+        "size": "small"
+    },
+    BACKUP_SCOPE_STANDARD: {
+        "name": "Standard",
+        "description": "Container data + configuration (recommended)",
+        "includes": ["volumes", "recipes", "networks"],
+        "fast": False,
+        "size": "medium"
+    },
+    BACKUP_SCOPE_FULL: {
+        "name": "Full System",
+        "description": "Complete system (DR-ready)",
+        "includes": ["volumes", "recipes", "networks", "docker_config"],
+        "fast": False,
+        "size": "large"
+    }
+}
 
 # Default config paths
 DEFAULT_CONFIG_PATHS = {
@@ -50,7 +79,15 @@ DOCKER_COMPOSE_SERVICE_LABEL = "com.docker.compose.service"
 DEFAULT_BACKUP_BASE = "/backup/kopi-docka"
 RECIPE_BACKUP_DIR = "recipes"
 VOLUME_BACKUP_DIR = "volumes"
+NETWORK_BACKUP_DIR = "networks"
+DOCKER_CONFIG_BACKUP_DIR = "docker-config"
 # DATABASE_BACKUP_DIR removed (no DB dumps in cold backups)
+
+# Backup hooks
+HOOK_PRE_BACKUP = "pre_backup"
+HOOK_POST_BACKUP = "post_backup"
+HOOK_PRE_RESTORE = "pre_restore"
+HOOK_POST_RESTORE = "post_restore"
 
 # Database image detection (used only for classification/ordering in discovery)
 # Kept minimal: only patterns; other fields removed.

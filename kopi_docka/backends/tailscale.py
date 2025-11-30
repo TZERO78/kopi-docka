@@ -103,19 +103,17 @@ class TailscaleBackend(BackendBase):
             "Available Backup Targets",
             [
                 ("Status", "white", 8),
-                ("Hostname", "cyan", 20),
+                ("Hostname", "cyan", 25),
                 ("IP", "white", 15),
-                ("Disk Free", "green", 12),
                 ("Latency", "yellow", 10),
             ]
         )
-        
+
         for peer in peers:
             status = "🟢 Online" if peer.online else "🔴 Offline"
-            disk_info = f"{peer.disk_free_gb:.1f}GB" if peer.disk_free_gb else "?"
             ping_info = f"{peer.ping_ms}ms" if peer.ping_ms else "?"
-            
-            table.add_row(status, peer.hostname, peer.ip, disk_info, ping_info)
+
+            table.add_row(status, peer.hostname, peer.ip, ping_info)
         
         utils.console.print(table)
         
@@ -247,6 +245,91 @@ class TailscaleBackend(BackendBase):
     def get_backend_type(self) -> str:
         """Kopia backend type"""
         return "sftp"
+
+    def get_status(self) -> dict:
+        """
+        Get detailed status information about the configured Tailscale peer.
+
+        This method is designed to be called AFTER setup when SSH keys are configured.
+        Returns detailed information including disk space, connectivity, etc.
+
+        Returns:
+            dict: Status information with keys:
+                - online: bool
+                - hostname: str
+                - ip: str
+                - ping_ms: Optional[int]
+                - disk_free_gb: Optional[float]
+                - disk_total_gb: Optional[float]
+                - ssh_connected: bool
+                - tailscale_running: bool
+        """
+        from kopi_docka.helpers import ui_utils as utils
+
+        status = {
+            "tailscale_running": self._is_running(),
+            "online": False,
+            "hostname": None,
+            "ip": None,
+            "ping_ms": None,
+            "disk_free_gb": None,
+            "disk_total_gb": None,
+            "ssh_connected": False,
+        }
+
+        # Check if we have a configured peer
+        if "credentials" not in self.config:
+            return status
+
+        creds = self.config["credentials"]
+        hostname = creds.get("peer_hostname")
+        ip = creds.get("peer_ip")
+        ssh_user = creds.get("ssh_user", "root")
+        ssh_key = creds.get("ssh_key")
+
+        if not hostname:
+            return status
+
+        status["hostname"] = hostname
+        status["ip"] = ip
+
+        # Check if peer is online via Tailscale
+        if status["tailscale_running"]:
+            status["ping_ms"] = self._ping_peer(hostname)
+            status["online"] = status["ping_ms"] is not None
+
+        # Check SSH connectivity and get disk info
+        if ssh_key and Path(ssh_key).exists():
+            try:
+                # Test SSH connection and get disk space in one go
+                result = subprocess.run(
+                    ["ssh",
+                     "-i", ssh_key,
+                     "-o", "StrictHostKeyChecking=no",
+                     "-o", "ConnectTimeout=3",
+                     "-o", "BatchMode=yes",
+                     f"{ssh_user}@{hostname}",
+                     "df", "/", "--output=size,avail", "--block-size=G"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+
+                if result.returncode == 0:
+                    status["ssh_connected"] = True
+
+                    # Parse disk space output
+                    lines = result.stdout.strip().split('\n')
+                    if len(lines) >= 2:
+                        # Second line contains: total_size available_size
+                        parts = lines[1].split()
+                        if len(parts) >= 2:
+                            status["disk_total_gb"] = float(parts[0].rstrip('G').strip())
+                            status["disk_free_gb"] = float(parts[1].rstrip('G').strip())
+            except Exception:
+                pass  # SSH connection failed
+
+        return status
     
     # Tailscale-specific helpers
     
@@ -302,12 +385,11 @@ class TailscaleBackend(BackendBase):
                     online=online,
                     os=os
                 )
-                
-                # Try to get disk space (best effort)
+
+                # Get latency via Tailscale ping (no SSH required)
                 if online:
-                    peer.disk_free_gb = self._get_disk_space(hostname)
                     peer.ping_ms = self._ping_peer(hostname)
-                
+
                 peers.append(peer)
             
             # Sort by online status and ping
@@ -318,26 +400,7 @@ class TailscaleBackend(BackendBase):
         except Exception as e:
             print(f"⚠️  {_('Failed to list peers')}: {e}")
             return []
-    
-    def _get_disk_space(self, hostname: str) -> Optional[float]:
-        """Get disk space on remote peer (in GB)"""
-        try:
-            result = subprocess.run(
-                ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=2",
-                 f"root@{hostname}.tailnet", "df", "/", "--output=avail", "--block-size=G"],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if result.returncode == 0:
-                lines = result.stdout.strip().split('\n')
-                if len(lines) >= 2:
-                    # Remove 'G' suffix and convert to float
-                    return float(lines[1].rstrip('G'))
-        except Exception:
-            pass
-        return None
-    
+
     def _ping_peer(self, hostname: str) -> Optional[int]:
         """Ping peer and return latency in ms"""
         try:

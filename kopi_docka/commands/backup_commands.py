@@ -21,6 +21,12 @@ from typing import Optional, List
 import typer
 
 from ..helpers import Config, get_logger
+from ..helpers.constants import (
+    BACKUP_SCOPE_MINIMAL,
+    BACKUP_SCOPE_STANDARD,
+    BACKUP_SCOPE_FULL,
+    BACKUP_SCOPES,
+)
 from ..cores import (
     KopiaRepository,
     DockerDiscovery,
@@ -145,10 +151,23 @@ def cmd_backup(
     unit: Optional[List[str]] = None,
     dry_run: bool = False,
     update_recovery_bundle: Optional[bool] = None,
+    scope: str = BACKUP_SCOPE_STANDARD,
 ):
     """Run a cold backup for selected units (or all)."""
     cfg = ensure_config(ctx)
     repo = ensure_repository(ctx)
+
+    # Validate scope
+    if scope not in BACKUP_SCOPES:
+        typer.echo(f"❌ Invalid scope: {scope}")
+        typer.echo(f"   Valid scopes: {', '.join(BACKUP_SCOPES.keys())}")
+        raise typer.Exit(code=1)
+
+    # Display scope information
+    scope_info = BACKUP_SCOPES[scope]
+    typer.echo(f"\n📦 Backup Scope: {scope_info['name']}")
+    typer.echo(f"   {scope_info['description']}")
+    typer.echo(f"   Includes: {', '.join(scope_info['includes'])}\n")
 
     try:
         discovery = DockerDiscovery()
@@ -168,12 +187,19 @@ def cmd_backup(
         overall_ok = True
 
         for u in selected:
-            typer.echo(f"==> Backing up unit: {u.name}")
-            meta = bm.backup_unit(u, update_recovery_bundle=update_recovery_bundle)
+            typer.echo(f"==> Backing up unit: {u.name} ({scope})")
+            meta = bm.backup_unit(
+                u,
+                backup_scope=scope,
+                update_recovery_bundle=update_recovery_bundle
+            )
             if meta.success:
                 typer.echo(f"✓ {u.name} completed in {int(meta.duration_seconds)}s")
+                typer.echo(f"   Volumes: {meta.volumes_backed_up}")
+                if meta.networks_backed_up > 0:
+                    typer.echo(f"   Networks: {meta.networks_backed_up}")
                 if meta.kopia_snapshot_ids:
-                    typer.echo(f"   Snapshots: {', '.join(meta.kopia_snapshot_ids)}")
+                    typer.echo(f"   Snapshots: {len(meta.kopia_snapshot_ids)}")
             else:
                 overall_ok = False
                 typer.echo(f"✗ {u.name} failed in {int(meta.duration_seconds)}s")
@@ -226,9 +252,14 @@ def register(app: typer.Typer):
         update_recovery_bundle: Optional[bool] = typer.Option(
             None, "--update-recovery/--no-update-recovery"
         ),
+        scope: str = typer.Option(
+            BACKUP_SCOPE_STANDARD,
+            "--scope",
+            help=f"Backup scope: {BACKUP_SCOPE_MINIMAL} (volumes only), {BACKUP_SCOPE_STANDARD} (volumes+recipes+networks), {BACKUP_SCOPE_FULL} (everything)"
+        ),
     ):
         """Run a cold backup for selected units (or all)."""
-        cmd_backup(ctx, unit, dry_run, update_recovery_bundle)
+        cmd_backup(ctx, unit, dry_run, update_recovery_bundle, scope)
     
     @app.command("restore")
     def _restore_cmd(ctx: typer.Context):
