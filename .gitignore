@@ -22,3 +22,4 @@ dist/
 # Ignore IDE specific files
 # This prevents personal editor settings from being shared.
 .vscode/su 
+opencode.AppImage
