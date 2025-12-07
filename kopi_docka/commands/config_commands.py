@@ -30,6 +30,7 @@ from ..backends.azure import AzureBackend
 from ..backends.gcs import GCSBackend
 from ..backends.sftp import SFTPBackend
 from ..backends.tailscale import TailscaleBackend
+from ..backends.rclone import RcloneBackend
 
 logger = get_logger(__name__)
 
@@ -42,6 +43,7 @@ BACKEND_MODULES = {
     'gcs': GCSBackend,
     'sftp': SFTPBackend,
     'tailscale': TailscaleBackend,
+    'rclone': RcloneBackend,
 }
 
 
@@ -158,6 +160,7 @@ def cmd_new_config(
     typer.echo("  5. Google Cloud     - GCS storage")
     typer.echo("  6. SFTP             - Remote server via SSH")
     typer.echo("  7. Tailscale        - P2P encrypted network")
+    typer.echo("  8. Rclone           - Universal (70+ cloud providers)")
     typer.echo("")
     
     backend_choice = typer.prompt(
@@ -175,6 +178,7 @@ def cmd_new_config(
         5: "gcs",
         6: "sftp",
         7: "tailscale",
+        8: "rclone",
     }
     
     backend_type = backend_map.get(backend_choice, "filesystem")
