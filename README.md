@@ -138,12 +138,18 @@ Production-ready daemon with sd_notify, watchdog monitoring, PID locking, and se
 
 ---
 
-## What's New in v3.5.0
+## What's New in v3.6.0
 
-- **🔧 Rclone Backend Improvements** - Fixed PermissionError in config detection
-- **💾 Enhanced DR Bundles** - rclone.conf now included automatically in disaster recovery bundles
-- **🐛 Kopia Flag Fix** - Corrected flag generation: `--rclone-config` → `--rclone-args='--config=...'`
-- **🛡️ Idempotent Recovery** - rclone.conf restoration preserves existing configurations
+- **🎯 Smart Restore** - Recovery script uses dynamic paths from bundle metadata
+- **🛡️ Safe Restore** - Interactive file restoration with automatic backups
+- **💾 Complete Recovery** - Password files are now restored to their original locations
+- **📋 Systemd Reminder** - Clear instructions to re-enable automated backups
+- **🔄 Idempotent Recovery** - Run recover.sh multiple times without conflicts
+
+**Previous (v3.5.0):**
+- Rclone Backend Improvements (PermissionError fix)
+- Enhanced DR Bundles (rclone.conf included)
+- Kopia Flag Fix (--rclone-args)
 
 **Previous (v3.4.0):**
 - Simplified CLI with "The Big 6" commands
@@ -328,6 +334,6 @@ Copyright (c) 2025 Markus F. (TZERO78)
 
 ---
 
-**Current Version:** v3.5.0
+**Current Version:** v3.6.0
 
-**[View changelog](docs/FEATURES.md#whats-new-in-v350)** | **[Contributing](docs/DEVELOPMENT.md#contributing)** | **[Troubleshooting](docs/TROUBLESHOOTING.md)**
+**[View changelog](docs/FEATURES.md#whats-new-in-v360)** | **[Contributing](docs/DEVELOPMENT.md#contributing)** | **[Troubleshooting](docs/TROUBLESHOOTING.md)**
