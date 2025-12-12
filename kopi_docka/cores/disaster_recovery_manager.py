@@ -216,10 +216,8 @@ class DisasterRecoveryManager:
         except Exception as e:
             logger.warning(f"Could not get repository status: {e}")
 
-        # Get repository path from kopia_params
-        kopia_params = self.config.get('kopia', 'kopia_params', fallback='')
-        repo_path = kopia_params
-        repo_type, connection = self._detect_repo_connection(repo_path)
+        # Extract repository connection info from Kopia's own status
+        repo_type, connection = self._extract_repo_from_status(repo_status)
 
         # Collect file paths for smart restore
         paths = {}
@@ -259,20 +257,49 @@ class DisasterRecoveryManager:
             "paths": paths,
         }
 
-    def _detect_repo_connection(self, repo_path: str) -> Tuple[str, Dict[str, Any]]:
-        if repo_path.startswith("s3://"):
-            return "s3", {"bucket": repo_path.replace("s3://", "")}
-        if repo_path.startswith("b2://"):
-            return "b2", {"bucket": repo_path.replace("b2://", "")}
-        if repo_path.startswith("azure://"):
-            return "azure", {"container": repo_path.replace("azure://", "")}
-        if repo_path.startswith("gs://"):
-            return "gcs", {"bucket": repo_path.replace("gs://", "")}
-        if "://" in repo_path:
-            # generic remote (sftp, webdav, etc.)
-            scheme = repo_path.split("://", 1)[0]
-            return scheme, {"url": repo_path}
-        return "filesystem", {"path": repo_path}
+    def _extract_repo_from_status(self, repo_status: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+        """
+        Extract repository type and connection info from Kopia status JSON.
+        
+        This is more reliable than parsing kopia_params string.
+        """
+        storage = repo_status.get("storage", {})
+        storage_type = storage.get("type", "unknown")
+        storage_config = storage.get("config", {})
+        
+        # Map Kopia storage types to our naming
+        if storage_type == "filesystem":
+            path = storage_config.get("path", "")
+            return "filesystem", {"path": path}
+        
+        elif storage_type == "s3":
+            bucket = storage_config.get("bucket", "")
+            return "s3", {"bucket": bucket}
+        
+        elif storage_type == "b2":
+            bucket = storage_config.get("bucket", "")
+            return "b2", {"bucket": bucket}
+        
+        elif storage_type == "azure":
+            container = storage_config.get("container", "")
+            return "azure", {"container": container}
+        
+        elif storage_type == "gcs":
+            bucket = storage_config.get("bucket", "")
+            return "gcs", {"bucket": bucket}
+        
+        elif storage_type == "sftp":
+            host = storage_config.get("host", "")
+            path = storage_config.get("path", "")
+            return "sftp", {"host": host, "path": path}
+        
+        elif storage_type == "rclone":
+            remote_path = storage_config.get("remotePath", "")
+            return "rclone", {"remotePath": remote_path}
+        
+        else:
+            # Fallback for unknown types
+            return storage_type, storage_config
 
     def _export_kopia_config(self, out_dir: Path) -> None:
         try:
@@ -431,11 +458,21 @@ class DisasterRecoveryManager:
                 'test -f "$GOOGLE_APPLICATION_CREDENTIALS" || { echo "Missing service account JSON"; exit 1; }',
                 'kopia repository connect gcs --bucket="$GCS_BUCKET"',
             ]
+        elif repo_type == "rclone":
+            # Rclone requires special handling
+            remote_path = conn.get("remotePath", "")
+            lines += [
+                f'# Rclone repository: {remote_path}',
+                'echo "Ensure rclone.conf is restored above and rclone remote is configured."',
+                f'kopia repository connect rclone --remote-path="{remote_path}"',
+            ]
         else:
             # generic / custom schemes: let user connect manually
             lines += [
+                f'echo "Repository type: {repo_type}"',
                 'echo "Unsupported auto-connect for this repository scheme. Connect manually, e.g.:"',
                 'echo "  kopia repository connect <provider> <options>"',
+                f'echo "Connection info: {json.dumps(conn)}"',
                 "exit 1",
             ]
 
