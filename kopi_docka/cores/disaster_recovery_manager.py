@@ -221,6 +221,25 @@ class DisasterRecoveryManager:
         repo_path = kopia_params
         repo_type, connection = self._detect_repo_connection(repo_path)
 
+        # Collect file paths for smart restore
+        paths = {}
+        
+        # Config file
+        if self.config.config_file:
+            paths["config"] = str(Path(self.config.config_file).resolve())
+        
+        # Rclone config
+        rclone_path = self._find_rclone_config()
+        if rclone_path:
+            paths["rclone"] = str(rclone_path)
+        
+        # Password file (if configured)
+        password_file = self.config.get("kopia", "password_file", fallback=None)
+        if password_file:
+            password_path = Path(password_file)
+            if password_path.exists():
+                paths["password"] = str(password_path.resolve())
+
         return {
             "created_at": datetime.now().isoformat(),
             "kopi_docka_version": VERSION,
@@ -237,6 +256,7 @@ class DisasterRecoveryManager:
             "kopia_version": self._get_kopia_version(),
             "docker_version": self._get_docker_version(),
             "python_version": self._get_python_version(),
+            "paths": paths,
         }
 
     def _detect_repo_connection(self, repo_path: str) -> Tuple[str, Dict[str, Any]]:
@@ -303,31 +323,76 @@ class DisasterRecoveryManager:
             '  echo "NOTE: kopi-docka CLI not found. Install it according to your deployment (package/source).";',
             "fi",
             "",
-            "# Restore configuration",
-            'echo "Restoring configuration /etc/kopi-docka.conf..."',
-            "mkdir -p /etc",
-            'cp "$(dirname "$0")/kopi-docka.conf" /etc/kopi-docka.conf',
+            "# Helper: Get path from recovery-info.json",
+            "get_path() {",
+            '    python3 -c "import json, sys; d=json.load(open(\'$(dirname \\"$0\\")/recovery-info.json\')); print(d.get(\'paths\', {}).get(\'$1\', \'\'))" 2>/dev/null || echo ""',
+            "}",
             "",
-            "# Restore rclone.conf (idempotent)",
+            "# Helper: Safe restore with interactive backup",
+            "safe_restore() {",
+            '    local SOURCE="$1"',
+            '    local DEST="$2"',
+            '    local DESC="${3:-File}"',
+            "    ",
+            '    echo ""',
+            '    echo "📄 Restoring $DESC..."',
+            "    ",
+            '    if [ ! -f "$SOURCE" ]; then',
+            '        echo "  ⚠️  Source not in bundle: $SOURCE"',
+            "        return 1",
+            "    fi",
+            "    ",
+            '    if [ ! -f "$DEST" ]; then',
+            '        echo "  → Target does not exist: $DEST"',
+            '        mkdir -p "$(dirname "$DEST")"',
+            '        cp "$SOURCE" "$DEST"',
+            '        echo "  ✅ Created: $DEST"',
+            "        return 0",
+            "    fi",
+            "    ",
+            '    if cmp -s "$SOURCE" "$DEST"; then',
+            '        echo "  ℹ️  Target is identical. Skipping."',
+            "        return 0",
+            "    fi",
+            "    ",
+            '    echo "  ⚠️  Target exists and differs: $DEST"',
+            '    read -p "  Overwrite (backup will be created)? [y/N]: " -n 1 -r',
+            "    echo",
+            "    ",
+            '    if [[ $REPLY =~ ^[Yy]$ ]]; then',
+            '        local BACKUP="${DEST}.bak.$(date +%s)"',
+            '        cp "$DEST" "$BACKUP"',
+            '        echo "  📦 Backup: $BACKUP"',
+            '        cp "$SOURCE" "$DEST"',
+            '        echo "  ✅ Restored: $DEST"',
+            "    else",
+            '        echo "  ⏭️  Skipped by user."',
+            "    fi",
+            "}",
+            "",
+            "# Restore main configuration",
+            'TARGET_CONF=$(get_path "config")',
+            '[ -z "$TARGET_CONF" ] && TARGET_CONF="/etc/kopi-docka.conf"',
+            'safe_restore "$(dirname "$0")/kopi-docka.conf" "$TARGET_CONF" "Kopi-Docka Configuration"',
+            "",
+            "# Restore rclone.conf (if present)",
             'if [ -f "$(dirname "$0")/rclone.conf" ]; then',
-            '    echo "📦 Found rclone.conf in recovery bundle."',
-            '    TARGET_CONF="/root/.config/rclone/rclone.conf"',
-            '    ',
-            '    if [ -f "$TARGET_CONF" ]; then',
-            '        echo "⚠️  Target $TARGET_CONF already exists."',
-            '        echo "   -> SKIPPING restore to preserve existing configuration."',
-            '    else',
-            '        echo "   -> Restoring rclone.conf to $TARGET_CONF..."',
-            '        mkdir -p "$(dirname "$TARGET_CONF")"',
-            '        cp "$(dirname "$0")/rclone.conf" "$TARGET_CONF"',
-            '        echo "   ✅ Success."',
-            '    fi',
+            '    TARGET_RCLONE=$(get_path "rclone")',
+            '    [ -z "$TARGET_RCLONE" ] && TARGET_RCLONE="/root/.config/rclone/rclone.conf"',
+            '    safe_restore "$(dirname "$0")/rclone.conf" "$TARGET_RCLONE" "Rclone Configuration"',
             "fi",
             "",
-            "# Read Kopia password",
+            "# Restore password file (if configured)",
+            'TARGET_PASS=$(get_path "password")',
+            'if [ -n "$TARGET_PASS" ] && [ -f "$(dirname "$0")/kopia-password.txt" ]; then',
+            '    safe_restore "$(dirname "$0")/kopia-password.txt" "$TARGET_PASS" "Repository Password File"',
+            "fi",
+            "",
+            "# Read Kopia password for immediate use",
             'export KOPIA_PASSWORD="$(cat "$(dirname "$0")/kopia-password.txt")"',
             'if [ -z "$KOPIA_PASSWORD" ]; then echo "ERROR: Empty KOPIA_PASSWORD"; exit 1; fi',
             "",
+            'echo ""',
             'echo "Connecting to Kopia repository..."',
         ]
 
@@ -381,11 +446,23 @@ class DisasterRecoveryManager:
             "",
             'echo ""',
             'echo "========================================"',
-            'echo "Repository connected. Next steps:"',
-            'echo "  * List units:   kopi-docka list --units"',
-            'echo "  * Run restore:  kopi-docka restore"',
+            'echo "✅ Recovery Complete!"',
             'echo "========================================"',
             "",
+            'echo "⚠️  IMPORTANT: Automation is NOT active yet."',
+            'echo ""',
+            'echo "To restore automated backups, run:"',
+            'echo "  sudo kopi-docka admin service write-units"',
+            'echo "  sudo systemctl enable --now kopi-docka.timer"',
+            'echo ""',
+            'echo "To verify the schedule:"',
+            'echo "  systemctl list-timers | grep kopi-docka"',
+            'echo ""',
+            'echo "Next steps:"',
+            'echo "  * Verify repository: kopi-docka admin repo status"',
+            'echo "  * List snapshots:    kopi-docka admin snapshot list --snapshots"',
+            'echo "  * Start restore:     kopi-docka restore"',
+            'echo ""',
         ]
 
         script = "\n".join(lines)
