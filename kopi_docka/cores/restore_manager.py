@@ -895,11 +895,21 @@ class RestoreManager:
             console.print(f"   • {file.name}")
         
         # Step 3: Ask user - Copy?
-        copy = Prompt.ask(
-            "\n🎯 Copy files to deployment directory?",
-            choices=["yes", "no", "q"],
-            default="yes"
-        )
+        while True:
+            copy = input("\n🎯 Copy files to deployment directory? [yes/no/q] (yes): ").strip().lower()
+            if not copy:
+                copy = "yes"
+            # Normalize input
+            if copy in ("y", "yes"):
+                copy = "yes"
+                break
+            elif copy in ("n", "no"):
+                copy = "no"
+                break
+            elif copy == "q":
+                break
+            else:
+                console.print("[yellow]Please enter 'yes', 'no', or 'q'[/yellow]")
         
         if copy == "q":
             return
@@ -919,15 +929,18 @@ class RestoreManager:
             )
             target_path = Path(target).expanduser()
             
-            # Check write permissions
-            parent_dir = target_path.parent if not target_path.exists() else target_path
-            if not os.access(parent_dir, os.W_OK):
-                console.print(f"[red]✗ No write permission for {parent_dir}[/red]")
-                console.print("Try running with sudo or choose different directory.")
-                retry = Prompt.ask("Try different directory?", choices=["yes", "no"], default="yes")
-                if retry == "no":
-                    return
-                continue
+            # Check write permissions (skip if running with sudo)
+            running_with_sudo = os.environ.get('SUDO_USER') is not None
+            
+            if not running_with_sudo:
+                parent_dir = target_path.parent if not target_path.exists() else target_path
+                if not os.access(parent_dir, os.W_OK):
+                    console.print(f"[red]✗ No write permission for {parent_dir}[/red]")
+                    console.print("Try running with sudo or choose different directory.")
+                    retry = Prompt.ask("Try different directory?", choices=["yes", "no"], default="yes")
+                    if retry == "no":
+                        return
+                    continue
             
             # Create directory if needed
             try:
