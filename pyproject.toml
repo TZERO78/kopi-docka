@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kopi-docka"
-version = "3.3.1"
+version = "3.4.0"
 description = "Robust cold backups for Docker environments using Kopia"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -53,7 +53,7 @@ Issues = "https://github.com/TZERO78/kopi-docka/issues"
 kopi-docka = "kopi_docka.__main__:main"
 
 [tool.setuptools]
-packages = ["kopi_docka", "kopi_docka.helpers", "kopi_docka.cores", "kopi_docka.commands", "kopi_docka.backends"]
+packages = ["kopi_docka", "kopi_docka.helpers", "kopi_docka.cores", "kopi_docka.commands", "kopi_docka.commands.advanced", "kopi_docka.backends"]
 
 [tool.setuptools.package-data]
 kopi_docka = [
