@@ -158,7 +158,7 @@ docker compose up -d
 
 **Clarity:**
 ```bash
-kopi-docka list --units
+kopi-docka admin snapshot list
 
 Backup Units:
   - wordpress (Stack, 3 containers, 2 volumes)
@@ -351,7 +351,7 @@ Kopi-Docka integrates Tailscale discovery directly into the setup process and au
 #### How It Works
 
 ```bash
-sudo kopi-docka new-config
+sudo kopi-docka admin config new
 # → Select backend: Tailscale
 # → Automatic peer discovery
 # → Displays disk space, latency, online status
@@ -464,7 +464,7 @@ Kopi-Docka is designed from the ground up for production use as a systemd servic
 
 **Systemd Daemon Mode:**
 ```bash
-sudo kopi-docka daemon
+sudo kopi-docka admin service daemon
 ```
 
 The daemon uses systemd-specific features:
@@ -478,7 +478,7 @@ The daemon uses systemd-specific features:
 **Generate unit files:**
 ```bash
 # Creates service + timer in /etc/systemd/system/
-sudo kopi-docka write-units
+sudo kopi-docka admin service write-units
 
 # Generates:
 # - kopi-docka.service (daemon)
@@ -642,11 +642,11 @@ sudo systemctl enable --now kopi-docka.timer
 **Mode 2: Internal Interval (Simple, less flexible)**
 ```bash
 # Daemon runs and backs up every N minutes
-sudo kopi-docka daemon --interval-minutes 1440  # Daily
+sudo kopi-docka admin service daemon --interval-minutes 1440  # Daily
 
 # In systemd unit:
 [Service]
-ExecStart=/usr/bin/env kopi-docka daemon --interval-minutes 1440
+ExecStart=/usr/bin/env kopi-docka admin service daemon --interval-minutes 1440
 ```
 
 **Mode 3: One-Shot (For cron or manual triggers)**
@@ -684,6 +684,96 @@ sudo systemctl start kopi-docka-backup.service
 - **RuntimeDirectory:** `/run/kopi-docka` (auto-cleanup)
 - **Security:** Minimal privileges, process isolation
 - **Locking:** fcntl-based PID lock
+
+---
+
+## What's New in v3.4.0
+
+### 🎯 Simplified CLI Structure ("The Big 6")
+**Cleaner command organization for better user experience**
+
+Kopi-Docka v3.4.0 introduces a simplified CLI with **"The Big 6"** top-level commands and an `admin` subcommand for advanced operations.
+
+**Top-Level Commands:**
+```bash
+kopi-docka setup              # Complete setup wizard
+kopi-docka backup             # Run backup
+kopi-docka restore            # Interactive restore wizard
+kopi-docka disaster-recovery  # Create DR bundle
+kopi-docka dry-run            # Simulate backup (preview)
+kopi-docka doctor             # NEW: System health check
+kopi-docka version            # Show version
+```
+
+**Admin Subcommands (Advanced):**
+```bash
+kopi-docka admin config show|new|edit|reset
+kopi-docka admin repo init|status|maintenance|change-password
+kopi-docka admin service daemon|write-units
+kopi-docka admin system install-deps|show-deps
+kopi-docka admin snapshot list|estimate-size
+```
+
+**Why This Change?**
+- Reduced cognitive load for new users
+- Most common operations are top-level
+- Advanced operations organized in logical groups
+- Cleaner `--help` output
+
+---
+
+### 🩺 New Doctor Command
+**Comprehensive system health check**
+
+The new `doctor` command merges `check`, `status`, and `repo-status` into a single health check:
+
+```bash
+sudo kopi-docka doctor
+
+# Checks:
+# 1. System Dependencies (Kopia, Docker)
+# 2. Configuration Status
+# 3. Backend Connectivity
+# 4. Repository Status
+```
+
+Output includes:
+- Dependency status (installed/missing)
+- Config file location and validity
+- Password configuration status
+- Backend type and connectivity
+- Repository connection and snapshot count
+
+---
+
+### 📁 Admin Subcommand Groups
+**Organized advanced commands**
+
+| Group | Commands | Purpose |
+|-------|----------|---------|
+| `admin config` | show, new, edit, reset | Configuration management |
+| `admin repo` | init, status, maintenance, change-password, etc. | Repository management |
+| `admin service` | daemon, write-units | Systemd integration |
+| `admin system` | install-deps, show-deps | Dependency management |
+| `admin snapshot` | list, estimate-size | Snapshot & unit management |
+
+---
+
+### 📋 Migration from v3.3
+
+Most commands still work, just moved under `admin`:
+
+| Old (v3.3) | New (v3.4) |
+|------------|------------|
+| `new-config` | `admin config new` |
+| `show-config` | `admin config show` |
+| `init` | `admin repo init` |
+| `repo-status` | `admin repo status` |
+| `check` | `doctor` |
+| `list` | `admin snapshot list` |
+| `write-units` | `admin service write-units` |
+
+**Unchanged top-level commands:** `setup`, `backup`, `restore`, `disaster-recovery`, `dry-run`, `version`
 
 ---
 

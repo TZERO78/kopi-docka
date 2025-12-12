@@ -2,71 +2,127 @@
 
 # Usage
 
+## CLI Structure (v3.4+)
+
+Kopi-Docka features a simplified CLI with **"The Big 6"** top-level commands and an `admin` subcommand for advanced operations.
+
+```
+kopi-docka
+├── setup              # Complete setup wizard
+├── backup             # Run backup
+├── restore            # Interactive restore wizard
+├── disaster-recovery  # Create DR bundle
+├── dry-run            # Simulate backup (preview)
+├── doctor             # System health check
+├── version            # Show version
+└── admin              # Advanced administration
+    ├── config         # Configuration management
+    │   ├── show
+    │   ├── new
+    │   ├── edit
+    │   └── reset
+    ├── repo           # Repository management
+    │   ├── init
+    │   ├── status
+    │   ├── maintenance
+    │   ├── change-password
+    │   └── ...
+    ├── service        # Systemd service
+    │   ├── daemon
+    │   └── write-units
+    ├── system         # Dependencies
+    │   ├── install-deps
+    │   └── show-deps
+    └── snapshot       # Snapshots & units
+        ├── list
+        └── estimate-size
+```
+
+---
+
 ## CLI Commands Reference
 
-### Setup & Configuration
+### Top-Level Commands ("The Big 6")
 
 | Command | Description |
 |---------|-------------|
 | `setup` | **Master setup wizard** - Complete initial setup (Deps + Config + Init) |
-| `new-config` | **Config wizard** - Interactive backend selection & config creation |
-| `show-config` | Show config (secrets masked) |
-| `edit-config` | Open config in editor ($EDITOR or nano) |
-| `reset-config` | ⚠️ Reset config (new password!) |
-| `change-password` | Safely change repository password |
-| `status` | **Show backend status** (disk space, connectivity, ping) |
-
-### System & Dependencies
-| Command | Description |
-|---------|-------------|
-| `check` | Verify all dependencies |
-| `check --verbose` | Show detailed system info |
-| `install-deps` | Auto-install missing dependencies |
-| `show-deps` | Show manual installation guide |
+| `backup` | **Full backup** - All units with selected scope |
+| `restore` | **Interactive restore wizard** |
+| `disaster-recovery` | Create encrypted DR bundle |
+| `dry-run` | Simulate backup (no changes, preview) |
+| `doctor` | **System health check** - Dependencies, config, backend, repository |
 | `version` | Show Kopi-Docka version |
 
-### Repository
+### Admin Config Commands
+
 | Command | Description |
 |---------|-------------|
-| `init` | Initialize/connect repository |
-| `repo-status` | Show repository status |
-| `repo-which-config` | Show active Kopia config file |
-| `repo-maintenance` | Run repository maintenance (cleanup/optimize) |
+| `admin config show` | Show config (secrets masked) |
+| `admin config new` | **Config wizard** - Interactive backend & config creation |
+| `admin config edit` | Open config in editor ($EDITOR or nano) |
+| `admin config reset` | ⚠️ Reset config (new password!) |
 
-### Backup & Restore
+### Admin Repo Commands
+
 | Command | Description |
 |---------|-------------|
-| `list --units` | Show backup units (containers/stacks) |
-| `list --snapshots` | Show all snapshots in repo |
-| `dry-run` | Simulate backup (no changes) |
-| `dry-run --unit NAME` | Simulate specific unit |
-| `estimate-size` | Calculate backup size |
-| `backup` | **Full backup** (all units, default scope: standard) |
-| `backup --scope minimal` | Backup volumes only (fast) |
-| `backup --scope standard` | Backup volumes + recipes + networks (default) |
-| `backup --scope full` | Complete system backup (everything) |
-| `backup --unit NAME` | Backup specific unit(s) only |
-| `backup --update-recovery` | Update DR bundle after backup |
-| `restore` | **Interactive restore wizard** |
-| `disaster-recovery` | Create DR bundle manually |
+| `admin repo init` | Initialize/connect repository |
+| `admin repo status` | Show repository status |
+| `admin repo maintenance` | Run repository maintenance (cleanup/optimize) |
+| `admin repo change-password` | Safely change repository password |
+| `admin repo which-config` | Show active Kopia config file |
+| `admin repo set-default` | Set as default Kopia config |
+| `admin repo selftest` | Create ephemeral test repository |
+| `admin repo init-path PATH` | Create repository at specific path |
 
-### Service & Automation
+### Admin Service Commands
+
 | Command | Description |
 |---------|-------------|
-| `daemon` | Run as systemd daemon |
-| `write-units` | Generate systemd unit files |
+| `admin service daemon` | Run as systemd daemon |
+| `admin service write-units` | Generate systemd unit files |
 
-**💡 All commands require `sudo` (except: `version`, `show-deps`, `show-config`)**
+### Admin System Commands
+
+| Command | Description |
+|---------|-------------|
+| `admin system install-deps` | Auto-install missing dependencies |
+| `admin system show-deps` | Show manual installation guide |
+
+### Admin Snapshot Commands
+
+| Command | Description |
+|---------|-------------|
+| `admin snapshot list` | Show backup units (containers/stacks) |
+| `admin snapshot list --snapshots` | Show all snapshots in repo |
+| `admin snapshot estimate-size` | Calculate backup size |
+
+### Backup Options
+
+| Option | Description |
+|--------|-------------|
+| `--scope minimal` | Volumes only (fast) |
+| `--scope standard` | Volumes + recipes + networks (default) |
+| `--scope full` | Complete system backup |
+| `--unit NAME` | Backup specific unit(s) only |
+| `--update-recovery` | Update DR bundle after backup |
+| `--dry-run` | Simulate only (no changes) |
+
+**💡 Most commands require `sudo` (except: `version`, `doctor`)**
 
 ---
 
-## Usage
+## Usage Examples
 
 ### Basic Operations
 
 ```bash
+# System health check
+sudo kopi-docka doctor
+
 # What will be backed up?
-sudo kopi-docka list --units
+sudo kopi-docka admin snapshot list
 
 # Test run (no changes)
 sudo kopi-docka dry-run
@@ -78,13 +134,10 @@ sudo kopi-docka backup
 sudo kopi-docka backup --unit webapp --unit database
 
 # Repository status
-sudo kopi-docka repo-status
-
-# Backend status (disk space, connectivity)
-sudo kopi-docka status
+sudo kopi-docka admin repo status
 
 # Show all snapshots
-sudo kopi-docka list --snapshots
+sudo kopi-docka admin snapshot list --snapshots
 ```
 
 ### Disaster Recovery
@@ -138,11 +191,9 @@ docker compose up -d
 
 ### Automatic Backups (systemd)
 
-**For detailed info see README.md - Systemd Integration section**
-
 ```bash
 # Generate systemd units
-sudo kopi-docka write-units
+sudo kopi-docka admin service write-units
 
 # Enable timer (daily 02:00)
 sudo systemctl enable --now kopi-docka.timer
@@ -214,6 +265,39 @@ sudo kopi-docka backup                      # Separate config
 - ✅ Different repositories, schedules, retention policies
 - ✅ Both can run simultaneously
 - ✅ Kopia remains unmodified - we're just a wrapper
+
+---
+
+## Migration from v3.3 to v3.4
+
+Most old commands still work but are now under `admin`:
+
+| Old Command (v3.3) | New Command (v3.4) |
+|--------------------|-------------------|
+| `new-config` | `admin config new` |
+| `show-config` | `admin config show` |
+| `edit-config` | `admin config edit` |
+| `reset-config` | `admin config reset` |
+| `change-password` | `admin repo change-password` |
+| `init` | `admin repo init` |
+| `repo-status` | `admin repo status` |
+| `repo-maintenance` | `admin repo maintenance` |
+| `check` | `doctor` |
+| `status` | `doctor` (combined) |
+| `install-deps` | `admin system install-deps` |
+| `show-deps` | `admin system show-deps` |
+| `list` | `admin snapshot list` |
+| `estimate-size` | `admin snapshot estimate-size` |
+| `daemon` | `admin service daemon` |
+| `write-units` | `admin service write-units` |
+
+**Top-level commands unchanged:**
+- `setup`
+- `backup`
+- `restore`
+- `disaster-recovery`
+- `dry-run`
+- `version`
 
 ---
 

@@ -61,8 +61,11 @@ The wizard guides you through:
 ### First Backup
 
 ```bash
+# System health check
+sudo kopi-docka doctor
+
 # List backup units (containers/stacks)
-sudo kopi-docka list --units
+sudo kopi-docka admin snapshot list
 
 # Test run (no changes)
 sudo kopi-docka dry-run
@@ -81,7 +84,7 @@ sudo kopi-docka disaster-recovery
 
 ```bash
 # Generate systemd units
-sudo kopi-docka write-units
+sudo kopi-docka admin service write-units
 
 # Enable daily backups (02:00 default)
 sudo systemctl enable --now kopi-docka.timer
@@ -101,7 +104,7 @@ sudo systemctl status kopi-docka.timer
 Automatically recognizes Docker Compose stacks and backs them up as atomic units with docker-compose.yml included.
 
 ```bash
-kopi-docka list --units
+kopi-docka admin snapshot list
 
 Backup Units:
   - wordpress (Stack, 3 containers, 2 volumes)
@@ -135,14 +138,20 @@ Production-ready daemon with sd_notify, watchdog monitoring, PID locking, and se
 
 ---
 
-## What's New in v3.3.0
+## What's New in v3.4.0
 
-- **🎯 Backup Scope Selection** - minimal/standard/full scopes
-- **🌐 Docker Network Backup** - Complete IPAM configuration
-- **🔧 Pre/Post Backup Hooks** - Custom scripts for maintenance mode
-- **⚠️ Conflict Detection** - Interactive restore with conflict resolution
+- **🎯 Simplified CLI** - "The Big 6" top-level commands + admin subgroup
+- **🩺 Doctor Command** - Comprehensive system health check
+- **📁 Admin Subcommands** - Organized advanced commands (config, repo, service, system, snapshot)
+- **🧹 Cleaner UX** - Reduced cognitive load for new users
 
-**[See what's new →](docs/FEATURES.md#whats-new-in-v330)**
+**Previous (v3.3.0):**
+- Backup Scope Selection (minimal/standard/full)
+- Docker Network Backup
+- Pre/Post Backup Hooks
+- Conflict Detection
+
+**[See what's new →](docs/FEATURES.md#whats-new-in-v340)**
 
 ---
 
@@ -169,27 +178,40 @@ Production-ready daemon with sd_notify, watchdog monitoring, PID locking, and se
 
 ## CLI Commands
 
-### Setup & Configuration
-```bash
-sudo kopi-docka setup              # Master setup wizard
-sudo kopi-docka new-config         # Config wizard only
-sudo kopi-docka status             # Backend status (disk, connectivity)
-```
+Kopi-Docka v3.4+ features a simplified CLI with **"The Big 6"** top-level commands and an `admin` subcommand for advanced operations.
 
-### Backup & Restore
+### Top-Level Commands ("The Big 6")
 ```bash
+sudo kopi-docka setup              # Complete setup wizard
 sudo kopi-docka backup             # Full backup (standard scope)
-sudo kopi-docka backup --scope minimal    # Volumes only
-sudo kopi-docka backup --scope full       # Complete system
 sudo kopi-docka restore            # Interactive restore wizard
 sudo kopi-docka disaster-recovery  # Create DR bundle
+sudo kopi-docka dry-run            # Simulate backup (preview)
+sudo kopi-docka doctor             # System health check
+kopi-docka version                 # Show version
 ```
 
-### Repository & Automation
+### Admin Commands (Advanced)
 ```bash
-sudo kopi-docka repo-status        # Repository info
-sudo kopi-docka write-units        # Generate systemd units
-sudo kopi-docka daemon             # Run as systemd daemon
+# Configuration
+sudo kopi-docka admin config show      # Show config
+sudo kopi-docka admin config new       # Create new config
+sudo kopi-docka admin config edit      # Edit config
+
+# Repository
+sudo kopi-docka admin repo init        # Initialize repository
+sudo kopi-docka admin repo status      # Repository info
+sudo kopi-docka admin repo maintenance # Run maintenance
+
+# Snapshots & Units
+sudo kopi-docka admin snapshot list          # List backup units
+sudo kopi-docka admin snapshot list --snapshots  # List all snapshots
+sudo kopi-docka admin snapshot estimate-size # Estimate backup size
+
+# System & Service
+sudo kopi-docka admin system install-deps    # Install dependencies
+sudo kopi-docka admin service write-units    # Generate systemd units
+sudo kopi-docka admin service daemon         # Run as daemon
 ```
 
 **[Complete CLI reference →](docs/USAGE.md#cli-commands-reference)**
@@ -301,6 +323,6 @@ Copyright (c) 2025 Markus F. (TZERO78)
 
 ---
 
-**Current Version:** v3.3.0
+**Current Version:** v3.4.0
 
-**[View changelog](docs/FEATURES.md#whats-new-in-v330)** | **[Contributing](docs/DEVELOPMENT.md#contributing)** | **[Troubleshooting](docs/TROUBLESHOOTING.md)**
+**[View changelog](docs/FEATURES.md#whats-new-in-v340)** | **[Contributing](docs/DEVELOPMENT.md#contributing)** | **[Troubleshooting](docs/TROUBLESHOOTING.md)**
