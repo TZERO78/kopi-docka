@@ -1,6 +1,6 @@
 # Kopi-Docka
 
-> **Robust Cold Backups for Docker Environments using Kopia**
+> **Robust Cold Backup for Docker Environments using Kopia**
 
 Kopi-Docka is a Python-based backup tool for Docker containers and their volumes. Features controlled downtime windows, encrypted snapshots, and automatic disaster recovery bundles.
 
