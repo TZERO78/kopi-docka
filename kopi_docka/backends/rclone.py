@@ -54,29 +54,55 @@ class RcloneBackend(BackendBase):
     def description(self) -> str:
         return "Use rclone to connect to any cloud storage (OneDrive, Dropbox, Google Drive, etc.)"
 
+    def _get_config_candidates(self) -> tuple[Optional[Path], Optional[Path], Optional[str]]:
+        """
+        Find rclone config file candidates with PermissionError handling.
+        
+        Returns:
+            Tuple of (root_config_path, user_config_path, sudo_user_name)
+            - root_config_path: Path object for root config (or None if not accessible)
+            - user_config_path: Path object for user config (or None if not available)
+            - sudo_user_name: Name of the SUDO_USER (or None)
+        """
+        root_config = Path("/root/.config/rclone/rclone.conf")
+        sudo_user = os.environ.get('SUDO_USER')
+        user_config = Path(f"/home/{sudo_user}/.config/rclone/rclone.conf") if sudo_user else None
+        
+        # Check root config with PermissionError handling
+        root_config_accessible = None
+        try:
+            if root_config.exists():
+                root_config_accessible = root_config
+        except PermissionError:
+            pass
+        
+        # Check user config with PermissionError handling
+        user_config_accessible = None
+        if user_config:
+            try:
+                if user_config.exists():
+                    user_config_accessible = user_config
+            except PermissionError:
+                pass
+        
+        return (root_config_accessible, user_config_accessible, sudo_user)
+
     def _find_rclone_config(self) -> Optional[str]:
         """
-        Find rclone config file with sudo-awareness.
-
-        Checks in order:
-        1. /root/.config/rclone/rclone.conf
-        2. /home/{SUDO_USER}/.config/rclone/rclone.conf
+        Find rclone config file with sudo-awareness (legacy method).
+        
+        Uses _get_config_candidates() internally. Kept for backward compatibility.
 
         Returns:
             Path to config file if found, None otherwise
         """
-        # Check root config first
-        root_config = Path("/root/.config/rclone/rclone.conf")
-        if root_config.exists():
+        root_config, user_config, _ = self._get_config_candidates()
+        
+        if root_config:
             return str(root_config)
-
-        # Check SUDO_USER's config
-        sudo_user = os.environ.get('SUDO_USER')
-        if sudo_user:
-            user_config = Path(f"/home/{sudo_user}/.config/rclone/rclone.conf")
-            if user_config.exists():
-                return str(user_config)
-
+        if user_config:
+            return str(user_config)
+        
         return None
 
     def _test_rclone_connection(self, remote: str, path: str, config_path: Optional[str] = None) -> tuple:
@@ -134,32 +160,30 @@ class RcloneBackend(BackendBase):
         typer.echo("")
 
         # Step 2: Sudo-aware config detection
+        root_config, user_config, sudo_user = self._get_config_candidates()
         rclone_config: Optional[str] = None
-        root_config = Path("/root/.config/rclone/rclone.conf")
-        sudo_user = os.environ.get('SUDO_USER')
-        user_config = Path(f"/home/{sudo_user}/.config/rclone/rclone.conf") if sudo_user else None
 
         typer.echo("Looking for rclone configuration...")
 
-        if root_config.exists():
+        if root_config:
             typer.secho(f"✓ Found config: {root_config}", fg=typer.colors.GREEN)
             rclone_config = str(root_config)
-        elif user_config and user_config.exists():
+        elif user_config:
             typer.secho(f"Found config in user home: {user_config}", fg=typer.colors.YELLOW)
             typer.echo(f"  (You're running as root via sudo, but rclone was configured as '{sudo_user}')")
             typer.echo("")
             if typer.confirm(f"Use config from /home/{sudo_user}?", default=True):
                 rclone_config = str(user_config)
                 typer.secho(f"✓ Using: {rclone_config}", fg=typer.colors.GREEN)
-            else:
-                typer.echo("Skipping user config.")
-        else:
+        
+        # If no config was selected, create one
+        if not rclone_config:
             typer.secho("No rclone configuration found!", fg=typer.colors.YELLOW)
             typer.echo("")
             typer.echo("Checked locations:")
-            typer.echo(f"  - {root_config}")
-            if user_config:
-                typer.echo(f"  - {user_config}")
+            typer.echo("  - /root/.config/rclone/rclone.conf")
+            if sudo_user:
+                typer.echo(f"  - /home/{sudo_user}/.config/rclone/rclone.conf")
             typer.echo("")
 
             if typer.confirm("Run 'rclone config' to create a new configuration?", default=True):
@@ -170,7 +194,13 @@ class RcloneBackend(BackendBase):
 
                 try:
                     subprocess.run(["rclone", "config"], check=True)
-                    rclone_config = str(root_config) if root_config.exists() else None
+                    # Re-check for config after creation
+                    root_config_new = Path("/root/.config/rclone/rclone.conf")
+                    try:
+                        if root_config_new.exists():
+                            rclone_config = str(root_config_new)
+                    except PermissionError:
+                        pass
                 except subprocess.CalledProcessError:
                     typer.secho("rclone config failed!", fg=typer.colors.RED)
                     raise SystemExit(1)
