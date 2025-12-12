@@ -21,8 +21,11 @@ Uses Kopia's built-in rclone support to connect to any cloud storage
 that rclone supports (OneDrive, Dropbox, Google Drive, etc.).
 """
 
+import os
+import shutil
+import subprocess
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 import typer
 
@@ -51,10 +54,64 @@ class RcloneBackend(BackendBase):
     def description(self) -> str:
         return "Use rclone to connect to any cloud storage (OneDrive, Dropbox, Google Drive, etc.)"
 
+    def _find_rclone_config(self) -> Optional[str]:
+        """
+        Find rclone config file with sudo-awareness.
+
+        Checks in order:
+        1. /root/.config/rclone/rclone.conf
+        2. /home/{SUDO_USER}/.config/rclone/rclone.conf
+
+        Returns:
+            Path to config file if found, None otherwise
+        """
+        # Check root config first
+        root_config = Path("/root/.config/rclone/rclone.conf")
+        if root_config.exists():
+            return str(root_config)
+
+        # Check SUDO_USER's config
+        sudo_user = os.environ.get('SUDO_USER')
+        if sudo_user:
+            user_config = Path(f"/home/{sudo_user}/.config/rclone/rclone.conf")
+            if user_config.exists():
+                return str(user_config)
+
+        return None
+
+    def _test_rclone_connection(self, remote: str, path: str, config_path: Optional[str] = None) -> tuple:
+        """
+        Test rclone connection by listing directories.
+
+        Args:
+            remote: Rclone remote name
+            path: Path on the remote
+            config_path: Optional path to rclone config file
+
+        Returns:
+            Tuple of (success: bool, stderr: str)
+        """
+        cmd = ["rclone", "lsd", f"{remote}:{path}"]
+        if config_path:
+            cmd.extend(["--config", config_path])
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            return (result.returncode == 0, result.stderr)
+        except subprocess.TimeoutExpired:
+            return (False, "Connection timed out after 30 seconds")
+        except Exception as e:
+            return (False, str(e))
+
     def configure(self) -> dict:
         """
-        Configure Rclone backend.
-        
+        Configure Rclone backend with sudo-aware config detection and connection testing.
+
         Returns:
             Configuration dictionary with kopia_params
         """
@@ -62,55 +119,135 @@ class RcloneBackend(BackendBase):
         typer.echo("Rclone Backend Configuration")
         typer.echo("=" * 60)
         typer.echo("")
-        typer.echo("Prerequisites:")
-        typer.echo("  1. Rclone must be installed: https://rclone.org/install/")
-        typer.echo("  2. Configure your remote: rclone config")
-        typer.echo("  3. Test connection: rclone ls <remote>:")
+
+        # Step 1: Check if rclone is installed
+        if not shutil.which("rclone"):
+            typer.secho("ERROR: rclone is not installed!", fg=typer.colors.RED, bold=True)
+            typer.echo("")
+            typer.echo("Please install rclone first:")
+            typer.echo("  curl https://rclone.org/install.sh | sudo bash")
+            typer.echo("")
+            typer.echo("Or visit: https://rclone.org/install/")
+            raise SystemExit(1)
+
+        typer.secho("✓ rclone is installed", fg=typer.colors.GREEN)
         typer.echo("")
-        
-        # Get rclone remote name
+
+        # Step 2: Sudo-aware config detection
+        rclone_config: Optional[str] = None
+        root_config = Path("/root/.config/rclone/rclone.conf")
+        sudo_user = os.environ.get('SUDO_USER')
+        user_config = Path(f"/home/{sudo_user}/.config/rclone/rclone.conf") if sudo_user else None
+
+        typer.echo("Looking for rclone configuration...")
+
+        if root_config.exists():
+            typer.secho(f"✓ Found config: {root_config}", fg=typer.colors.GREEN)
+            rclone_config = str(root_config)
+        elif user_config and user_config.exists():
+            typer.secho(f"Found config in user home: {user_config}", fg=typer.colors.YELLOW)
+            typer.echo(f"  (You're running as root via sudo, but rclone was configured as '{sudo_user}')")
+            typer.echo("")
+            if typer.confirm(f"Use config from /home/{sudo_user}?", default=True):
+                rclone_config = str(user_config)
+                typer.secho(f"✓ Using: {rclone_config}", fg=typer.colors.GREEN)
+            else:
+                typer.echo("Skipping user config.")
+        else:
+            typer.secho("No rclone configuration found!", fg=typer.colors.YELLOW)
+            typer.echo("")
+            typer.echo("Checked locations:")
+            typer.echo(f"  - {root_config}")
+            if user_config:
+                typer.echo(f"  - {user_config}")
+            typer.echo("")
+
+            if typer.confirm("Run 'rclone config' to create a new configuration?", default=True):
+                typer.echo("")
+                typer.echo("Starting rclone configuration wizard...")
+                typer.echo("(This will create a config in /root/.config/rclone/)")
+                typer.echo("")
+
+                try:
+                    subprocess.run(["rclone", "config"], check=True)
+                    rclone_config = str(root_config) if root_config.exists() else None
+                except subprocess.CalledProcessError:
+                    typer.secho("rclone config failed!", fg=typer.colors.RED)
+                    raise SystemExit(1)
+            else:
+                typer.secho("Cannot proceed without rclone configuration.", fg=typer.colors.RED)
+                raise SystemExit(1)
+
+        typer.echo("")
+
+        # Step 3: Get rclone remote name
+        typer.echo("Available remotes (from your rclone config):")
+        list_cmd = ["rclone", "listremotes"]
+        if rclone_config:
+            list_cmd.extend(["--config", rclone_config])
+
+        try:
+            result = subprocess.run(list_cmd, capture_output=True, text=True)
+            if result.returncode == 0 and result.stdout.strip():
+                for remote_line in result.stdout.strip().split('\n'):
+                    typer.echo(f"  - {remote_line}")
+            else:
+                typer.secho("  (No remotes configured)", fg=typer.colors.YELLOW)
+        except Exception:
+            pass
+
+        typer.echo("")
         remote = typer.prompt(
-            "Rclone remote name (from 'rclone config')",
+            "Rclone remote name",
             type=str
-        ).strip()
-        
+        ).strip().rstrip(':')  # Remove trailing colon if user added it
+
         if not remote:
-            raise ValueError("Remote name cannot be empty")
-        
+            typer.secho("Remote name cannot be empty!", fg=typer.colors.RED)
+            raise SystemExit(1)
+
         # Get remote path
         remote_path = typer.prompt(
-            "Remote path (e.g., 'backups/kopia')",
+            "Remote path (folder for backups)",
             default="kopia-backup",
             type=str
-        ).strip()
-        
-        # Optional: Rclone config file location
+        ).strip().lstrip('/')  # Remove leading slash if present
+
         typer.echo("")
-        typer.echo("Rclone config file location (optional):")
-        typer.echo(f"  Default: {Path.home() / '.config/rclone/rclone.conf'}")
-        
-        use_custom_config = typer.confirm(
-            "Use custom rclone config file location?",
-            default=False
-        )
-        
-        rclone_config = ""
-        if use_custom_config:
-            config_path = typer.prompt(
-                "Rclone config file path",
-                type=str
-            ).strip()
-            rclone_config = str(Path(config_path).expanduser())
-        
-        # Build kopia_params
+
+        # Step 4: Live connection test
+        typer.echo("Testing connection...")
         full_remote_path = f"{remote}:{remote_path}"
+
+        success, stderr = self._test_rclone_connection(remote, remote_path, rclone_config)
+
+        if success:
+            typer.secho(f"✓ Connection successful to {full_remote_path}", fg=typer.colors.GREEN)
+        else:
+            typer.secho(f"✗ Connection failed to {full_remote_path}", fg=typer.colors.RED)
+            if stderr:
+                typer.echo("")
+                typer.echo("Error details:")
+                for line in stderr.strip().split('\n'):
+                    typer.secho(f"  {line}", fg=typer.colors.RED)
+            typer.echo("")
+
+            if not typer.confirm("Proceed anyway despite the connection error?", default=False):
+                typer.secho("Configuration cancelled.", fg=typer.colors.YELLOW)
+                raise SystemExit(1)
+            typer.secho("Proceeding with configuration (connection issues may need to be resolved later)", fg=typer.colors.YELLOW)
+
+        typer.echo("")
+
+        # Build kopia_params
         kopia_params = f"rclone --remote-path={full_remote_path}"
-        
-        # Add rclone config if specified
+
+        # Always include config path if we're using a specific file
         if rclone_config:
             kopia_params += f" --rclone-config={rclone_config}"
-        
+
         # Build instructions
+        config_note = f"\n  Config File: {rclone_config}" if rclone_config else ""
         instructions = f"""
 Rclone Backend Setup Complete
 {'=' * 60}
@@ -118,20 +255,17 @@ Rclone Backend Setup Complete
 Remote Configuration:
   Remote Name: {remote}
   Remote Path: {remote_path}
-  Full Path:   {full_remote_path}
+  Full Path:   {full_remote_path}{config_note}
 
 Next Steps:
-  1. Verify rclone connection:
-     rclone ls {remote}:
-  
-  2. Initialize repository:
+  1. Initialize repository:
      sudo kopi-docka init
-  
-  3. Test connection:
+
+  2. Verify backups:
      rclone tree {remote}:{remote_path}
 
-Rclone Commands:
-  - List files:    rclone ls {remote}:
+Useful Commands:
+  - List files:    rclone ls {remote}: --config {rclone_config or '~/.config/rclone/rclone.conf'}
   - Check config:  rclone config show {remote}
   - Test speed:    rclone test speed {remote}:
 
@@ -139,18 +273,20 @@ Documentation:
   - Rclone docs: https://rclone.org/docs/
   - Kopia rclone: https://kopia.io/docs/repositories/#rclone
 """
-        
-        typer.echo("")
+
+        # Configuration summary
         typer.echo("=" * 60)
         typer.echo("Configuration Summary")
         typer.echo("=" * 60)
-        typer.echo(f"Remote:      {remote}")
-        typer.echo(f"Path:        {remote_path}")
-        typer.echo(f"Full Path:   {full_remote_path}")
+        typer.echo(f"  Remote:      {remote}")
+        typer.echo(f"  Path:        {remote_path}")
+        typer.echo(f"  Full Path:   {full_remote_path}")
         if rclone_config:
-            typer.echo(f"Config File: {rclone_config}")
+            typer.echo(f"  Config File: {rclone_config}")
         typer.echo("")
-        
+        typer.secho("✓ Configuration complete!", fg=typer.colors.GREEN)
+        typer.echo("")
+
         return {
             'kopia_params': kopia_params,
             'instructions': instructions
