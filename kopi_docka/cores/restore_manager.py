@@ -995,6 +995,20 @@ class RestoreManager:
         
         if success:
             console.print(f"\n✓ [bold green]Files copied to: {target_path}[/bold green]")
+            
+            # Step 6: Fix ownership (wenn mit sudo gestartet)
+            uid, gid, username = self._get_real_user_ids()
+            if uid != 0:  # Nur wenn mit sudo gestartet (nicht als root direkt)
+                try:
+                    subprocess.run([
+                        "chown", "-R", f"{username}:{username}", str(target_path)
+                    ], check=True, capture_output=True)
+                    console.print(f"✓ Fixed ownership: [cyan]{username}:{username}[/cyan]")
+                    logger.info(f"Changed ownership to {username}:{username}", extra={"path": str(target_path)})
+                except subprocess.CalledProcessError as e:
+                    console.print(f"[yellow]⚠️  Could not fix ownership: {e.stderr.decode() if e.stderr else str(e)}[/yellow]")
+                    logger.warning(f"Ownership change failed: {e}")
+            
             console.print(f"\n📄 Copied files:")
             for file in files_to_copy:
                 console.print(f"   • {file.name}")
