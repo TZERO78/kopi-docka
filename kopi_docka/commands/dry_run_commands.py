@@ -293,8 +293,11 @@ def cmd_estimate_size(ctx: typer.Context):
 # -------------------------
 
 def register(app: typer.Typer):
-    """Register all dry run commands."""
-    
+    """Register dry-run command (top-level).
+
+    Note: The 'estimate-size' command has been moved to 'admin snapshot estimate-size'.
+    """
+
     @app.command("dry-run")
     def _dry_run_cmd(
         ctx: typer.Context,
@@ -303,8 +306,3 @@ def register(app: typer.Typer):
     ):
         """Simulate backup without making changes (preview what will happen)."""
         cmd_dry_run(ctx, unit, update_recovery)
-    
-    @app.command("estimate-size")
-    def _estimate_size_cmd(ctx: typer.Context):
-        """Estimate total backup size for all units."""
-        cmd_estimate_size(ctx)

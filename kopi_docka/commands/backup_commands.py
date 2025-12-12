@@ -233,17 +233,11 @@ def cmd_restore(ctx: typer.Context):
 # -------------------------
 
 def register(app: typer.Typer):
-    """Register all backup commands."""
-    
-    @app.command("list")
-    def _list_cmd(
-        ctx: typer.Context,
-        units: bool = typer.Option(True, "--units", help="List discovered backup units"),
-        snapshots: bool = typer.Option(False, "--snapshots", help="List repository snapshots"),
-    ):
-        """List backup units or repository snapshots."""
-        cmd_list(ctx, units, snapshots)
-    
+    """Register backup and restore commands (top-level).
+
+    Note: The 'list' command has been moved to 'admin snapshot list'.
+    """
+
     @app.command("backup")
     def _backup_cmd(
         ctx: typer.Context,
@@ -260,7 +254,7 @@ def register(app: typer.Typer):
     ):
         """Run a cold backup for selected units (or all)."""
         cmd_backup(ctx, unit, dry_run, update_recovery_bundle, scope)
-    
+
     @app.command("restore")
     def _restore_cmd(ctx: typer.Context):
         """Launch the interactive restore wizard."""
