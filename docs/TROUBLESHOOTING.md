@@ -2,7 +2,51 @@
 
 # Troubleshooting
 
-## Troubleshooting
+## 🔧 Troubleshooting
+
+### ❌ "Unknown flag" or Parameter Errors
+
+**Problem:** Kopia throws "unknown long flag" or "unknown flag" errors after updates.
+
+**Example:**
+```
+Error: unknown flag: --rclone-config
+```
+
+**Why:** Kopia sometimes changes its command-line interface between versions. For example:
+- `--rclone-config` was replaced with `--rclone-args='--config=...'`
+
+**Solution:** Kopi-Docka is designed to be flexible. You don't need to wait for a software update.
+
+You can manually edit the raw configuration:
+```bash
+sudo kopi-docka admin config edit
+```
+
+Find the `kopia_params` field and adjust flags according to Kopia's current syntax. Refer to Kopia's documentation for current flag syntax:
+```bash
+kopia repository create --help
+# or
+kopia repository connect --help
+```
+
+**Example fix for rclone:**
+```json
+{
+  "kopia": {
+    "kopia_params": "rclone --remote-path=myremote:backup --rclone-args='--config=/root/.config/rclone/rclone.conf'"
+  }
+}
+```
+
+**Permanent Fix:** Update Kopi-Docka when a new version is available:
+```bash
+pipx upgrade kopi-docka
+# or
+pip install --upgrade kopi-docka
+```
+
+---
 
 ### ❌ "No configuration found"
 

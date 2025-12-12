@@ -138,12 +138,17 @@ Production-ready daemon with sd_notify, watchdog monitoring, PID locking, and se
 
 ---
 
-## What's New in v3.4.0
+## What's New in v3.5.0
 
-- **🎯 Simplified CLI** - "The Big 6" top-level commands + admin subgroup
-- **🩺 Doctor Command** - Comprehensive system health check
-- **📁 Admin Subcommands** - Organized advanced commands (config, repo, service, system, snapshot)
-- **🧹 Cleaner UX** - Reduced cognitive load for new users
+- **🔧 Rclone Backend Improvements** - Fixed PermissionError in config detection
+- **💾 Enhanced DR Bundles** - rclone.conf now included automatically in disaster recovery bundles
+- **🐛 Kopia Flag Fix** - Corrected flag generation: `--rclone-config` → `--rclone-args='--config=...'`
+- **🛡️ Idempotent Recovery** - rclone.conf restoration preserves existing configurations
+
+**Previous (v3.4.0):**
+- Simplified CLI with "The Big 6" commands
+- Doctor Command for system health checks
+- Organized admin subcommands
 
 **Previous (v3.3.0):**
 - Backup Scope Selection (minimal/standard/full)
@@ -323,6 +328,6 @@ Copyright (c) 2025 Markus F. (TZERO78)
 
 ---
 
-**Current Version:** v3.4.0
+**Current Version:** v3.5.0
 
-**[View changelog](docs/FEATURES.md#whats-new-in-v340)** | **[Contributing](docs/DEVELOPMENT.md#contributing)** | **[Troubleshooting](docs/TROUBLESHOOTING.md)**
+**[View changelog](docs/FEATURES.md#whats-new-in-v350)** | **[Contributing](docs/DEVELOPMENT.md#contributing)** | **[Troubleshooting](docs/TROUBLESHOOTING.md)**

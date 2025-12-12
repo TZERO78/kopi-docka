@@ -274,7 +274,7 @@ class RcloneBackend(BackendBase):
 
         # Always include config path if we're using a specific file
         if rclone_config:
-            kopia_params += f" --rclone-config={rclone_config}"
+            kopia_params += f" --rclone-args='--config={rclone_config}'"
 
         # Build instructions
         config_note = f"\n  Config File: {rclone_config}" if rclone_config else ""
@@ -387,11 +387,14 @@ Documentation:
                     if ':' in remote_path:
                         status["details"]["remote_name"] = remote_path.split(':')[0]
 
-            # Parse --rclone-config
+            # Parse --rclone-args for config file
             for part in parts:
-                if part.startswith('--rclone-config='):
-                    config_file = part.split('=', 1)[1]
-                    status["details"]["config_file"] = config_file
+                if part.startswith('--rclone-args='):
+                    rclone_args = part.split('=', 1)[1].strip("'\"")
+                    # Extract --config from rclone args
+                    if '--config=' in rclone_args:
+                        config_file = rclone_args.split('--config=', 1)[1].strip()
+                        status["details"]["config_file"] = config_file
 
             if status["details"]["remote_path"]:
                 status["configured"] = True

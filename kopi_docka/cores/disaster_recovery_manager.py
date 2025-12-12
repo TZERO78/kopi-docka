@@ -112,6 +112,13 @@ class DisasterRecoveryManager:
 
                 shutil.copy(self.config.config_file, work_dir / "kopi-docka.conf")
 
+            # 3.5) rclone.conf (if using rclone backend)
+            rclone_conf_path = self._find_rclone_config()
+            if rclone_conf_path and rclone_conf_path.exists():
+                import shutil
+                shutil.copy(rclone_conf_path, work_dir / "rclone.conf")
+                logger.info(f"Added rclone.conf to recovery bundle from {rclone_conf_path}")
+
             # 4) recover.sh
             self._create_recovery_script(work_dir, recovery_info)
 
@@ -157,6 +164,42 @@ class DisasterRecoveryManager:
                 logger.warning(f"Cleanup failed for {work_dir}: {e}")
 
     # ---------------- internal helpers ----------------
+
+    def _find_rclone_config(self) -> Optional[Path]:
+        """
+        Find rclone.conf path from config or fallback locations.
+        
+        Returns:
+            Path to rclone.conf if found, None otherwise
+        """
+        # 1. Check kopia_params for --rclone-args='--config=PATH'
+        kopia_params = self.config.get('kopia', 'kopia_params', fallback='')
+        if '--rclone-args=' in kopia_params:
+            # Extract path from --rclone-args='--config=/path/to/rclone.conf'
+            import re
+            match = re.search(r"--rclone-args=['\"]?--config=([^'\"\\s]+)", kopia_params)
+            if match:
+                path = Path(match.group(1))
+                if path.exists():
+                    return path
+        
+        # 2. Fallback: Standard locations
+        import os
+        candidates = [
+            Path("/root/.config/rclone/rclone.conf"),
+        ]
+        sudo_user = os.environ.get('SUDO_USER')
+        if sudo_user:
+            candidates.append(Path(f"/home/{sudo_user}/.config/rclone/rclone.conf"))
+        
+        for candidate in candidates:
+            try:
+                if candidate.exists():
+                    return candidate
+            except PermissionError:
+                pass
+        
+        return None
 
     def _create_recovery_info(self) -> Dict[str, Any]:
         repo_status: Dict[str, Any] = {}
@@ -264,6 +307,22 @@ class DisasterRecoveryManager:
             'echo "Restoring configuration /etc/kopi-docka.conf..."',
             "mkdir -p /etc",
             'cp "$(dirname "$0")/kopi-docka.conf" /etc/kopi-docka.conf',
+            "",
+            "# Restore rclone.conf (idempotent)",
+            'if [ -f "$(dirname "$0")/rclone.conf" ]; then',
+            '    echo "📦 Found rclone.conf in recovery bundle."',
+            '    TARGET_CONF="/root/.config/rclone/rclone.conf"',
+            '    ',
+            '    if [ -f "$TARGET_CONF" ]; then',
+            '        echo "⚠️  Target $TARGET_CONF already exists."',
+            '        echo "   -> SKIPPING restore to preserve existing configuration."',
+            '    else',
+            '        echo "   -> Restoring rclone.conf to $TARGET_CONF..."',
+            '        mkdir -p "$(dirname "$TARGET_CONF")"',
+            '        cp "$(dirname "$0")/rclone.conf" "$TARGET_CONF"',
+            '        echo "   ✅ Success."',
+            '    fi',
+            "fi",
             "",
             "# Read Kopia password",
             'export KOPIA_PASSWORD="$(cat "$(dirname "$0")/kopia-password.txt")"',
