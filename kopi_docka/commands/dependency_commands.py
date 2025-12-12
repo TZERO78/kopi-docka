@@ -61,7 +61,7 @@ def cmd_check(ctx: typer.Context, verbose: bool = False):
             typer.echo(f"✗ Repository check failed: {e}")
     else:
         typer.echo("✗ No configuration found")
-        typer.echo("  Run: kopi-docka new-config")
+        typer.echo("  Run: kopi-docka admin config new")
 
 
 def cmd_install_deps(force: bool = False, dry_run: bool = False):
@@ -88,7 +88,7 @@ def cmd_install_deps(force: bool = False, dry_run: bool = False):
     # Hint about config
     if not Path.home().joinpath(".config/kopi-docka/config.json").exists() and \
        not Path("/etc/kopi-docka.json").exists():
-        typer.echo("\n💡 Tip: Create config with: kopi-docka new-config")
+        typer.echo("\n💡 Tip: Create config with: kopi-docka admin config new")
 
 
 def cmd_deps():

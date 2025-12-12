@@ -7,7 +7,7 @@
 # @description: CLI entry point - delegates to command modules
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
-# @version:     3.4.0
+# @version:     3.4.1
 #
 # ------------------------------------------------------------------------------
 # MIT-Lizenz: siehe LICENSE oder https://opensource.org/licenses/MIT

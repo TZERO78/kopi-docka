@@ -57,7 +57,7 @@ def ensure_config(ctx: typer.Context) -> Config:
     cfg = get_config(ctx)
     if not cfg:
         typer.echo("❌ No configuration found")
-        typer.echo("Run: kopi-docka new-config")
+        typer.echo("Run: kopi-docka admin config new")
         raise typer.Exit(code=1)
     return cfg
 
@@ -103,9 +103,9 @@ def cmd_new_config(
         
         if not force:
             typer.echo("Use one of these options:")
-            typer.echo("  kopi-docka edit-config       - Modify existing config")
-            typer.echo("  kopi-docka new-config --force - Overwrite with warnings")
-            typer.echo("  kopi-docka reset-config      - Complete reset (DANGEROUS)")
+            typer.echo("  kopi-docka admin config edit       - Modify existing config")
+            typer.echo("  kopi-docka admin config new --force - Overwrite with warnings")
+            typer.echo("  kopi-docka admin config reset      - Complete reset (DANGEROUS)")
             raise typer.Exit(code=1)
         
         # With --force: Show warnings
@@ -121,8 +121,8 @@ def cmd_new_config(
             typer.echo("Aborted.")
             typer.echo("")
             typer.echo("💡 Safer alternatives:")
-            typer.echo("  kopi-docka edit-config        - Edit existing config")
-            typer.echo("  kopi-docka change-password    - Change repository password safely")
+            typer.echo("  kopi-docka admin config edit        - Edit existing config")
+            typer.echo("  kopi-docka admin repo change-password    - Change repository password safely")
             raise typer.Exit(code=0)
         
         # Backup old config
@@ -343,7 +343,7 @@ def cmd_reset_config(path: Optional[Path] = None):
     typer.echo("")
     typer.echo("✗ DO NOT proceed if:")
     typer.echo("  • You have existing backups you want to keep")
-    typer.echo("  • You just want to change a setting (use 'edit-config' instead)")
+    typer.echo("  • You just want to change a setting (use 'admin config edit' instead)")
     typer.echo("=" * 70)
     typer.echo("")
     
@@ -754,7 +754,7 @@ def _display_generic_status(console, status, backend_type):
 
     if not status.get("configured"):
         console.print(Panel(
-            f"[yellow]⚠️  Backend not configured![/yellow]\nRun: [cyan]kopi-docka new-config[/cyan]",
+            f"[yellow]⚠️  Backend not configured![/yellow]\nRun: [cyan]kopi-docka admin config new[/cyan]",
             title="Warning",
             border_style="yellow"
         ))
