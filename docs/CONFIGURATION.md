@@ -23,11 +23,11 @@ sudo kopi-docka setup
 
 ---
 
-### 2. Config Wizard (`new-config`)
+### 2. Config Wizard (`admin config new`)
 **For:** Create/recreate config only
 
 ```bash
-sudo kopi-docka new-config
+sudo kopi-docka admin config new
 ```
 
 **What it does:**
@@ -68,7 +68,7 @@ sudo kopi-docka new-config
 
 **Example (B2 Backend):**
 ```bash
-sudo kopi-docka new-config
+sudo kopi-docka admin config new
 
 # Wizard asks:
 Where should backups be stored?
@@ -93,7 +93,7 @@ Password setup:
 Option A (Recommended):
 └─ kopi-docka setup
    ├─ 1. Dependency check
-   ├─ 2. Config wizard (new-config internally)
+   ├─ 2. Config wizard (admin config new internally)
    │      ├─ Select backend
    │      ├─ Configure backend
    │      └─ Password setup
@@ -101,13 +101,13 @@ Option A (Recommended):
    └─ 4. Connection test
 
 Option B (Manual):
-├─ kopi-docka check
-├─ kopi-docka new-config (← Same wizard as in Option A!)
+├─ kopi-docka doctor            # Check system health
+├─ kopi-docka admin config new  # Create configuration
 │      ├─ Select backend
 │      ├─ Configure backend
 │      └─ Password setup
-├─ kopi-docka edit-config (optional)
-└─ kopi-docka init
+├─ kopi-docka admin config edit # (optional)
+└─ kopi-docka admin repo init   # Initialize repository
 ```
 
 ---
@@ -118,7 +118,7 @@ Option B (Manual):
 
 **Recommended:** Use the interactive config wizard:
 ```bash
-sudo kopi-docka new-config
+sudo kopi-docka admin config new
 # Or as part of complete setup:
 sudo kopi-docka setup
 ```
@@ -216,7 +216,7 @@ kopi-docka --config /path/to/config.json <command>
 
 ## Storage Backends
 
-Kopi-Docka supports 7 different backends. The **config wizard** (`new-config`) interactively guides you through backend selection and configuration!
+Kopi-Docka supports 7 different backends. The **config wizard** (`admin config new`) interactively guides you through backend selection and configuration!
 
 **Backend selection in wizard:**
 ```
@@ -299,7 +299,7 @@ export B2_APPLICATION_KEY="..."
 
 **Example output:**
 ```bash
-sudo kopi-docka new-config
+sudo kopi-docka admin config new
 
 Available Backup Targets
 ┌──────────┬─────────────────┬────────────────┬─────────────┬──────────┐
