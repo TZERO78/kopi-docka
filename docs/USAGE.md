@@ -231,7 +231,7 @@ sudo journalctl -u kopi-docka.service -f
 4. **Snapshot volumes** (parallel, up to `parallel_workers`) via tar stream → Kopia `--stdin`
    Tags: `{type: volume, unit, volume, backup_id, timestamp, size_bytes}`
 5. **Start** containers (waits for healthcheck if present)
-6. **Apply retention** policies (daily/weekly/monthly/yearly)
+6. **Apply retention** policies (latest/hourly/daily/weekly/monthly/annual)
 7. Optional: **Create DR bundle** and rotate
 
 ### 3. Restore (On ANY Server!)
