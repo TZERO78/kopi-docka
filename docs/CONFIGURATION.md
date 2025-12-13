@@ -184,7 +184,7 @@ kopi-docka --config /path/to/config.json <command>
     "daily": 7,
     "weekly": 4,
     "monthly": 12,
-    "yearly": 5
+    "annual": 3
   },
   "logging": {
     "level": "INFO",
@@ -214,7 +214,7 @@ kopi-docka --config /path/to/config.json <command>
 | `retention.daily` | Daily backups to keep | `7` |
 | `retention.weekly` | Weekly backups | `4` |
 | `retention.monthly` | Monthly backups | `12` |
-| `retention.yearly` | Yearly backups (not supported in Kopia 0.21) | `5` |
+| `retention.annual` | Annual backups to keep | `3` |
 
 ---
 

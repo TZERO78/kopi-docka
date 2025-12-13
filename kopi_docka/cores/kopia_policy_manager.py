@@ -46,7 +46,7 @@ class KopiaPolicyManager:
             daily = str(self.repo.config.getint("retention", "daily", fallback=7))
             weekly = str(self.repo.config.getint("retention", "weekly", fallback=4))
             monthly = str(self.repo.config.getint("retention", "monthly", fallback=12))
-            # Note: --keep-yearly not available in Kopia 0.21
+            annual = str(self.repo.config.getint("retention", "annual", fallback=3))
             self._run([
                 "kopia", "policy", "set", "--global",
                 "--keep-latest", latest,
@@ -54,6 +54,7 @@ class KopiaPolicyManager:
                 "--keep-daily", daily,
                 "--keep-weekly", weekly,
                 "--keep-monthly", monthly,
+                "--keep-annual", annual,
             ], check=False)
         except Exception as e:
             logger.debug("Global retention policy skipped: %s", e)
@@ -69,7 +70,7 @@ class KopiaPolicyManager:
         keep_daily: Optional[int] = None,
         keep_weekly: Optional[int] = None,
         keep_monthly: Optional[int] = None,
-        keep_yearly: Optional[int] = None,  # Kept for API compatibility, but ignored
+        keep_annual: Optional[int] = None,
     ) -> None:
         """Set retention for a specific policy target (e.g., a path or user@host:path)."""
         args = ["kopia", "policy", "set", target]
@@ -83,7 +84,8 @@ class KopiaPolicyManager:
             args += ["--keep-weekly", str(keep_weekly)]
         if keep_monthly is not None:
             args += ["--keep-monthly", str(keep_monthly)]
-        # keep_yearly intentionally not used (Kopia 0.21 doesn't support it)
+        if keep_annual is not None:
+            args += ["--keep-annual", str(keep_annual)]
         self._run(args, check=True)
 
     def set_compression_for_target(self, target: str, compression: str = "zstd") -> None:

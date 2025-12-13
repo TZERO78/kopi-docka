@@ -677,7 +677,7 @@ class BackupManager:
                     keep_daily=self.config.getint("retention", "daily", 7),
                     keep_weekly=self.config.getint("retention", "weekly", 4),
                     keep_monthly=self.config.getint("retention", "monthly", 12),
-                    # keep_yearly intentionally omitted (Kopia 0.21 doesn't support it)
+                    keep_annual=self.config.getint("retention", "annual", 3),
                 )
                 logger.debug(
                     f"Applied Kopia retention policy on {target}",
