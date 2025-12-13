@@ -358,48 +358,61 @@ class BackupManager:
             with tempfile.TemporaryDirectory() as tmpdir:
                 tmpdir = Path(tmpdir)
 
-                # Compose file + related project files
-                if unit.compose_file and unit.compose_file.exists():
-                    compose_dir = unit.compose_file.parent
-                    
-                    # Save main compose file
-                    (tmpdir / "docker-compose.yml").write_text(
-                        unit.compose_file.read_text()
+                # Compose files (all from label, including overrides)
+                compose_files_saved = []
+                compose_dirs_processed = set()
+
+                for compose_file in unit.compose_files:
+                    if compose_file.exists():
+                        # Save with original filename
+                        dest = tmpdir / compose_file.name
+                        shutil.copy2(compose_file, dest)
+                        compose_files_saved.append(compose_file.name)
+                        compose_dirs_processed.add(compose_file.parent)
+
+                # Save compose order for restore (critical for override precedence)
+                if compose_files_saved:
+                    import json as _json
+                    (tmpdir / "compose_order.json").write_text(
+                        _json.dumps(compose_files_saved, indent=2)
                     )
-                    
-                    # Save all related files from compose directory
-                    project_files_dir = tmpdir / "project-files"
-                    project_files_dir.mkdir(exist_ok=True)
-                    
-                    # Common config file patterns
-                    config_patterns = [
-                        "*.yml", "*.yaml",  # Additional compose/config files
-                        ".env*",            # Environment files
-                        "*.conf", "*.config",  # Config files
-                        "*.json",           # JSON configs
-                        "*.toml",           # TOML configs
-                    ]
-                    
-                    backed_up_files = []
+                    logger.info(
+                        f"Backed up {len(compose_files_saved)} compose file(s): {', '.join(compose_files_saved)}",
+                        extra={"unit_name": unit.name}
+                    )
+
+                # Save related project files from ALL compose directories
+                project_files_dir = tmpdir / "project-files"
+                project_files_dir.mkdir(exist_ok=True)
+
+                config_patterns = [
+                    ".env*",            # Environment files (critical!)
+                    "*.conf", "*.config",  # Config files
+                    "*.toml",           # TOML configs
+                ]
+
+                backed_up_files = []
+                for compose_dir in compose_dirs_processed:
                     for pattern in config_patterns:
                         for config_file in compose_dir.glob(pattern):
-                            if config_file.is_file() and config_file != unit.compose_file:
+                            # Skip compose files (already saved above)
+                            if config_file.is_file() and config_file.name not in compose_files_saved:
                                 try:
-                                    rel_name = config_file.name
-                                    dest = project_files_dir / rel_name
-                                    shutil.copy2(config_file, dest)
-                                    backed_up_files.append(rel_name)
+                                    dest = project_files_dir / config_file.name
+                                    if not dest.exists():  # Avoid duplicates
+                                        shutil.copy2(config_file, dest)
+                                        backed_up_files.append(config_file.name)
                                 except Exception as e:
                                     logger.warning(
                                         f"Could not backup config file {config_file.name}: {e}",
                                         extra={"unit_name": unit.name}
                                     )
-                    
-                    if backed_up_files:
-                        logger.info(
-                            f"Backed up {len(backed_up_files)} project files: {', '.join(backed_up_files[:5])}{'...' if len(backed_up_files) > 5 else ''}",
-                            extra={"unit_name": unit.name}
-                        )
+
+                if backed_up_files:
+                    logger.info(
+                        f"Backed up {len(backed_up_files)} project files: {', '.join(backed_up_files[:5])}{'...' if len(backed_up_files) > 5 else ''}",
+                        extra={"unit_name": unit.name}
+                    )
 
                 # Inspect (redact env secrets)
                 import json as _json

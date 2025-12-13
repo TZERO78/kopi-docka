@@ -171,14 +171,14 @@ class DockerDiscovery:
             if m.get("Type") == "volume" and m.get("Name"):
                 vol_names.append(m["Name"])
 
-        # Compose-Datei (Label kann mehrere Dateien enthalten)
-        compose_file: Optional[Path] = None
+        # Compose-Dateien (Label kann mehrere Dateien enthalten, kommagetrennt)
+        compose_files: List[Path] = []
         if DOCKER_COMPOSE_CONFIG_LABEL in labels:
-            first = (
-                (labels.get(DOCKER_COMPOSE_CONFIG_LABEL) or "").split(",")[0].strip()
-            )
-            if first:
-                compose_file = Path(first).expanduser()
+            raw = labels.get(DOCKER_COMPOSE_CONFIG_LABEL) or ""
+            for p in raw.split(","):
+                p = p.strip()
+                if p:
+                    compose_files.append(Path(p).expanduser())
 
         # DB-Typ (nur informativ für Sortierung/Anzeige)
         db_type = self._detect_database_type(image)
@@ -191,7 +191,7 @@ class DockerDiscovery:
             labels=labels,
             environment=env_map,
             volumes=vol_names,
-            compose_file=compose_file,
+            compose_files=compose_files,
             inspect_data=d,
             database_type=db_type,
         )
@@ -282,10 +282,10 @@ class DockerDiscovery:
         for stack_name, c_list in stacks.items():
             unit = BackupUnit(name=stack_name, type="stack", containers=c_list)
 
-            # Compose-Datei aus erstem Container mit Pfad übernehmen
+            # Compose-Dateien aus erstem Container mit Pfaden übernehmen
             for c in c_list:
-                if c.compose_file:
-                    unit.compose_file = c.compose_file
+                if c.compose_files:
+                    unit.compose_files = c.compose_files
                     break
 
             # Volumes über alle Container aggregieren

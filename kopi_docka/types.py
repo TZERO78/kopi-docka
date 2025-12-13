@@ -39,20 +39,25 @@ class ContainerInfo:
     labels: Dict[str, str] = field(default_factory=dict)
     environment: Dict[str, str] = field(default_factory=dict)
     volumes: List[str] = field(default_factory=list)
-    compose_file: Optional[Path] = None
+    compose_files: List[Path] = field(default_factory=list)  # All compose files (incl. overrides)
     inspect_data: Optional[Dict[str, Any]] = None
     database_type: Optional[str] = None
-    
+
+    @property
+    def compose_file(self) -> Optional[Path]:
+        """First compose file (backwards compatibility)."""
+        return self.compose_files[0] if self.compose_files else None
+
     @property
     def is_running(self) -> bool:
         """Check if container is running."""
         return self.status.lower().startswith('running')
-    
+
     @property
     def is_database(self) -> bool:
         """Check if container is a database."""
         return self.database_type is not None
-    
+
     @property
     def stack_name(self) -> Optional[str]:
         """Get stack name from labels."""
@@ -77,8 +82,13 @@ class BackupUnit:
     type: str  # ← WICHTIG: "stack" oder "standalone"
     containers: List[ContainerInfo] = field(default_factory=list)
     volumes: List[VolumeInfo] = field(default_factory=list)
-    compose_file: Optional[Path] = None
-    
+    compose_files: List[Path] = field(default_factory=list)  # All compose files (incl. overrides)
+
+    @property
+    def compose_file(self) -> Optional[Path]:
+        """First compose file (backwards compatibility)."""
+        return self.compose_files[0] if self.compose_files else None
+
     @property
     def has_databases(self) -> bool:
         """Check if unit contains database containers."""
