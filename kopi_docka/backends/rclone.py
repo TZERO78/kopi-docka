@@ -142,7 +142,7 @@ class RcloneBackend(BackendBase):
             Configuration dictionary with kopia_params
         """
         typer.echo("=" * 60)
-        typer.echo("Rclone Backend Configuration")
+        typer.echo("Rclone Repository Configuration")
         typer.echo("=" * 60)
         typer.echo("")
 
@@ -279,7 +279,7 @@ class RcloneBackend(BackendBase):
         # Build instructions
         config_note = f"\n  Config File: {rclone_config}" if rclone_config else ""
         instructions = f"""
-Rclone Backend Setup Complete
+Rclone Repository Setup Complete
 {'=' * 60}
 
 Remote Configuration:

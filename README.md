@@ -19,7 +19,7 @@ A wrapper around [Kopia](https://kopia.io), specifically designed for Docker env
 
 - **📦 Stack-Aware** - Backs up entire Docker Compose stacks as logical units
 - **🔐 Encrypted** - End-to-end encryption via Kopia (AES-256-GCM)
-- **🌐 Multi-Backend** - Local, S3, B2, Azure, GCS, SFTP, Tailscale
+- **🌐 Multi-Storage** - Local, S3, B2, Azure, GCS, SFTP, Tailscale
 - **💾 Disaster Recovery** - Encrypted emergency bundles with auto-reconnect
 - **🔧 Pre/Post Hooks** - Custom scripts for maintenance mode
 - **📊 Systemd-Native** - Production-ready daemon with sd_notify & watchdog
@@ -52,7 +52,7 @@ sudo kopi-docka setup
 
 The wizard guides you through:
 1. ✅ Dependency check (Kopia, Docker)
-2. ✅ Backend selection (Local, S3, B2, Azure, GCS, SFTP, Tailscale)
+2. ✅ Repository storage selection (Local, S3, B2, Azure, GCS, SFTP, Tailscale)
 3. ✅ Repository initialization
 4. ✅ Connection test
 
@@ -229,9 +229,9 @@ sudo kopi-docka admin service daemon         # Run as daemon
 
 ---
 
-## Storage Backends
+## Repository Storage Types
 
-Kopi-Docka supports 7 different backends:
+Kopi-Docka supports 7 different repository storage types:
 
 1. **Local Filesystem** - Local disk or NAS mount
 2. **AWS S3** - Amazon S3 or compatible (Wasabi, MinIO)
@@ -241,7 +241,7 @@ Kopi-Docka supports 7 different backends:
 6. **SFTP** - Remote server via SSH
 7. **Tailscale** - P2P over private network (no cloud costs!)
 
-**[Backend configuration →](docs/CONFIGURATION.md#storage-backends)**
+**[Repository storage configuration →](docs/CONFIGURATION.md#storage-backends)**
 
 ---
 

@@ -35,6 +35,92 @@ from .logging import get_logger
 
 logger = get_logger(__name__)
 
+def detect_repository_type(kopia_params: str) -> str:
+    """
+    Detect repository type from kopia_params string.
+
+    Kopia repository types are determined by the first word of kopia_params:
+    - filesystem --path /backup/...
+    - rclone --remote-path gdrive:...
+    - s3 --bucket ...
+    - b2 --bucket ...
+    - azure --container ...
+    - gcs --bucket ...
+    - sftp --path user@host:...
+    - webdav --url ...
+
+    Args:
+        kopia_params: The kopia_params string from config
+
+    Returns:
+        Repository type string (filesystem, rclone, s3, etc.)
+        Returns 'unknown' if type cannot be determined
+    """
+    if not kopia_params or not kopia_params.strip():
+        return 'unknown'
+
+    # Split and get first word (the repository type)
+    parts = kopia_params.strip().split()
+    if not parts:
+        return 'unknown'
+
+    repo_type = parts[0].lower()
+
+    # Valid Kopia repository types
+    valid_types = {
+        'filesystem', 'rclone', 's3', 'b2', 'azure', 'gcs', 'sftp', 'webdav'
+    }
+
+    return repo_type if repo_type in valid_types else 'unknown'
+
+
+def extract_filesystem_path(kopia_params: str) -> Optional[str]:
+    """
+    Extract the repository path from filesystem kopia_params.
+
+    Parses kopia_params like 'filesystem --path /backup/kopia' and returns
+    the path value. Returns None for non-filesystem repositories or if
+    path cannot be extracted.
+
+    Args:
+        kopia_params: The kopia_params string from config
+
+    Returns:
+        Path string if found, None otherwise
+
+    Example:
+        >>> extract_filesystem_path("filesystem --path /backup/kopia")
+        '/backup/kopia'
+        >>> extract_filesystem_path("rclone --remote-path=gdrive:backup")
+        None
+    """
+    import shlex
+
+    if not kopia_params:
+        return None
+
+    # Only works for filesystem repositories
+    if detect_repository_type(kopia_params) != 'filesystem':
+        return None
+
+    if '--path' not in kopia_params:
+        return None
+
+    try:
+        parts = shlex.split(kopia_params)
+        # Handle both --path /path and --path=/path formats
+        for i, part in enumerate(parts):
+            if part == '--path' and i + 1 < len(parts):
+                return parts[i + 1]
+            if part.startswith('--path='):
+                return part.split('=', 1)[1]
+    except ValueError:
+        # shlex.split can raise ValueError on malformed strings
+        pass
+
+    return None
+
+
 def generate_secure_password(length: int = 32) -> str:
     """
     Generate a cryptographically secure random password.

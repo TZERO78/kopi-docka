@@ -18,8 +18,8 @@ Doctor command - comprehensive system health check.
 
 This command merges functionality from:
 - check (dependency verification)
-- status (backend status)
-- repo-status (repository status)
+- status (repository storage status)
+- repo-status (repository connection status)
 
 Provides a single command to diagnose the entire Kopi-Docka setup.
 """
@@ -32,7 +32,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich import box
 
-from ..helpers import Config, get_logger
+from ..helpers import Config, get_logger, detect_repository_type
 from ..cores import KopiaRepository, DependencyManager
 from ..backends.local import LocalBackend
 from ..backends.s3 import S3Backend
@@ -46,8 +46,8 @@ from ..backends.rclone import RcloneBackend
 logger = get_logger(__name__)
 console = Console()
 
-# Backend registry
-BACKEND_MODULES = {
+# Repository type registry (maps repository types to their handler classes)
+REPOSITORY_MODULES = {
     'filesystem': LocalBackend,
     's3': S3Backend,
     'b2': B2Backend,
@@ -75,8 +75,8 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
     Checks:
     1. System dependencies (Kopia, Docker)
     2. Configuration status
-    3. Backend connectivity
-    4. Repository status
+    3. Repository storage (type detection and connectivity)
+    4. Repository connection status
     """
     console.print()
     console.print(Panel.fit(
@@ -162,70 +162,88 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
     console.print()
 
     # ═══════════════════════════════════════════
-    # Section 3: Backend Status
+    # Section 3: Repository Storage Status
     # ═══════════════════════════════════════════
     if cfg:
-        console.print("[bold]3. Backend Status[/bold]")
+        console.print("[bold]3. Repository Storage[/bold]")
         console.print("-" * 40)
 
-        backend_type = cfg.get('backend', 'type', fallback='filesystem')
+        # Detect repository type from kopia_params (the correct way)
+        kopia_params = cfg.get('kopia', 'kopia_params', fallback='')
+        repository_type = detect_repository_type(kopia_params)
 
-        backend_table = Table(box=box.SIMPLE, show_header=False)
-        backend_table.add_column("Property", style="cyan", width=20)
-        backend_table.add_column("Status", width=15)
-        backend_table.add_column("Details", style="dim")
+        repo_storage_table = Table(box=box.SIMPLE, show_header=False)
+        repo_storage_table.add_column("Property", style="cyan", width=20)
+        repo_storage_table.add_column("Status", width=15)
+        repo_storage_table.add_column("Details", style="dim")
 
-        backend_table.add_row("Backend Type", "", backend_type)
+        repo_storage_table.add_row("Repository Type", "", repository_type)
 
-        backend_class = BACKEND_MODULES.get(backend_type)
+        backend_class = REPOSITORY_MODULES.get(repository_type)
         if backend_class:
             try:
-                # Load backend config
-                backend_config = {}
-                kopia_params = cfg.get('kopia', 'kopia_params', fallback='')
+                # Load repository config
+                repo_config = {}
                 if kopia_params:
-                    backend_config['kopia_params'] = kopia_params
+                    repo_config['kopia_params'] = kopia_params
 
-                backend = backend_class(backend_config)
+                backend = backend_class(repo_config)
                 status = backend.get_status()
 
                 if status.get('available'):
-                    backend_table.add_row("Connection", "[green]Available[/green]", "")
+                    repo_storage_table.add_row("Connection", "[green]Available[/green]", "")
                 else:
-                    backend_table.add_row("Connection", "[red]Not Available[/red]", "Check backend configuration")
-                    issues.append(f"Backend {backend_type} is not available")
+                    repo_storage_table.add_row("Connection", "[red]Not Available[/red]", "Check repository configuration")
+                    issues.append(f"Repository ({repository_type}) is not available")
 
-                # Show backend-specific details
+                # Show repository-specific details
                 details = status.get('details', {})
-                if backend_type == 'filesystem':
+                if repository_type == 'filesystem':
                     if details.get('path'):
-                        backend_table.add_row("Path", "", details['path'])
+                        repo_storage_table.add_row("Path", "", details['path'])
                     if details.get('disk_free_gb') is not None:
-                        backend_table.add_row("Free Space", "", f"{details['disk_free_gb']:.1f} GB")
-                elif backend_type == 'tailscale':
+                        repo_storage_table.add_row("Free Space", "", f"{details['disk_free_gb']:.1f} GB")
+                elif repository_type == 'rclone':
+                    if details.get('remote_path'):
+                        repo_storage_table.add_row("Remote Path", "", details['remote_path'])
+                    if details.get('remote_name'):
+                        repo_storage_table.add_row("Remote Name", "", details['remote_name'])
+                    if details.get('config_file'):
+                        repo_storage_table.add_row("Config File", "", details['config_file'])
+                elif repository_type == 'tailscale':
                     if status.get('hostname'):
-                        backend_table.add_row("Hostname", "", status['hostname'])
+                        repo_storage_table.add_row("Hostname", "", status['hostname'])
                     if status.get('online'):
-                        backend_table.add_row("Peer Status", "[green]Online[/green]", "")
+                        repo_storage_table.add_row("Peer Status", "[green]Online[/green]", "")
                     else:
-                        backend_table.add_row("Peer Status", "[red]Offline[/red]", "")
+                        repo_storage_table.add_row("Peer Status", "[red]Offline[/red]", "")
                         warnings.append("Tailscale peer is offline")
+                elif repository_type in ('s3', 'b2', 'azure', 'gcs'):
+                    if details.get('bucket'):
+                        repo_storage_table.add_row("Bucket", "", details['bucket'])
+                    if details.get('prefix'):
+                        repo_storage_table.add_row("Prefix", "", details['prefix'])
+                elif repository_type == 'sftp':
+                    if details.get('host'):
+                        repo_storage_table.add_row("Host", "", details['host'])
+                    if details.get('path'):
+                        repo_storage_table.add_row("Path", "", details['path'])
 
             except Exception as e:
-                backend_table.add_row("Status", "[red]Error[/red]", str(e)[:50])
-                issues.append(f"Backend check failed: {e}")
+                repo_storage_table.add_row("Status", "[red]Error[/red]", str(e)[:50])
+                issues.append(f"Repository check failed: {e}")
         else:
-            backend_table.add_row("Status", "[yellow]Unknown Type[/yellow]", f"Backend '{backend_type}' not recognized")
-            warnings.append(f"Unknown backend type: {backend_type}")
+            repo_storage_table.add_row("Status", "[yellow]Unknown Type[/yellow]", f"Repository type '{repository_type}' not recognized")
+            warnings.append(f"Unknown repository type: {repository_type}")
 
-        console.print(backend_table)
+        console.print(repo_storage_table)
         console.print()
 
     # ═══════════════════════════════════════════
-    # Section 4: Repository Status
+    # Section 4: Repository Connection Status
     # ═══════════════════════════════════════════
     if cfg:
-        console.print("[bold]4. Repository Status[/bold]")
+        console.print("[bold]4. Repository Connection[/bold]")
         console.print("-" * 40)
 
         repo_table = Table(box=box.SIMPLE, show_header=False)
