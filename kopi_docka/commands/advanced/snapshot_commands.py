@@ -26,7 +26,7 @@ from typing import Optional
 import typer
 
 # Note: From advanced/ we need ...helpers (go up two levels)
-from ...helpers import Config, get_logger
+from ...helpers import Config, get_logger, extract_filesystem_path
 from ...cores import KopiaRepository, DockerDiscovery
 
 logger = get_logger(__name__)
@@ -198,34 +198,27 @@ def cmd_estimate_size(ctx: typer.Context):
     typer.echo(f"Estimated Compressed: {utils.format_bytes(int(total_size * 0.5))}")
     typer.echo("=" * 70)
 
-    # Check available space
+    # Check available space for filesystem repositories
     kopia_params = cfg.get('kopia', 'kopia_params', fallback='')
 
     try:
-        if kopia_params and 'filesystem' in kopia_params and '--path' in kopia_params:
-            import shlex
-            parts = shlex.split(kopia_params)
-            try:
-                path_idx = parts.index('--path') + 1
-                if path_idx < len(parts):
-                    repo_path_str = parts[path_idx]
-                    from pathlib import Path
-                    space_gb = utils.get_available_disk_space(str(Path(repo_path_str).parent))
-                    space_bytes = int(space_gb * (1024**3))
+        repo_path_str = extract_filesystem_path(kopia_params)
+        if repo_path_str:
+            from pathlib import Path
+            space_gb = utils.get_available_disk_space(str(Path(repo_path_str).parent))
+            space_bytes = int(space_gb * (1024**3))
 
-                    typer.echo(f"\nAvailable Space: {utils.format_bytes(space_bytes)}")
+            typer.echo(f"\nAvailable Space: {utils.format_bytes(space_bytes)}")
 
-                    required = int(total_size * 0.5)
-                    if space_bytes < required:
-                        typer.echo("WARNING: Insufficient disk space!")
-                        typer.echo(f"   Need: {utils.format_bytes(required)}")
-                        typer.echo(f"   Have: {utils.format_bytes(space_bytes)}")
-                        typer.echo(f"   Short: {utils.format_bytes(required - space_bytes)}")
-                    else:
-                        remaining = space_bytes - required
-                        typer.echo(f"Sufficient space (remaining: {utils.format_bytes(remaining)})")
-            except (ValueError, IndexError):
-                pass
+            required = int(total_size * 0.5)
+            if space_bytes < required:
+                typer.echo("WARNING: Insufficient disk space!")
+                typer.echo(f"   Need: {utils.format_bytes(required)}")
+                typer.echo(f"   Have: {utils.format_bytes(space_bytes)}")
+                typer.echo(f"   Short: {utils.format_bytes(required - space_bytes)}")
+            else:
+                remaining = space_bytes - required
+                typer.echo(f"Sufficient space (remaining: {utils.format_bytes(remaining)})")
     except Exception as e:
         logger.debug(f"Could not check disk space: {e}")
 

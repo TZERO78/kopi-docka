@@ -1,6 +1,6 @@
 """Helper modules and utilities for Kopi-Docka."""
 
-from .config import Config, create_default_config, generate_secure_password, detect_repository_type
+from .config import Config, create_default_config, generate_secure_password, detect_repository_type, extract_filesystem_path
 from .constants import VERSION, DEFAULT_CONFIG_PATHS
 from .logging import get_logger, log_manager
 from .system_utils import SystemUtils
@@ -15,6 +15,7 @@ __all__ = [
     'create_default_config',
     'generate_secure_password',
     'detect_repository_type',
+    'extract_filesystem_path',
     'VERSION',
     'DEFAULT_CONFIG_PATHS',
     'get_logger',

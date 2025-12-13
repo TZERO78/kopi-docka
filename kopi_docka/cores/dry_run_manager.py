@@ -31,7 +31,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 
 from ..types import BackupUnit
-from ..helpers.config import Config
+from ..helpers.config import Config, extract_filesystem_path
 from ..helpers.system_utils import SystemUtils
 
 logger = logging.getLogger(__name__)
@@ -104,19 +104,13 @@ class DryRunReport:
 
         # Determine a local path to check space against
         repo_parent_path_str: Optional[str] = None
-        
-        # Parse kopia_params for filesystem path
-        if kopia_params and 'filesystem' in kopia_params and '--path' in kopia_params:
-            import shlex
-            parts = shlex.split(kopia_params)
-            try:
-                path_idx = parts.index('--path') + 1
-                if path_idx < len(parts):
-                    from pathlib import Path
-                    repo_parent_path_str = str(Path(parts[path_idx]).parent)
-            except (ValueError, IndexError):
-                pass
-        
+
+        # Extract filesystem path if available
+        repo_path = extract_filesystem_path(kopia_params)
+        if repo_path:
+            from pathlib import Path
+            repo_parent_path_str = str(Path(repo_path).parent)
+
         # Fallback: Use backup base path disk as proxy for remote repos
         if not repo_parent_path_str:
             repo_parent_path_str = str(self.config.backup_base_path)
@@ -252,23 +246,16 @@ class DryRunReport:
             )
 
         # Check if enough local space (proxy for remote: use backup base path)
-        repo_parent_path_str: Optional[str] = None
         # Get kopia_params
         kopia_params = self.config.get('kopia', 'kopia_params', fallback='')
-        
-        # Parse for filesystem path
+
+        # Extract filesystem path if available
         repo_parent_path_str = None
-        if kopia_params and 'filesystem' in kopia_params and '--path' in kopia_params:
-            import shlex
-            parts = shlex.split(kopia_params)
-            try:
-                path_idx = parts.index('--path') + 1
-                if path_idx < len(parts):
-                    from pathlib import Path
-                    repo_parent_path_str = str(Path(parts[path_idx]).parent)
-            except (ValueError, IndexError):
-                pass
-        
+        repo_path = extract_filesystem_path(kopia_params)
+        if repo_path:
+            from pathlib import Path
+            repo_parent_path_str = str(Path(repo_path).parent)
+
         if not repo_parent_path_str:
             repo_parent_path_str = str(self.config.backup_base_path)
 

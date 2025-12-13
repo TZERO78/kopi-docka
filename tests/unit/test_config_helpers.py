@@ -1,10 +1,10 @@
 """
 Unit tests for config helper functions.
 
-Tests the detect_repository_type function and other config utilities.
+Tests the detect_repository_type and extract_filesystem_path functions.
 """
 import pytest
-from kopi_docka.helpers.config import detect_repository_type
+from kopi_docka.helpers.config import detect_repository_type, extract_filesystem_path
 
 
 class TestDetectRepositoryType:
@@ -71,3 +71,44 @@ class TestDetectRepositoryType:
         """Test handling of leading whitespace."""
         assert detect_repository_type("  filesystem --path /backup") == "filesystem"
         assert detect_repository_type("\trclone --remote-path=gdrive:backup") == "rclone"
+
+
+class TestExtractFilesystemPath:
+    """Tests for extract_filesystem_path function."""
+
+    def test_basic_path_extraction(self):
+        """Test basic path extraction with --path flag."""
+        assert extract_filesystem_path("filesystem --path /backup/kopia") == "/backup/kopia"
+        assert extract_filesystem_path("filesystem --path /var/lib/backup") == "/var/lib/backup"
+
+    def test_path_with_equals_sign(self):
+        """Test path extraction with --path=value format."""
+        assert extract_filesystem_path("filesystem --path=/backup/kopia") == "/backup/kopia"
+
+    def test_non_filesystem_returns_none(self):
+        """Test that non-filesystem repos return None."""
+        assert extract_filesystem_path("rclone --remote-path=gdrive:backup") is None
+        assert extract_filesystem_path("s3 --bucket my-bucket") is None
+        assert extract_filesystem_path("b2 --bucket my-b2-bucket") is None
+
+    def test_empty_string(self):
+        """Test handling of empty string."""
+        assert extract_filesystem_path("") is None
+
+    def test_none_value(self):
+        """Test handling of None value."""
+        assert extract_filesystem_path(None) is None
+
+    def test_filesystem_without_path(self):
+        """Test filesystem without --path flag returns None."""
+        assert extract_filesystem_path("filesystem") is None
+        assert extract_filesystem_path("filesystem --other-flag value") is None
+
+    def test_path_with_spaces(self):
+        """Test path with spaces (quoted)."""
+        assert extract_filesystem_path('filesystem --path "/backup/my backups"') == "/backup/my backups"
+
+    def test_complex_filesystem_params(self):
+        """Test extraction from complex filesystem params."""
+        params = "filesystem --path /backup/kopia --flat"
+        assert extract_filesystem_path(params) == "/backup/kopia"
