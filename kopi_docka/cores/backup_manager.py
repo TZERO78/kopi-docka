@@ -672,6 +672,8 @@ class BackupManager:
             try:
                 self.policy_manager.set_retention_for_target(
                     target,
+                    keep_latest=self.config.getint("retention", "latest", 10),
+                    keep_hourly=self.config.getint("retention", "hourly", 0),
                     keep_daily=self.config.getint("retention", "daily", 7),
                     keep_weekly=self.config.getint("retention", "weekly", 4),
                     keep_monthly=self.config.getint("retention", "monthly", 12),

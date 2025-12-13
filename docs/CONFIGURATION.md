@@ -179,6 +179,8 @@ kopi-docka --config /path/to/config.json <command>
     "compose_timeout": 300
   },
   "retention": {
+    "latest": 10,
+    "hourly": 0,
     "daily": 7,
     "weekly": 4,
     "monthly": 12,
@@ -207,10 +209,12 @@ kopi-docka --config /path/to/config.json <command>
 | `exclude_patterns` | Tar exclude patterns (array) | `[]` |
 | `update_recovery_bundle` | DR bundle with every backup | `false` |
 | `recovery_bundle_retention` | DR bundles to keep | `3` |
+| `retention.latest` | Latest snapshots to keep | `10` |
+| `retention.hourly` | Hourly backups to keep | `0` |
 | `retention.daily` | Daily backups to keep | `7` |
 | `retention.weekly` | Weekly backups | `4` |
 | `retention.monthly` | Monthly backups | `12` |
-| `retention.yearly` | Yearly backups | `5` |
+| `retention.yearly` | Yearly backups (not supported in Kopia 0.21) | `5` |
 
 ---
 

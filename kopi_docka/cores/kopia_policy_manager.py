@@ -41,13 +41,16 @@ class KopiaPolicyManager:
             logger.debug("Global compression policy skipped: %s", e)
 
         try:
+            latest = str(self.repo.config.getint("retention", "latest", fallback=10))
+            hourly = str(self.repo.config.getint("retention", "hourly", fallback=0))
             daily = str(self.repo.config.getint("retention", "daily", fallback=7))
             weekly = str(self.repo.config.getint("retention", "weekly", fallback=4))
             monthly = str(self.repo.config.getint("retention", "monthly", fallback=12))
             # Note: --keep-yearly not available in Kopia 0.21
             self._run([
                 "kopia", "policy", "set", "--global",
-                "--keep-latest", "10",
+                "--keep-latest", latest,
+                "--keep-hourly", hourly,
                 "--keep-daily", daily,
                 "--keep-weekly", weekly,
                 "--keep-monthly", monthly,
@@ -62,6 +65,7 @@ class KopiaPolicyManager:
         target: str,
         *,
         keep_latest: Optional[int] = None,
+        keep_hourly: Optional[int] = None,
         keep_daily: Optional[int] = None,
         keep_weekly: Optional[int] = None,
         keep_monthly: Optional[int] = None,
@@ -71,6 +75,8 @@ class KopiaPolicyManager:
         args = ["kopia", "policy", "set", target]
         if keep_latest is not None:
             args += ["--keep-latest", str(keep_latest)]
+        if keep_hourly is not None:
+            args += ["--keep-hourly", str(keep_hourly)]
         if keep_daily is not None:
             args += ["--keep-daily", str(keep_daily)]
         if keep_weekly is not None:

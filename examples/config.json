@@ -34,6 +34,8 @@
     "compose_timeout": 300
   },
   "retention": {
+    "latest": 10,
+    "hourly": 0,
     "daily": 7,
     "weekly": 4,
     "monthly": 12,

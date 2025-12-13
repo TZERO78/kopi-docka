@@ -29,6 +29,8 @@
     "prune_stopped_containers": false
   },
   "retention": {
+    "latest": 10,
+    "hourly": 0,
     "daily": 7,
     "weekly": 4,
     "monthly": 12,
