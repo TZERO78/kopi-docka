@@ -876,12 +876,29 @@ class RestoreManager:
         console = Console()
         
         # Step 1: Collect files
-        compose_file = recipe_dir / "docker-compose.yml"
+        compose_order_file = recipe_dir / "compose_order.json"
         project_files_dir = recipe_dir / "project-files"
-        
+
         files_to_copy = []
-        if compose_file.exists():
-            files_to_copy.append(compose_file)
+
+        # Add compose files (from compose_order.json if available, else fallback)
+        if compose_order_file.exists():
+            try:
+                compose_files = json.loads(compose_order_file.read_text())
+                for cf in compose_files:
+                    cf_path = recipe_dir / cf
+                    if cf_path.exists():
+                        files_to_copy.append(cf_path)
+            except Exception:
+                pass
+
+        # Fallback: old-style single docker-compose.yml
+        if not files_to_copy:
+            compose_file = recipe_dir / "docker-compose.yml"
+            if compose_file.exists():
+                files_to_copy.append(compose_file)
+
+        # Add project files (.env, configs, etc.)
         if project_files_dir.exists():
             files_to_copy.extend([f for f in project_files_dir.glob("*") if f.is_file()])
         
@@ -1047,13 +1064,36 @@ class RestoreManager:
         console.print(f"   cd /path/to/your/project && docker compose up -d")
 
     def _display_restart_instructions(self, recipe_dir: Path):
-        """Show modern docker compose restart steps (no legacy fallback)."""
+        """Show modern docker compose restart steps with override support."""
+        compose_order_file = recipe_dir / "compose_order.json"
         compose_file = recipe_dir / "docker-compose.yml"
-        
+
         print("\n   🐳 Service Restart:")
         print("   " + "-" * 40)
-        
-        if compose_file.exists():
+
+        # Try to read compose order (new format with overrides)
+        compose_files = []
+        if compose_order_file.exists():
+            try:
+                compose_files = json.loads(compose_order_file.read_text())
+            except Exception:
+                pass
+
+        if compose_files:
+            # Build dynamic -f flags for all compose files
+            f_flags = " ".join(f"-f {f}" for f in compose_files)
+            print(f"")
+            print(f"   💡 After copying files to your target directory:")
+            print(f"      cd /your/target/directory")
+            print(f"      docker compose {f_flags} up -d")
+            if len(compose_files) > 1:
+                print(f"")
+                print(f"   📋 Compose files (in order):")
+                for f in compose_files:
+                    print(f"      • {f}")
+            print(f"")
+        elif compose_file.exists():
+            # Fallback for old backups without compose_order.json
             print(f"")
             print(f"   💡 After copying files to your target directory:")
             print(f"      cd /your/target/directory")
