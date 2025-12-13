@@ -379,6 +379,21 @@ class RestoreManager:
             logger.error(f"Restore failed: {e}", extra={"unit_name": rp.unit_name})
             print(f"\n❌ Error during restore: {e}")
 
+        finally:
+            # GUARANTEED CLEANUP: Remove temporary restore directory
+            # This prevents /tmp from filling up on VPS systems
+            try:
+                if restore_dir.exists():
+                    shutil.rmtree(restore_dir)
+                    logger.debug(f"Cleaned up restore directory: {restore_dir}")
+                    print(f"\n🧹 Temporary restore directory cleaned up")
+            except Exception as cleanup_error:
+                logger.warning(
+                    f"Could not clean up restore directory {restore_dir}: {cleanup_error}",
+                    extra={"unit_name": rp.unit_name}
+                )
+                print(f"\n⚠️  Could not clean up {restore_dir}: {cleanup_error}")
+
     def _restore_recipe(self, rp: RestorePoint, restore_dir: Path) -> Path:
         """Restore recipe snapshots into a folder."""
         if not rp.recipe_snapshots:
@@ -782,9 +797,12 @@ class RestoreManager:
                 print(f"      ✓ Restarted {len(container_ids)} container(s)")
             else:
                 print("      ℹ No containers to restart")
-            
+
+            # 5. Cleanup old safety backups to prevent /tmp from filling up
+            self.cleanup_old_safety_backups(keep_last=3)
+
             return True
-            
+
         except subprocess.CalledProcessError as e:
             print(f"      ❌ Command failed: {e}")
             return False

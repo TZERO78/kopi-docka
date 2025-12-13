@@ -72,7 +72,7 @@ class KopiaRepository:
     def _get_env(self) -> Dict[str, str]:
         """Build environment for Kopia CLI (password, cache dir)."""
         env = os.environ.copy()
-        
+
         # Hole Passwort über Config.get_password() - ohne Fallback!
         # Wenn Passwort fehlt, wirft get_password() ValueError
         password = self.config.get_password()
@@ -86,6 +86,25 @@ class KopiaRepository:
         # Optional: also expose path via env (we *also* pass --config-file explicitly)
         env.setdefault("KOPIA_CONFIG_PATH", self._get_config_file())
         return env
+
+    def _get_cache_params(self) -> List[str]:
+        """
+        Get Kopia cache size parameters to prevent unbounded cache growth.
+
+        Returns CLI args like: ['--content-cache-size-mb', '500', '--metadata-cache-size-mb', '100']
+        """
+        cache_size = self.config.kopia_cache_size_mb
+        if cache_size <= 0:
+            return []  # User explicitly disabled cache limiting
+
+        # Content cache is for actual data, metadata cache is for indexes
+        # Metadata cache should be ~20% of content cache
+        metadata_size = max(50, cache_size // 5)
+
+        return [
+            "--content-cache-size-mb", str(cache_size),
+            "--metadata-cache-size-mb", str(metadata_size),
+        ]
 
     def _run(self, args: List[str], check: bool = True) -> subprocess.CompletedProcess:
         """
@@ -161,14 +180,15 @@ class KopiaRepository:
         if self.is_connected():
             logger.debug("Already connected to repository")
             return
-        
+
         import shlex
         params = shlex.split(self.kopia_params)
-        cmd = ["kopia", "repository", "connect"] + params
+        # Include cache size limits to prevent unbounded cache growth
+        cmd = ["kopia", "repository", "connect"] + params + self._get_cache_params()
 
         # Try connect
         proc = self._run(cmd, check=False)
-        
+
         if proc.returncode == 0:
             logger.info("Connected to repository")
             return
@@ -180,7 +200,7 @@ class KopiaRepository:
                 f"Repository not found ({self.kopia_params}). "
                 f"Run 'kopi-docka init' to create it first."
             )
-        
+
         # Other error (wrong password, permissions, etc.)
         raise RuntimeError(f"Failed to connect: {proc.stderr or proc.stdout}")
 
@@ -214,7 +234,8 @@ class KopiaRepository:
         cmd_create = ["kopia", "repository", "create"] + params + [
             "--description", f"Kopi-Docka Backup Repository ({self.profile_name})"
         ]
-        cmd_connect = ["kopia", "repository", "connect"] + params
+        # Include cache size limits to prevent unbounded cache growth
+        cmd_connect = ["kopia", "repository", "connect"] + params + self._get_cache_params()
 
         # Try to create (may fail if exists)
         proc = self._run(cmd_create, check=False)
