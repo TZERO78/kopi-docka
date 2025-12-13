@@ -120,21 +120,21 @@ _TRANSLATIONS = {
         "welcome.requirements": "System Requirements",
         "welcome.button_next": "Next",
         
-        # Backend Selection
-        "backend_selection.title": "Select Backup Backend",
+        # Repository Storage Selection
+        "backend_selection.title": "Select Repository Storage",
         "backend_selection.subtitle": "Choose where to store your backups",
         "backend_selection.recommendation": "Recommendation",
         "backend_selection.button_next": "Next",
-        
+
         # Setup
         "setup.title": "Kopi-Docka Setup Wizard",
-        "setup.subtitle": "Configure your backup backend",
-        "setup.select_backend": "Select backup backend",
+        "setup.subtitle": "Configure your repository storage",
+        "setup.select_backend": "Select repository storage",
         "setup.success": "Configuration saved successfully!",
         "setup.cancelled": "Setup cancelled",
-        
+
         # Tailscale
-        "tailscale.title": "Tailscale Backend Configuration",
+        "tailscale.title": "Tailscale Repository Configuration",
         "tailscale.checking": "Checking Tailscale connection...",
         "tailscale.not_connected": "Not connected to Tailscale",
         "tailscale.connect_prompt": "Would you like to connect now?",
@@ -181,21 +181,21 @@ _TRANSLATIONS = {
         "welcome.requirements": "Systemanforderungen",
         "welcome.button_next": "Weiter",
         
-        # Backend Selection
-        "backend_selection.title": "Backup-Backend auswählen",
+        # Repository-Speicher Auswahl
+        "backend_selection.title": "Repository-Speicher auswählen",
         "backend_selection.subtitle": "Wählen Sie, wo Ihre Backups gespeichert werden sollen",
         "backend_selection.recommendation": "Empfehlung",
         "backend_selection.button_next": "Weiter",
-        
+
         # Setup
         "setup.title": "Kopi-Docka Setup-Assistent",
-        "setup.subtitle": "Konfigurieren Sie Ihr Backup-Backend",
-        "setup.select_backend": "Backup-Backend auswählen",
+        "setup.subtitle": "Konfigurieren Sie Ihren Repository-Speicher",
+        "setup.select_backend": "Repository-Speicher auswählen",
         "setup.success": "Konfiguration erfolgreich gespeichert!",
         "setup.cancelled": "Setup abgebrochen",
-        
+
         # Tailscale
-        "tailscale.title": "Tailscale Backend-Konfiguration",
+        "tailscale.title": "Tailscale Repository-Konfiguration",
         "tailscale.checking": "Überprüfe Tailscale-Verbindung...",
         "tailscale.not_connected": "Nicht mit Tailscale verbunden",
         "tailscale.connect_prompt": "Möchten Sie jetzt verbinden?",

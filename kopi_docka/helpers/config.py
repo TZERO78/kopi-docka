@@ -35,6 +35,45 @@ from .logging import get_logger
 
 logger = get_logger(__name__)
 
+def detect_repository_type(kopia_params: str) -> str:
+    """
+    Detect repository type from kopia_params string.
+
+    Kopia repository types are determined by the first word of kopia_params:
+    - filesystem --path /backup/...
+    - rclone --remote-path gdrive:...
+    - s3 --bucket ...
+    - b2 --bucket ...
+    - azure --container ...
+    - gcs --bucket ...
+    - sftp --path user@host:...
+    - webdav --url ...
+
+    Args:
+        kopia_params: The kopia_params string from config
+
+    Returns:
+        Repository type string (filesystem, rclone, s3, etc.)
+        Returns 'unknown' if type cannot be determined
+    """
+    if not kopia_params or not kopia_params.strip():
+        return 'unknown'
+
+    # Split and get first word (the repository type)
+    parts = kopia_params.strip().split()
+    if not parts:
+        return 'unknown'
+
+    repo_type = parts[0].lower()
+
+    # Valid Kopia repository types
+    valid_types = {
+        'filesystem', 'rclone', 's3', 'b2', 'azure', 'gcs', 'sftp', 'webdav'
+    }
+
+    return repo_type if repo_type in valid_types else 'unknown'
+
+
 def generate_secure_password(length: int = 32) -> str:
     """
     Generate a cryptographically secure random password.

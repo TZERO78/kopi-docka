@@ -17,8 +17,8 @@ Master Setup Wizard - Complete First-Time Setup
 
 Orchestrates the complete setup process:
 1. Check & install dependencies (Kopia)
-2. Select backend type (local/S3/B2/Azure/GCS/Tailscale)
-3. Configure backend-specific settings
+2. Select repository storage type (local/S3/B2/Azure/GCS/Tailscale)
+3. Configure repository settings
 4. Create config file
 5. Initialize repository
 
@@ -62,11 +62,11 @@ def cmd_setup_wizard(
 ):
     """
     Complete setup wizard - guides through entire first-time setup.
-    
+
     Steps:
     1. Check dependencies (Kopia, Docker)
-    2. Select backend (local, S3, B2, etc.)
-    3. Configure backend
+    2. Select repository storage (local, S3, B2, etc.)
+    3. Configure repository
     4. Create config file
     5. Initialize repository (optional)
     """
@@ -78,7 +78,7 @@ def cmd_setup_wizard(
     typer.echo("")
     typer.echo("This wizard will guide you through:")
     typer.echo("  1. ✅ Dependency verification")
-    typer.echo("  2. 📦 Backend selection")
+    typer.echo("  2. 📦 Repository storage selection")
     typer.echo("  3. ⚙️  Configuration")
     typer.echo("  4. 🔐 Repository initialization")
     typer.echo("")

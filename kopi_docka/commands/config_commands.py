@@ -22,7 +22,7 @@ from typing import Optional
 
 import typer
 
-from ..helpers import Config, create_default_config, get_logger, generate_secure_password
+from ..helpers import Config, create_default_config, get_logger, generate_secure_password, detect_repository_type
 from ..backends.local import LocalBackend
 from ..backends.s3 import S3Backend
 from ..backends.b2 import B2Backend
@@ -144,15 +144,15 @@ def cmd_new_config(
     cfg = Config(created_path)
     
     # ═══════════════════════════════════════════
-    # Phase 1: Backend Selection & Configuration
+    # Phase 1: Repository Storage Selection & Configuration
     # ═══════════════════════════════════════════
     typer.echo("─────────────────────────────────────────")
-    typer.echo("→ Backend Selection")
+    typer.echo("→ Repository Storage Selection")
     typer.echo("─────────────────────────────────────────")
     typer.echo("")
     typer.echo("Where should backups be stored?")
     typer.echo("")
-    typer.echo("Available backends:")
+    typer.echo("Available repository types:")
     typer.echo("  1. Local Filesystem  - Store on local disk/NAS mount")
     typer.echo("  2. AWS S3           - Amazon S3 or compatible (Wasabi, MinIO)")
     typer.echo("  3. Backblaze B2     - Cost-effective cloud storage")
@@ -162,9 +162,9 @@ def cmd_new_config(
     typer.echo("  7. Tailscale        - P2P encrypted network")
     typer.echo("  8. Rclone           - Universal (70+ cloud providers)")
     typer.echo("")
-    
+
     backend_choice = typer.prompt(
-        "Select backend",
+        "Select repository type",
         type=int,
         default=1,
         show_default=True
@@ -199,7 +199,7 @@ def cmd_new_config(
             typer.echo(result['instructions'])
     else:
         # Fallback
-        typer.echo(f"⚠️  Backend '{backend_type}' not found")
+        typer.echo(f"⚠️  Repository type '{backend_type}' not found")
         repo_path = typer.prompt("Repository path", default="/backup/kopia-repository")
         kopia_params = f"filesystem --path {repo_path}"
     
@@ -516,7 +516,7 @@ def cmd_change_password(
 
 
 def cmd_status(ctx: typer.Context):
-    """Show detailed status of configured backend."""
+    """Show detailed status of configured repository storage."""
     from rich.console import Console
     from rich.table import Table
     from rich.panel import Panel
@@ -525,22 +525,20 @@ def cmd_status(ctx: typer.Context):
     cfg = ensure_config(ctx)
     console = Console()
 
-    # Get backend type from config
-    backend_type = cfg.get('backend', 'type', fallback='filesystem')
+    # Detect repository type from kopia_params
+    kopia_params = cfg.get('kopia', 'kopia_params', fallback='')
+    backend_type = detect_repository_type(kopia_params)
 
-    console.print(f"\n[bold cyan]Backend:[/bold cyan] {backend_type}")
+    console.print(f"\n[bold cyan]Repository Type:[/bold cyan] {backend_type}")
 
     # Get backend class
     backend_class = BACKEND_MODULES.get(backend_type)
     if not backend_class:
-        console.print(f"[red]❌ Backend '{backend_type}' not available[/red]\n")
+        console.print(f"[red]❌ Repository type '{backend_type}' not available[/red]\n")
         raise typer.Exit(code=1)
 
-    # Load backend config
+    # Load repository config (kopia_params already fetched above)
     backend_config = {}
-
-    # Get kopia_params
-    kopia_params = cfg.get('kopia', 'kopia_params', fallback='')
     if kopia_params:
         backend_config['kopia_params'] = kopia_params
 
@@ -563,7 +561,7 @@ def cmd_status(ctx: typer.Context):
     backend = backend_class(backend_config)
 
     # Get status
-    console.print("\n[dim]Checking backend status...[/dim]")
+    console.print("\n[dim]Checking repository status...[/dim]")
     status = backend.get_status()
 
     # Display based on backend type
@@ -666,7 +664,7 @@ def _display_filesystem_status(console, status):
     details = status.get("details", {})
 
     # Create status table
-    table = Table(title="Filesystem Backend Status", box=box.ROUNDED, show_header=False)
+    table = Table(title="Filesystem Repository Status", box=box.ROUNDED, show_header=False)
     table.add_column("Property", style="cyan", width=20)
     table.add_column("Value", style="white")
 
@@ -717,20 +715,20 @@ def _display_filesystem_status(console, status):
         ))
     elif status.get("available"):
         console.print(Panel(
-            "[green]✓ Filesystem backend ready![/green]\nReady for backups.",
+            "[green]✓ Filesystem repository ready![/green]\nReady for backups.",
             title="Status",
             border_style="green"
         ))
 
 
 def _display_generic_status(console, status, backend_type):
-    """Display generic status for other backends."""
+    """Display generic status for repository types."""
     from rich.table import Table
     from rich.panel import Panel
     from rich import box
 
     # Create status table
-    table = Table(title=f"{backend_type.upper()} Backend Status", box=box.ROUNDED, show_header=False)
+    table = Table(title=f"{backend_type.upper()} Repository Status", box=box.ROUNDED, show_header=False)
     table.add_column("Property", style="cyan", width=20)
     table.add_column("Value", style="white")
 
@@ -754,19 +752,19 @@ def _display_generic_status(console, status, backend_type):
 
     if not status.get("configured"):
         console.print(Panel(
-            f"[yellow]⚠️  Backend not configured![/yellow]\nRun: [cyan]kopi-docka admin config new[/cyan]",
+            f"[yellow]⚠️  Repository not configured![/yellow]\nRun: [cyan]kopi-docka admin config new[/cyan]",
             title="Warning",
             border_style="yellow"
         ))
     elif not status.get("available"):
         console.print(Panel(
-            f"[yellow]⚠️  Backend not available![/yellow]\nCheck configuration and connectivity.",
+            f"[yellow]⚠️  Repository not available![/yellow]\nCheck configuration and connectivity.",
             title="Warning",
             border_style="yellow"
         ))
     else:
         console.print(Panel(
-            f"[green]✓ {backend_type.title()} backend ready![/green]\nReady for backups.",
+            f"[green]✓ {backend_type.title()} repository ready![/green]\nReady for backups.",
             title="Status",
             border_style="green"
         ))
