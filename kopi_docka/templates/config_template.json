@@ -6,7 +6,8 @@
     "password_file": null,
     "compression": "zstd",
     "encryption": "AES256-GCM-HMAC-SHA256",
-    "cache_directory": "/var/cache/kopi-docka"
+    "cache_directory": "/var/cache/kopi-docka",
+    "cache_size_mb": 500
   },
   "backup": {
     "base_path": "/backup/kopi-docka",
