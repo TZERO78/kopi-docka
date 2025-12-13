@@ -89,7 +89,17 @@ class Config:
     def kopia_cache_directory(self) -> Optional[str]:
         """Get kopia cache directory."""
         return self.get('kopia', 'cache_directory', fallback=None)
-    
+
+    @property
+    def kopia_cache_size_mb(self) -> int:
+        """
+        Get kopia content cache size limit in MB.
+
+        Default: 500 MB - prevents unbounded cache growth on VPS systems.
+        Set to 0 to disable cache limiting (not recommended).
+        """
+        return self.getint('kopia', 'cache_size_mb', fallback=500)
+
     @property
     def kopia_password(self) -> str:
         """Get kopia password (deprecated, use get_password() instead)."""
