@@ -6,7 +6,7 @@
 # @description: Doctor command - comprehensive system health check
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
-# @version:     3.4.1
+# @version:     3.5.0
 #
 # ------------------------------------------------------------------------------
 # Copyright (c) 2025 Markus F. (TZERO78)
@@ -16,12 +16,14 @@
 """
 Doctor command - comprehensive system health check.
 
-This command merges functionality from:
-- check (dependency verification)
-- status (repository storage status)
-- repo-status (repository connection status)
+Checks:
+1. System dependencies (Kopia, Docker)
+2. Configuration status
+3. Repository status (Kopia connection - the single source of truth)
 
-Provides a single command to diagnose the entire Kopi-Docka setup.
+Note: Repository connection status IS the definitive check. If Kopia can
+connect to the repository, the underlying storage (filesystem, rclone, s3, etc.)
+is automatically working. No separate backend checks needed.
 """
 
 from typing import Optional
@@ -34,34 +36,82 @@ from rich import box
 
 from ..helpers import Config, get_logger, detect_repository_type
 from ..cores import KopiaRepository, DependencyManager
-from ..backends.local import LocalBackend
-from ..backends.s3 import S3Backend
-from ..backends.b2 import B2Backend
-from ..backends.azure import AzureBackend
-from ..backends.gcs import GCSBackend
-from ..backends.sftp import SFTPBackend
-from ..backends.tailscale import TailscaleBackend
-from ..backends.rclone import RcloneBackend
 
 logger = get_logger(__name__)
 console = Console()
-
-# Repository type registry (maps repository types to their handler classes)
-REPOSITORY_MODULES = {
-    'filesystem': LocalBackend,
-    's3': S3Backend,
-    'b2': B2Backend,
-    'azure': AzureBackend,
-    'gcs': GCSBackend,
-    'sftp': SFTPBackend,
-    'tailscale': TailscaleBackend,
-    'rclone': RcloneBackend,
-}
 
 
 def get_config(ctx: typer.Context) -> Optional[Config]:
     """Get config from context."""
     return ctx.obj.get("config")
+
+
+def _extract_storage_info(kopia_params: str, repo_type: str) -> dict:
+    """
+    Extract storage-specific info from kopia_params for display purposes only.
+
+    This is purely for informational display - NOT a connectivity check.
+    The actual connectivity is verified by Kopia repository status.
+
+    Args:
+        kopia_params: The kopia_params string
+        repo_type: Detected repository type
+
+    Returns:
+        Dict with extracted info (remote_path, bucket, etc.)
+    """
+    import shlex
+
+    info = {}
+
+    if not kopia_params:
+        return info
+
+    try:
+        parts = shlex.split(kopia_params)
+
+        if repo_type == 'filesystem':
+            # Extract --path
+            for i, part in enumerate(parts):
+                if part == '--path' and i + 1 < len(parts):
+                    info['path'] = parts[i + 1]
+                elif part.startswith('--path='):
+                    info['path'] = part.split('=', 1)[1]
+
+        elif repo_type == 'rclone':
+            # Extract --remote-path
+            for part in parts:
+                if part.startswith('--remote-path='):
+                    info['remote'] = part.split('=', 1)[1]
+
+        elif repo_type in ('s3', 'b2', 'gcs'):
+            # Extract --bucket
+            for i, part in enumerate(parts):
+                if part == '--bucket' and i + 1 < len(parts):
+                    info['bucket'] = parts[i + 1]
+                elif part.startswith('--bucket='):
+                    info['bucket'] = part.split('=', 1)[1]
+
+        elif repo_type == 'azure':
+            # Extract --container
+            for i, part in enumerate(parts):
+                if part == '--container' and i + 1 < len(parts):
+                    info['container'] = parts[i + 1]
+                elif part.startswith('--container='):
+                    info['container'] = part.split('=', 1)[1]
+
+        elif repo_type == 'sftp':
+            # Extract --path (contains user@host:path)
+            for i, part in enumerate(parts):
+                if part == '--path' and i + 1 < len(parts):
+                    info['target'] = parts[i + 1]
+                elif part.startswith('--path='):
+                    info['target'] = part.split('=', 1)[1]
+
+    except Exception:
+        pass
+
+    return info
 
 
 # -------------------------
@@ -75,8 +125,7 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
     Checks:
     1. System dependencies (Kopia, Docker)
     2. Configuration status
-    3. Repository storage (type detection and connectivity)
-    4. Repository connection status
+    3. Repository status (connection is the single source of truth)
     """
     console.print()
     console.print(Panel.fit(
@@ -132,6 +181,8 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
     config_table.add_column("Status", width=15)
     config_table.add_column("Details", style="dim")
 
+    kopia_params = ''
+
     if cfg:
         config_table.add_row("Config File", "[green]Found[/green]", str(cfg.config_file))
 
@@ -162,88 +213,11 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
     console.print()
 
     # ═══════════════════════════════════════════
-    # Section 3: Repository Storage Status
+    # Section 3: Repository Status
+    # (Kopia connection is the SINGLE SOURCE OF TRUTH)
     # ═══════════════════════════════════════════
     if cfg:
-        console.print("[bold]3. Repository Storage[/bold]")
-        console.print("-" * 40)
-
-        # Detect repository type from kopia_params (the correct way)
-        kopia_params = cfg.get('kopia', 'kopia_params', fallback='')
-        repository_type = detect_repository_type(kopia_params)
-
-        repo_storage_table = Table(box=box.SIMPLE, show_header=False)
-        repo_storage_table.add_column("Property", style="cyan", width=20)
-        repo_storage_table.add_column("Status", width=15)
-        repo_storage_table.add_column("Details", style="dim")
-
-        repo_storage_table.add_row("Repository Type", "", repository_type)
-
-        backend_class = REPOSITORY_MODULES.get(repository_type)
-        if backend_class:
-            try:
-                # Load repository config
-                repo_config = {}
-                if kopia_params:
-                    repo_config['kopia_params'] = kopia_params
-
-                backend = backend_class(repo_config)
-                status = backend.get_status()
-
-                if status.get('available'):
-                    repo_storage_table.add_row("Connection", "[green]Available[/green]", "")
-                else:
-                    repo_storage_table.add_row("Connection", "[red]Not Available[/red]", "Check repository configuration")
-                    issues.append(f"Repository ({repository_type}) is not available")
-
-                # Show repository-specific details
-                details = status.get('details', {})
-                if repository_type == 'filesystem':
-                    if details.get('path'):
-                        repo_storage_table.add_row("Path", "", details['path'])
-                    if details.get('disk_free_gb') is not None:
-                        repo_storage_table.add_row("Free Space", "", f"{details['disk_free_gb']:.1f} GB")
-                elif repository_type == 'rclone':
-                    if details.get('remote_path'):
-                        repo_storage_table.add_row("Remote Path", "", details['remote_path'])
-                    if details.get('remote_name'):
-                        repo_storage_table.add_row("Remote Name", "", details['remote_name'])
-                    if details.get('config_file'):
-                        repo_storage_table.add_row("Config File", "", details['config_file'])
-                elif repository_type == 'tailscale':
-                    if status.get('hostname'):
-                        repo_storage_table.add_row("Hostname", "", status['hostname'])
-                    if status.get('online'):
-                        repo_storage_table.add_row("Peer Status", "[green]Online[/green]", "")
-                    else:
-                        repo_storage_table.add_row("Peer Status", "[red]Offline[/red]", "")
-                        warnings.append("Tailscale peer is offline")
-                elif repository_type in ('s3', 'b2', 'azure', 'gcs'):
-                    if details.get('bucket'):
-                        repo_storage_table.add_row("Bucket", "", details['bucket'])
-                    if details.get('prefix'):
-                        repo_storage_table.add_row("Prefix", "", details['prefix'])
-                elif repository_type == 'sftp':
-                    if details.get('host'):
-                        repo_storage_table.add_row("Host", "", details['host'])
-                    if details.get('path'):
-                        repo_storage_table.add_row("Path", "", details['path'])
-
-            except Exception as e:
-                repo_storage_table.add_row("Status", "[red]Error[/red]", str(e)[:50])
-                issues.append(f"Repository check failed: {e}")
-        else:
-            repo_storage_table.add_row("Status", "[yellow]Unknown Type[/yellow]", f"Repository type '{repository_type}' not recognized")
-            warnings.append(f"Unknown repository type: {repository_type}")
-
-        console.print(repo_storage_table)
-        console.print()
-
-    # ═══════════════════════════════════════════
-    # Section 4: Repository Connection Status
-    # ═══════════════════════════════════════════
-    if cfg:
-        console.print("[bold]4. Repository Connection[/bold]")
+        console.print("[bold]3. Repository Status[/bold]")
         console.print("-" * 40)
 
         repo_table = Table(box=box.SIMPLE, show_header=False)
@@ -251,6 +225,18 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
         repo_table.add_column("Status", width=15)
         repo_table.add_column("Details", style="dim")
 
+        # Show repository type (from config parsing, no API call needed)
+        repo_type = detect_repository_type(kopia_params)
+        repo_table.add_row("Repository Type", "", repo_type)
+
+        # Show storage-specific info (parsed from config, no API call)
+        storage_info = _extract_storage_info(kopia_params, repo_type)
+        if storage_info:
+            for key, value in storage_info.items():
+                display_key = key.replace('_', ' ').title()
+                repo_table.add_row(display_key, "", value)
+
+        # THE ACTUAL CHECK: Kopia repository connection
         try:
             repo = KopiaRepository(cfg)
 
@@ -272,11 +258,17 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
                 except Exception:
                     repo_table.add_row("Backup Units", "[yellow]Unknown[/yellow]", "")
             else:
-                repo_table.add_row("Connection", "[yellow]Not Connected[/yellow]", "Run: kopi-docka admin repo init")
+                repo_table.add_row("Connection", "[yellow]Not Connected[/yellow]", "")
                 warnings.append("Repository not connected")
 
+                # Helpful message based on repo type
+                if repo_type == 'unknown':
+                    repo_table.add_row("", "", "Run: kopi-docka admin config new")
+                else:
+                    repo_table.add_row("", "", "Run: kopi-docka admin repo init")
+
         except Exception as e:
-            repo_table.add_row("Status", "[red]Error[/red]", str(e)[:50])
+            repo_table.add_row("Connection", "[red]Error[/red]", str(e)[:50])
             issues.append(f"Repository check failed: {e}")
 
         console.print(repo_table)
