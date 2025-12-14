@@ -34,7 +34,8 @@ from ..backends.rclone import RcloneBackend
 
 logger = get_logger(__name__)
 
-# Backend registry (shared with setup) - backend classes
+# Storage backend registry - maps repository types to their setup/status classes
+# Used by cmd_new_config() for interactive setup and cmd_status() for status display
 BACKEND_MODULES = {
     'filesystem': LocalBackend,
     's3': S3Backend,
@@ -537,25 +538,10 @@ def cmd_status(ctx: typer.Context):
         console.print(f"[red]❌ Repository type '{backend_type}' not available[/red]\n")
         raise typer.Exit(code=1)
 
-    # Load repository config (kopia_params already fetched above)
-    backend_config = {}
-    if kopia_params:
-        backend_config['kopia_params'] = kopia_params
-
-    # Get credentials from config (if present)
-    try:
-        import json
-        creds_str = cfg.get('backend', 'credentials', fallback='{}')
-        credentials = json.loads(creds_str) if isinstance(creds_str, str) else creds_str
-        if credentials:
-            backend_config['credentials'] = credentials
-    except Exception:
-        pass
-
-    # Get repository path
-    repo_path = cfg.get('kopia', 'repository_path', fallback='')
-    if repo_path:
-        backend_config['repository_path'] = repo_path
+    # Build backend config from kopia_params
+    # Note: Credentials are stored externally (rclone.conf, env vars, SSH keys)
+    # not in the kopi-docka config file
+    backend_config = {'kopia_params': kopia_params}
 
     # Initialize backend
     backend = backend_class(backend_config)
@@ -817,5 +803,5 @@ def register(app: typer.Typer):
 
     @app.command("status")
     def _status_cmd(ctx: typer.Context):
-        """Show detailed backend status (disk space, connectivity, etc.)."""
+        """Show detailed repository storage status (disk space, connectivity, etc.)."""
         cmd_status(ctx)
