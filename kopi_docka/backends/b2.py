@@ -74,11 +74,11 @@ Get credentials from:
         }
 
     def get_status(self) -> dict:
-        """Get B2 backend status."""
+        """Get B2 storage status."""
         import shlex
 
         status = {
-            "backend_type": self.name,
+            "repository_type": self.name,
             "configured": bool(self.config),
             "available": False,
             "details": {
@@ -112,11 +112,29 @@ Get credentials from:
 
         return status
 
+    # Abstract method implementations (required by BackendBase)
+    def check_dependencies(self) -> list:
+        """No local dependencies required for B2."""
+        return []
 
-# Add abstract method implementations
-B2Backend.check_dependencies = lambda self: []
-B2Backend.install_dependencies = lambda self: False
-B2Backend.setup_interactive = lambda self: self.configure()
-B2Backend.validate_config = lambda self: (True, [])
-B2Backend.test_connection = lambda self: True
-B2Backend.get_kopia_args = lambda self: __import__('shlex').split(self.config.get('kopia_params', '')) if self.config.get('kopia_params') else []
+    def install_dependencies(self) -> bool:
+        """No dependencies to install."""
+        return True
+
+    def setup_interactive(self) -> dict:
+        """Use configure() for setup."""
+        return self.configure()
+
+    def validate_config(self) -> tuple:
+        """Validate configuration."""
+        return (True, [])
+
+    def test_connection(self) -> bool:
+        """Test connection (requires B2 credentials in environment)."""
+        return True
+
+    def get_kopia_args(self) -> list:
+        """Get Kopia arguments from kopia_params."""
+        import shlex
+        kopia_params = self.config.get('kopia_params', '')
+        return shlex.split(kopia_params) if kopia_params else []

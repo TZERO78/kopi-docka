@@ -103,11 +103,11 @@ Get credentials from:
         }
 
     def get_status(self) -> dict:
-        """Get S3 backend status."""
+        """Get S3 storage status."""
         import shlex
 
         status = {
-            "backend_type": self.name,
+            "repository_type": self.name,
             "configured": bool(self.config),
             "available": False,
             "details": {
@@ -159,6 +159,33 @@ Get credentials from:
 
         return status
 
+    # Abstract method implementations (required by BackendBase)
+    def check_dependencies(self) -> list:
+        """No local dependencies required for S3."""
+        return []
+
+    def install_dependencies(self) -> bool:
+        """No dependencies to install."""
+        return True
+
+    def setup_interactive(self) -> dict:
+        """Use configure() for setup."""
+        return self.configure()
+
+    def validate_config(self) -> tuple:
+        """Validate configuration."""
+        return (True, [])
+
+    def test_connection(self) -> bool:
+        """Test connection (requires AWS credentials in environment)."""
+        return True
+
+    def get_kopia_args(self) -> list:
+        """Get Kopia arguments from kopia_params."""
+        import shlex
+        kopia_params = self.config.get('kopia_params', '')
+        return shlex.split(kopia_params) if kopia_params else []
+
 
 def _format_env_vars(env_vars: dict) -> str:
     """Format environment variables for display."""
@@ -166,12 +193,3 @@ def _format_env_vars(env_vars: dict) -> str:
     for key, value in env_vars.items():
         lines.append(f"  export {key}='{value}'")
     return "\n".join(lines)
-
-
-# Add abstract method implementations to S3Backend
-S3Backend.check_dependencies = lambda self: []
-S3Backend.install_dependencies = lambda self: False
-S3Backend.setup_interactive = lambda self: self.configure()
-S3Backend.validate_config = lambda self: (True, [])
-S3Backend.test_connection = lambda self: True
-S3Backend.get_kopia_args = lambda self: __import__('shlex').split(self.config.get('kopia_params', '')) if self.config.get('kopia_params') else []

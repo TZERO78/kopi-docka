@@ -229,14 +229,31 @@ class TailscaleBackend(BackendBase):
             return False
     
     def get_kopia_args(self) -> List[str]:
-        """Get Kopia CLI arguments for SFTP backend"""
-        creds = self.config.get("credentials", {})
-        ssh_key = creds.get("ssh_key", str(Path.home() / ".ssh/kopi-docka_ed25519"))
-        
-        # Extract hostname and path from repository_path
-        # Format: sftp://user@hostname.tailnet:/path
-        repo_path = self.config["repository_path"]
-        
+        """Get Kopia CLI arguments for SFTP backend.
+
+        Parses kopia_params to extract path. Falls back to default SSH key.
+        """
+        import shlex
+
+        ssh_key = str(Path.home() / ".ssh/kopi-docka_ed25519")
+        repo_path = None
+
+        # Parse from kopia_params (e.g., "sftp --path=hostname:/backup --host=hostname")
+        kopia_params = self.config.get('kopia_params', '')
+        if kopia_params:
+            try:
+                parts = shlex.split(kopia_params)
+                for part in parts:
+                    if part.startswith('--path='):
+                        repo_path = part.split('=', 1)[1]
+                    elif part == '--path' and parts.index(part) + 1 < len(parts):
+                        repo_path = parts[parts.index(part) + 1]
+            except ValueError:
+                pass
+
+        if not repo_path:
+            return []
+
         return [
             "--path", repo_path,
             "--sftp-key-file", ssh_key
@@ -516,8 +533,3 @@ class TailscaleBackend(BackendBase):
 - The backup peer must be online
 - SSH key must have correct permissions (600)
 """
-
-
-# Register backend
-from . import register_backend
-register_backend(TailscaleBackend)

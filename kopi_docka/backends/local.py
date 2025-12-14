@@ -38,7 +38,7 @@ class LocalBackend(BackendBase):
         kopia_params = f"filesystem --path {repo_path}"
         
         instructions = f"""
-✓ Local filesystem backend configured.
+✓ Local filesystem storage configured.
 
 Kopia command: kopia repository create {kopia_params}
 
@@ -83,13 +83,13 @@ Make sure:
         return shlex.split(kopia_params) if kopia_params else []
 
     def get_status(self) -> dict:
-        """Get filesystem backend status including disk space."""
+        """Get filesystem storage status including disk space."""
         import shutil
         import os
         from pathlib import Path
 
         status = {
-            "backend_type": self.name,
+            "repository_type": self.name,
             "configured": bool(self.config),
             "available": False,
             "details": {
