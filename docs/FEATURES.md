@@ -733,16 +733,15 @@ sudo kopi-docka doctor
 # Checks:
 # 1. System Dependencies (Kopia, Docker)
 # 2. Configuration Status
-# 3. Backend Connectivity
-# 4. Repository Status
+# 3. Repository Status (connection is the single source of truth)
 ```
 
 Output includes:
 - Dependency status (installed/missing)
 - Config file location and validity
 - Password configuration status
-- Backend type and connectivity
-- Repository connection and snapshot count
+- Repository type and connection status
+- Snapshot and backup unit count
 
 ---
 
