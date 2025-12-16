@@ -3,7 +3,7 @@
 #
 # @file:        system_commands.py
 # @module:      kopi_docka.commands.advanced
-# @description: System dependency commands (admin system subgroup)
+# @description: System dependency commands (admin system subgroup) - WRAPPER
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
 # @version:     3.4.1
@@ -16,20 +16,21 @@
 """
 System dependency management commands under 'admin system'.
 
+This is a thin wrapper that delegates to the legacy dependency_commands module.
+All business logic resides in kopi_docka.commands.dependency_commands.
+
 Commands:
 - admin system install-deps - Install missing system dependencies
 - admin system show-deps    - Show dependency installation guide
 """
 
-from pathlib import Path
-
 import typer
 
-# Note: From advanced/ we need ...helpers (go up two levels)
-from ...helpers import get_logger
-from ...cores import DependencyManager
-
-logger = get_logger(__name__)
+# Import from legacy dependency_commands - Single Source of Truth
+from ..dependency_commands import (
+    cmd_install_deps,
+    cmd_deps,  # show-deps
+)
 
 # Create system subcommand group
 system_app = typer.Typer(
@@ -40,44 +41,7 @@ system_app = typer.Typer(
 
 
 # -------------------------
-# Commands
-# -------------------------
-
-def cmd_install_deps(force: bool = False, dry_run: bool = False):
-    """Install missing system dependencies."""
-    deps = DependencyManager()
-
-    if dry_run:
-        missing = deps.get_missing()
-        if missing:
-            deps.install_missing(dry_run=True)
-        else:
-            typer.echo("All dependencies already installed")
-        return
-
-    missing = deps.get_missing()
-    if missing:
-        success = deps.auto_install(force=force)
-        if not success:
-            raise typer.Exit(code=1)
-        typer.echo(f"\nInstalled {len(missing)} dependencies")
-    else:
-        typer.echo("All required dependencies already installed")
-
-    # Hint about config
-    if not Path.home().joinpath(".config/kopi-docka/config.json").exists() and \
-       not Path("/etc/kopi-docka.json").exists():
-        typer.echo("\nTip: Create config with: kopi-docka admin config new")
-
-
-def cmd_show_deps():
-    """Show dependency installation guide."""
-    deps = DependencyManager()
-    deps.print_install_guide()
-
-
-# -------------------------
-# Registration
+# Registration (wrappers)
 # -------------------------
 
 def register(app: typer.Typer):
@@ -94,7 +58,7 @@ def register(app: typer.Typer):
     @system_app.command("show-deps")
     def _show_deps_cmd():
         """Show dependency installation guide."""
-        cmd_show_deps()
+        cmd_deps()
 
     # Add system subgroup to admin app
     app.add_typer(system_app, name="system", help="System dependency management")
