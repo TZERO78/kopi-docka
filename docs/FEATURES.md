@@ -687,6 +687,46 @@ sudo systemctl start kopi-docka-backup.service
 
 ---
 
+## What's New in v3.8.0
+
+### 🔧 Architecture Refactoring
+**Eliminated ~1000 lines of duplicate code**
+
+The `commands/advanced/` modules were previously full copies of the legacy `commands/` modules. This caused:
+- Code duplication (~1500 lines)
+- Divergent bug fixes
+- Maintenance burden
+
+**Solution:** Converted all advanced modules to thin wrappers that delegate to legacy modules (Single Source of Truth):
+
+| Module | Before | After | Savings |
+|--------|--------|-------|---------|
+| `advanced/config_commands.py` | 449 lines | 102 lines | -347 |
+| `advanced/service_commands.py` | 103 lines | 75 lines | -28 |
+| `advanced/repo_commands.py` | 703 lines | 121 lines | -582 |
+| `advanced/system_commands.py` | 101 lines | 65 lines | -36 |
+
+### 🩺 Doctor Command Fix
+**Correct repository type detection**
+
+The `doctor` command was incorrectly reading repository type from a non-existent config section, always showing "filesystem" even for rclone/S3/etc. repositories.
+
+**Fix:** Now parses the first word of `kopia_params` to detect the actual repository type.
+
+### 🏷️ Terminology Consistency
+**"Repository Type" instead of "Backend Type"**
+
+- All user-facing output now uses consistent "Repository Type" terminology
+- Internal code standardized to use `repository_type` where appropriate
+- Backend modules updated with consistent status output
+
+### 🐛 Bug Fixes
+- **Tailscale:** Fixed KeyError in `get_kopia_args()` when parsing repository path
+- **Backends:** Removed dead code from `__init__.py` (unused registry pattern)
+- **Config:** Removed dead code reading non-existent config sections
+
+---
+
 ## What's New in v3.4.0
 
 ### 🎯 Simplified CLI Structure ("The Big 6")
