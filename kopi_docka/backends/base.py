@@ -200,21 +200,21 @@ class BackendBase(ABC):
 
     def get_status(self) -> dict:
         """
-        Get detailed status information about the configured backend.
+        Get detailed status information about the configured storage.
 
         This method can be overridden by backend implementations to provide
-        backend-specific status information (e.g., disk space, connectivity).
+        storage-specific status information (e.g., disk space, connectivity).
 
         Returns:
             dict: Status information with at least these keys:
-                - backend_type: str (name of the backend)
-                - configured: bool (whether backend is configured)
-                - available: bool (whether backend is accessible)
-                - details: dict (backend-specific details)
+                - repository_type: str (name of the storage type)
+                - configured: bool (whether storage is configured)
+                - available: bool (whether storage is accessible)
+                - details: dict (storage-specific details)
 
-        Example return for filesystem backend:
+        Example return for filesystem storage:
             {
-                "backend_type": "filesystem",
+                "repository_type": "filesystem",
                 "configured": True,
                 "available": True,
                 "details": {
@@ -227,7 +227,7 @@ class BackendBase(ABC):
         """
         # Default implementation - just check if configured
         status = {
-            "backend_type": self.name,
+            "repository_type": self.name,
             "configured": bool(self.config),
             "available": False,
             "details": {}

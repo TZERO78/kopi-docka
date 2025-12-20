@@ -31,6 +31,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from ..helpers import Config, get_logger, generate_secure_password
+import getpass
 from ..cores import KopiaRepository
 
 logger = get_logger(__name__)
@@ -531,6 +532,104 @@ def cmd_repo_maintenance(ctx: typer.Context):
         raise typer.Exit(code=1)
 
 
+def cmd_change_password(
+    ctx: typer.Context,
+    new_password: Optional[str] = None,
+    use_file: bool = True,
+):
+    """Change Kopia repository password and store securely."""
+    cfg = ensure_config(ctx)
+    repo = KopiaRepository(cfg)
+
+    try:
+        if not repo.is_connected():
+            typer.echo("↻ Connecting to repository...")
+            repo.connect()
+    except Exception as e:
+        typer.echo(f"✗ Failed to connect: {e}")
+        typer.echo("\nMake sure:")
+        typer.echo("  • Repository exists and is initialized")
+        typer.echo("  • Current password in config is correct")
+        raise typer.Exit(code=1)
+
+    typer.echo("═" * 70)
+    typer.echo("CHANGE KOPIA REPOSITORY PASSWORD")
+    typer.echo("═" * 70)
+    typer.echo(f"Repository: {repo.repo_path}")
+    typer.echo(f"Profile: {repo.profile_name}")
+    typer.echo("")
+
+    # Verify current password first
+    typer.echo("Verify current password:")
+    current_password = getpass.getpass("Current password: ")
+
+    typer.echo("↻ Verifying current password...")
+    if not repo.verify_password(current_password):
+        typer.echo("✗ Current password is incorrect!")
+        typer.echo("\nIf you've forgotten the password:")
+        typer.echo("  • Check /etc/.kopi-docka.password")
+        typer.echo("  • Check password_file setting in config")
+        typer.echo("  • As last resort: reset repository (lose all backups)")
+        raise typer.Exit(code=1)
+
+    typer.echo("✓ Current password verified")
+    typer.echo("")
+
+    # Get new password
+    if not new_password:
+        typer.echo("Enter new password (empty = auto-generate):")
+        new_password = getpass.getpass("New password: ")
+
+        if not new_password:
+            new_password = generate_secure_password()
+            typer.echo("\n" + "═" * 70)
+            typer.echo("🔑 GENERATED PASSWORD:")
+            typer.echo(new_password)
+            typer.echo("═" * 70 + "\n")
+            if not typer.confirm("Use this password?"):
+                typer.echo("Aborted.")
+                raise typer.Exit(code=0)
+        else:
+            new_password_confirm = getpass.getpass("Confirm new password: ")
+            if new_password != new_password_confirm:
+                typer.echo("✗ Passwords don't match!")
+                raise typer.Exit(code=1)
+
+    if len(new_password) < 12:
+        typer.echo(f"\n⚠️  WARNING: Password is short ({len(new_password)} chars)")
+        if not typer.confirm("Continue?"):
+            raise typer.Exit(code=0)
+
+    # Change in Kopia repository
+    typer.echo("\n↻ Changing repository password...")
+    try:
+        repo.set_repo_password(new_password)
+        typer.echo("✓ Repository password changed")
+    except Exception as e:
+        typer.echo(f"✗ Error: {e}")
+        raise typer.Exit(code=1)
+
+    # Store password using Config class
+    typer.echo("\n↻ Storing new password...")
+    try:
+        cfg.set_password(new_password, use_file=use_file)
+
+        if use_file:
+            password_file = cfg.config_file.parent / f".{cfg.config_file.stem}.password"
+            typer.echo(f"✓ Password stored in: {password_file} (chmod 600)")
+        else:
+            typer.echo(f"✓ Password stored in: {cfg.config_file} (chmod 600)")
+    except Exception as e:
+        typer.echo(f"✗ Failed to store password: {e}")
+        typer.echo("\n⚠️  IMPORTANT: Write down this password manually!")
+        typer.echo(f"Password: {new_password}")
+        raise typer.Exit(code=1)
+
+    typer.echo("\n" + "═" * 70)
+    typer.echo("✓ PASSWORD CHANGED SUCCESSFULLY")
+    typer.echo("═" * 70)
+
+
 # -------------------------
 # Registration
 # -------------------------
@@ -564,3 +663,12 @@ def register(app: typer.Typer):
     ):
         """Create ephemeral test repository."""
         cmd_repo_selftest(tmpdir, keep, password)
+
+    @app.command("change-password")
+    def _change_password_cmd(
+        ctx: typer.Context,
+        new_password: Optional[str] = typer.Option(None, "--new-password", help="New password (will prompt if not provided)"),
+        use_file: bool = typer.Option(True, "--file/--inline", help="Store in external file (default) or inline in config"),
+    ):
+        """Change Kopia repository password."""
+        cmd_change_password(ctx, new_password, use_file)

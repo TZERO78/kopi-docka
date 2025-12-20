@@ -30,10 +30,8 @@ from typing import Dict, Optional
 import typer
 
 from .base import BackendBase
-from . import register_backend
 
 
-@register_backend
 class RcloneBackend(BackendBase):
     """
     Rclone backend implementation.
@@ -356,12 +354,12 @@ Documentation:
         return shlex.split(kopia_params) if kopia_params else []
 
     def get_status(self) -> dict:
-        """Get Rclone backend status."""
+        """Get Rclone storage status."""
         import shlex
         import re
 
         status = {
-            "backend_type": self.name,
+            "repository_type": self.name,
             "configured": bool(self.config),
             "available": False,
             "details": {

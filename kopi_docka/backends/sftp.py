@@ -39,7 +39,7 @@ class SFTPBackend(BackendBase):
             kopia_params += f" --sftp-port {port}"
         
         instructions = f"""
-✓ SFTP backend configured.
+✓ SFTP storage configured.
 
 Connection: {user}@{host}:{path}
 
@@ -61,12 +61,12 @@ Test connection:
         }
 
     def get_status(self) -> dict:
-        """Get SFTP backend status."""
+        """Get SFTP storage status."""
         import shlex
         import re
 
         status = {
-            "backend_type": self.name,
+            "repository_type": self.name,
             "configured": bool(self.config),
             "available": False,
             "details": {
@@ -110,11 +110,29 @@ Test connection:
 
         return status
 
+    # Abstract method implementations (required by BackendBase)
+    def check_dependencies(self) -> list:
+        """SSH is typically available on all systems."""
+        return []
 
-# Add abstract method implementations
-SFTPBackend.check_dependencies = lambda self: []
-SFTPBackend.install_dependencies = lambda self: False
-SFTPBackend.setup_interactive = lambda self: self.configure()
-SFTPBackend.validate_config = lambda self: (True, [])
-SFTPBackend.test_connection = lambda self: True
-SFTPBackend.get_kopia_args = lambda self: __import__('shlex').split(self.config.get('kopia_params', '')) if self.config.get('kopia_params') else []
+    def install_dependencies(self) -> bool:
+        """No dependencies to install."""
+        return True
+
+    def setup_interactive(self) -> dict:
+        """Use configure() for setup."""
+        return self.configure()
+
+    def validate_config(self) -> tuple:
+        """Validate configuration."""
+        return (True, [])
+
+    def test_connection(self) -> bool:
+        """Test connection (requires SSH access)."""
+        return True
+
+    def get_kopia_args(self) -> list:
+        """Get Kopia arguments from kopia_params."""
+        import shlex
+        kopia_params = self.config.get('kopia_params', '')
+        return shlex.split(kopia_params) if kopia_params else []

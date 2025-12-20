@@ -17,7 +17,7 @@ Master Setup Wizard - Complete First-Time Setup
 
 Orchestrates the complete setup process:
 1. Check & install dependencies (Kopia)
-2. Select repository storage type (local/S3/B2/Azure/GCS/Tailscale)
+2. Select repository storage type (filesystem/rclone/S3/B2/Azure/GCS/SFTP)
 3. Configure repository settings
 4. Create config file
 5. Initialize repository
@@ -25,34 +25,14 @@ Orchestrates the complete setup process:
 This is the "one command to set everything up" experience.
 """
 
-import shutil
-from pathlib import Path
 from typing import Optional
 
 import typer
 
-from ..helpers import get_logger, Config, create_default_config, generate_secure_password
+from ..helpers import get_logger, Config
 from ..cores import DependencyManager
-from ..backends.local import LocalBackend
-from ..backends.s3 import S3Backend
-from ..backends.b2 import B2Backend
-from ..backends.azure import AzureBackend
-from ..backends.gcs import GCSBackend
-from ..backends.sftp import SFTPBackend
-from ..backends.tailscale import TailscaleBackend
 
 logger = get_logger(__name__)
-
-# Backend registry - backend classes
-BACKEND_MODULES = {
-    'filesystem': LocalBackend,
-    's3': S3Backend,
-    'b2': B2Backend,
-    'azure': AzureBackend,
-    'gcs': GCSBackend,
-    'sftp': SFTPBackend,
-    'tailscale': TailscaleBackend,
-}
 
 
 def cmd_setup_wizard(
@@ -117,7 +97,7 @@ def cmd_setup_wizard(
             typer.echo("✓ Docker found")
     
     # ═══════════════════════════════════════════
-    # Step 2-3: Configuration (Backend + Password)
+    # Step 2-3: Configuration (Repository + Password)
     # ═══════════════════════════════════════════
     typer.echo("")
     typer.echo("─" * 70)

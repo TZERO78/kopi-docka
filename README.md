@@ -138,31 +138,29 @@ Production-ready daemon with sd_notify, watchdog monitoring, PID locking, and se
 
 ---
 
-## What's New in v3.6.0
+## What's New in v3.8.0
 
-- **🎯 Smart Restore** - Recovery script uses dynamic paths from bundle metadata
-- **🛡️ Safe Restore** - Interactive file restoration with automatic backups
-- **💾 Complete Recovery** - Password files are now restored to their original locations
-- **📋 Systemd Reminder** - Clear instructions to re-enable automated backups
-- **🔄 Idempotent Recovery** - Run recover.sh multiple times without conflicts
+- **🔧 Architecture Refactoring** - Eliminated ~1000 lines of duplicate code
+- **📦 Single Source of Truth** - Advanced commands now delegate to legacy modules
+- **🩺 Doctor Fix** - Correct repository type detection (was showing wrong type)
+- **🏷️ Terminology** - Consistent "Repository Type" instead of "Backend Type"
+- **🐛 Tailscale Fix** - Fixed KeyError bug in get_kopia_args()
+
+**Previous (v3.6.0):**
+- Smart Restore with dynamic paths
+- Safe Restore with automatic backups
+- Complete Recovery (password files restored)
+- Idempotent Recovery (run recover.sh multiple times)
 
 **Previous (v3.5.0):**
 - Rclone Backend Improvements (PermissionError fix)
 - Enhanced DR Bundles (rclone.conf included)
-- Kopia Flag Fix (--rclone-args)
 
 **Previous (v3.4.0):**
 - Simplified CLI with "The Big 6" commands
 - Doctor Command for system health checks
-- Organized admin subcommands
 
-**Previous (v3.3.0):**
-- Backup Scope Selection (minimal/standard/full)
-- Docker Network Backup
-- Pre/Post Backup Hooks
-- Conflict Detection
-
-**[See what's new →](docs/FEATURES.md#whats-new-in-v340)**
+**[See what's new →](docs/FEATURES.md#whats-new-in-v380)**
 
 ---
 
@@ -334,6 +332,6 @@ Copyright (c) 2025 Markus F. (TZERO78)
 
 ---
 
-**Current Version:** v3.6.0
+**Current Version:** v3.8.0
 
-**[View changelog](docs/FEATURES.md#whats-new-in-v360)** | **[Contributing](docs/DEVELOPMENT.md#contributing)** | **[Troubleshooting](docs/TROUBLESHOOTING.md)**
+**[View changelog](docs/FEATURES.md#whats-new-in-v380)** | **[Contributing](docs/DEVELOPMENT.md#contributing)** | **[Troubleshooting](docs/TROUBLESHOOTING.md)**
