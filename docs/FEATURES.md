@@ -699,19 +699,19 @@ The wizard provides a user-friendly menu for all service management tasks:
 sudo kopi-docka admin service manage
 
 # Menu shows:
-# [1] Status anzeigen
-# [2] Timer konfigurieren
-# [3] Logs anzeigen
-# [4] Service steuern
-# [0] Beenden
+# [1] Show Status
+# [2] Configure Timer
+# [3] View Logs
+# [4] Control Service
+# [0] Exit
 
 # Select [2] to configure timer:
-# [1] 02:00 (Standard)
+# [1] 02:00 (Default)
 # [2] 03:00
 # [3] 04:00
 # [4] 23:00
-# [5] Eigene Zeit (HH:MM)
-# [6] Erweitert (OnCalendar)
+# [5] Custom Time (HH:MM)
+# [6] Advanced (OnCalendar)
 
 # Changes are applied immediately
 # Next run time is displayed
@@ -761,7 +761,7 @@ sudo kopi-docka admin service manage
 
 **User Experience:**
 - Rich-based UI with color-coded status indicators
-- Clear German-language menus
+- Clear, intuitive menus
 - Immediate feedback on all changes
 - Confirmation dialogs for destructive actions
 - Syntax highlighting in log viewer
@@ -772,19 +772,19 @@ sudo kopi-docka admin service manage
 sudo kopi-docka admin service manage
 
 # Menu:
-# [1] Status anzeigen       → Service/Timer status dashboard
-# [2] Timer konfigurieren   → Change backup schedule
-# [3] Logs anzeigen         → View filtered logs
-# [4] Service steuern       → Control services
-# [0] Beenden              → Exit
+# [1] Show Status        → Service/Timer status dashboard
+# [2] Configure Timer    → Change backup schedule
+# [3] View Logs          → View filtered logs
+# [4] Control Service    → Control services
+# [0] Exit               → Exit
 
 # Select [2] to configure timer:
-#   [1] 02:00 (Standard)
+#   [1] 02:00 (Default)
 #   [2] 03:00
 #   [3] 04:00
 #   [4] 23:00
-#   [5] Eigene Zeit (HH:MM)
-#   [6] Erweitert (OnCalendar)
+#   [5] Custom Time (HH:MM)
+#   [6] Advanced (OnCalendar)
 
 # Enter custom time: 14:30
 # ✓ Timer successfully updated
