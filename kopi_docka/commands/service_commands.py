@@ -69,11 +69,11 @@ def cmd_manage():
     if os.geteuid() != 0:
         console.print()
         console.print(Panel.fit(
-            "[red]Root-Rechte erforderlich[/red]\n\n"
-            "Dieser Befehl benötigt Root-Rechte für systemctl-Operationen.\n"
-            "Bitte mit sudo ausführen:\n\n"
+            "[red]Root privileges required[/red]\n\n"
+            "This command requires root privileges for systemctl operations.\n"
+            "Please run with sudo:\n\n"
             "[cyan]sudo kopi-docka admin service manage[/cyan]",
-            title="[bold red]Keine Berechtigung[/bold red]",
+            title="[bold red]Permission Denied[/bold red]",
             border_style="red"
         ))
         console.print()
@@ -86,29 +86,29 @@ def cmd_manage():
     if not helper.units_exist():
         console.print()
         console.print(Panel.fit(
-            "[yellow]Systemd-Units nicht gefunden[/yellow]\n\n"
-            "Die kopi-docka systemd-Units sind noch nicht installiert.\n"
-            "Sollen sie jetzt erstellt werden?",
-            title="[bold yellow]Installation erforderlich[/bold yellow]",
+            "[yellow]Systemd units not found[/yellow]\n\n"
+            "The kopi-docka systemd units are not yet installed.\n"
+            "Would you like to create them now?",
+            title="[bold yellow]Installation Required[/bold yellow]",
             border_style="yellow"
         ))
         console.print()
 
-        response = console.input("[cyan]Units erstellen? [J/n]:[/cyan] ").strip().lower()
-        if response in ("", "j", "ja", "y", "yes"):
+        response = console.input("[cyan]Create units? [Y/n]:[/cyan] ").strip().lower()
+        if response in ("", "y", "yes"):
             try:
                 write_systemd_units()
-                console.print("[green]✓[/green] Units erfolgreich erstellt")
+                console.print("[green]✓[/green] Units created successfully")
                 console.print()
                 # Reload systemd
                 if helper.reload_daemon():
-                    console.print("[green]✓[/green] Systemd neu geladen")
+                    console.print("[green]✓[/green] Systemd reloaded")
                 console.print()
             except Exception as e:
-                console.print(f"[red]✗[/red] Fehler beim Erstellen: {e}")
+                console.print(f"[red]✗[/red] Error creating units: {e}")
                 raise typer.Exit(code=1)
         else:
-            console.print("[yellow]Abgebrochen.[/yellow]")
+            console.print("[yellow]Cancelled.[/yellow]")
             raise typer.Exit(code=0)
 
     # Main menu loop
@@ -116,19 +116,19 @@ def cmd_manage():
         console.print()
         console.print(Panel.fit(
             "[bold cyan]KOPI-DOCKA SERVICE MANAGEMENT[/bold cyan]\n\n"
-            "[1] Status anzeigen\n"
-            "[2] Timer konfigurieren\n"
-            "[3] Logs anzeigen\n"
-            "[4] Service steuern\n"
-            "[0] Beenden",
+            "[1] Show Status\n"
+            "[2] Configure Timer\n"
+            "[3] View Logs\n"
+            "[4] Control Service\n"
+            "[0] Exit",
             border_style="cyan"
         ))
         console.print()
 
-        choice = console.input("[cyan]Auswahl:[/cyan] ").strip()
+        choice = console.input("[cyan]Selection:[/cyan] ").strip()
 
         if choice == "0":
-            console.print("[cyan]Auf Wiedersehen![/cyan]")
+            console.print("[cyan]Goodbye![/cyan]")
             break
         elif choice == "1":
             _show_status_dashboard(helper)
@@ -139,7 +139,7 @@ def cmd_manage():
         elif choice == "4":
             _control_service(helper)
         else:
-            console.print("[yellow]Ungültige Auswahl. Bitte wählen Sie 0-4.[/yellow]")
+            console.print("[yellow]Invalid selection. Please choose 0-4.[/yellow]")
 
 
 def _show_status_dashboard(helper: ServiceHelper):
@@ -162,14 +162,14 @@ def _show_status_dashboard(helper: ServiceHelper):
     status_table.add_column("Status", style="dim")
 
     # Service row
-    service_active = "[green]Aktiv[/green]" if service_status.active else "[dim]Inaktiv[/dim]"
-    service_enabled = "[green]Aktiviert[/green]" if service_status.enabled else "[dim]Deaktiviert[/dim]"
+    service_active = "[green]Active[/green]" if service_status.active else "[dim]Inactive[/dim]"
+    service_enabled = "[green]Enabled[/green]" if service_status.enabled else "[dim]Disabled[/dim]"
     service_extra = "[red]Failed[/red]" if service_status.failed else ""
     status_table.add_row("kopi-docka.service", service_active, service_enabled, service_extra)
 
     # Timer row
-    timer_active = "[green]Aktiv[/green]" if timer_status.active else "[dim]Inaktiv[/dim]"
-    timer_enabled = "[green]Aktiviert[/green]" if timer_status.enabled else "[dim]Deaktiviert[/dim]"
+    timer_active = "[green]Active[/green]" if timer_status.active else "[dim]Inactive[/dim]"
+    timer_enabled = "[green]Enabled[/green]" if timer_status.enabled else "[dim]Disabled[/dim]"
     status_table.add_row("kopi-docka.timer", timer_active, timer_enabled, "")
 
     console.print(status_table)
@@ -178,8 +178,8 @@ def _show_status_dashboard(helper: ServiceHelper):
     # Next backup time
     if timer_status.next_run:
         console.print(Panel.fit(
-            f"[bold]Nächstes Backup:[/bold] {timer_status.next_run}\n"
-            f"[dim]Zeit bis zum Backup:[/dim] {timer_status.left or 'Unbekannt'}",
+            f"[bold]Next Backup:[/bold] {timer_status.next_run}\n"
+            f"[dim]Time until backup:[/dim] {timer_status.left or 'Unknown'}",
             title="[cyan]Timer Info[/cyan]",
             border_style="cyan"
         ))
@@ -188,16 +188,16 @@ def _show_status_dashboard(helper: ServiceHelper):
     # Current schedule
     current_schedule = helper.get_current_schedule()
     if current_schedule:
-        console.print(f"[bold]Aktueller Zeitplan:[/bold] {current_schedule}")
+        console.print(f"[bold]Current Schedule:[/bold] {current_schedule}")
         console.print()
 
     # Last backup info
     if backup_info.timestamp:
         status_color = "green" if backup_info.status == "success" else "red" if backup_info.status == "failed" else "yellow"
-        status_text = "Erfolgreich" if backup_info.status == "success" else "Fehlgeschlagen" if backup_info.status == "failed" else "Unbekannt"
+        status_text = "Successful" if backup_info.status == "success" else "Failed" if backup_info.status == "failed" else "Unknown"
 
         console.print(Panel.fit(
-            f"[bold]Letztes Backup:[/bold] {backup_info.timestamp}\n"
+            f"[bold]Last Backup:[/bold] {backup_info.timestamp}\n"
             f"[bold]Status:[/bold] [{status_color}]{status_text}[/{status_color}]",
             title="[cyan]Backup Info[/cyan]",
             border_style="cyan"
@@ -207,37 +207,37 @@ def _show_status_dashboard(helper: ServiceHelper):
     # Lock file status
     if lock_status["exists"]:
         if lock_status["process_running"]:
-            console.print(f"[yellow]⚠[/yellow]  Lock-Datei aktiv (PID: {lock_status['pid']})")
+            console.print(f"[yellow]⚠[/yellow]  Lock file active (PID: {lock_status['pid']})")
         else:
-            console.print(f"[dim]Lock-Datei vorhanden, aber Prozess läuft nicht (PID: {lock_status['pid']})[/dim]")
+            console.print(f"[dim]Lock file present, but process not running (PID: {lock_status['pid']})[/dim]")
         console.print()
 
-    console.input("[dim]Drücken Sie Enter zum Fortfahren...[/dim]")
+    console.input("[dim]Press Enter to continue...[/dim]")
 
 
 def _configure_timer(helper: ServiceHelper):
     """Configure timer schedule."""
     console.print()
-    console.print("[bold]TIMER KONFIGURIEREN[/bold]")
+    console.print("[bold]CONFIGURE TIMER[/bold]")
     console.print("-" * 60)
 
     # Show current schedule
     current = helper.get_current_schedule()
     if current:
-        console.print(f"[bold]Aktueller Zeitplan:[/bold] {current}")
+        console.print(f"[bold]Current Schedule:[/bold] {current}")
         console.print()
 
     while True:
-        console.print("[1] 02:00 (Standard)")
+        console.print("[1] 02:00 (Default)")
         console.print("[2] 03:00")
         console.print("[3] 04:00")
         console.print("[4] 23:00")
-        console.print("[5] Eigene Zeit (HH:MM)")
-        console.print("[6] Erweitert (OnCalendar)")
-        console.print("[0] Zurück")
+        console.print("[5] Custom Time (HH:MM)")
+        console.print("[6] Advanced (OnCalendar)")
+        console.print("[0] Back")
         console.print()
 
-        choice = console.input("[cyan]Auswahl:[/cyan] ").strip()
+        choice = console.input("[cyan]Selection:[/cyan] ").strip()
 
         new_schedule = None
 
@@ -253,72 +253,72 @@ def _configure_timer(helper: ServiceHelper):
             new_schedule = "*-*-* 23:00:00"
         elif choice == "5":
             # Custom time input
-            time_input = console.input("[cyan]Zeit eingeben (HH:MM):[/cyan] ").strip()
+            time_input = console.input("[cyan]Enter time (HH:MM):[/cyan] ").strip()
             if helper.validate_time_format(time_input):
                 new_schedule = f"*-*-* {time_input}:00"
             else:
-                console.print("[red]✗[/red] Ungültiges Format. Bitte HH:MM verwenden (z.B. 14:30)")
+                console.print("[red]✗[/red] Invalid format. Please use HH:MM (e.g. 14:30)")
                 continue
         elif choice == "6":
             # Advanced OnCalendar input
             console.print()
-            console.print("[dim]Beispiele:[/dim]")
-            console.print("[dim]  *-*-* 03:00:00              (Täglich um 03:00)[/dim]")
-            console.print("[dim]  Mon *-*-* 02:00:00          (Montags um 02:00)[/dim]")
-            console.print("[dim]  *-*-* 00,06,12,18:00:00     (Alle 6 Stunden)[/dim]")
+            console.print("[dim]Examples:[/dim]")
+            console.print("[dim]  *-*-* 03:00:00              (Daily at 03:00)[/dim]")
+            console.print("[dim]  Mon *-*-* 02:00:00          (Mondays at 02:00)[/dim]")
+            console.print("[dim]  *-*-* 00,06,12,18:00:00     (Every 6 hours)[/dim]")
             console.print()
-            calendar_input = console.input("[cyan]OnCalendar eingeben:[/cyan] ").strip()
+            calendar_input = console.input("[cyan]Enter OnCalendar:[/cyan] ").strip()
             if helper.validate_oncalendar(calendar_input):
                 new_schedule = calendar_input
             else:
-                console.print("[red]✗[/red] Ungültige OnCalendar-Syntax")
+                console.print("[red]✗[/red] Invalid OnCalendar syntax")
                 continue
         else:
-            console.print("[yellow]Ungültige Auswahl[/yellow]")
+            console.print("[yellow]Invalid selection[/yellow]")
             continue
 
         # Confirm changes
         if new_schedule:
             console.print()
-            console.print(f"[bold]Neuer Zeitplan:[/bold] {new_schedule}")
+            console.print(f"[bold]New Schedule:[/bold] {new_schedule}")
             console.print()
-            confirm = console.input("[cyan]Übernehmen? [j/N]:[/cyan] ").strip().lower()
+            confirm = console.input("[cyan]Apply changes? [y/N]:[/cyan] ").strip().lower()
 
-            if confirm in ("j", "ja", "y", "yes"):
+            if confirm in ("y", "yes"):
                 if helper.edit_timer_schedule(new_schedule):
-                    console.print("[green]✓[/green] Timer erfolgreich aktualisiert")
+                    console.print("[green]✓[/green] Timer updated successfully")
 
                     # Show next run time
                     timer_status = helper.get_timer_status()
                     if timer_status.next_run:
-                        console.print(f"[green]✓[/green] Nächster Lauf: {timer_status.next_run}")
+                        console.print(f"[green]✓[/green] Next run: {timer_status.next_run}")
                     console.print()
-                    console.input("[dim]Drücken Sie Enter zum Fortfahren...[/dim]")
+                    console.input("[dim]Press Enter to continue...[/dim]")
                     break
                 else:
-                    console.print("[red]✗[/red] Fehler beim Aktualisieren des Timers")
+                    console.print("[red]✗[/red] Error updating timer")
                     console.print()
             else:
-                console.print("[yellow]Änderung abgebrochen[/yellow]")
+                console.print("[yellow]Changes cancelled[/yellow]")
                 console.print()
 
 
 def _show_logs(helper: ServiceHelper):
     """Show logs with various filters."""
     console.print()
-    console.print("[bold]LOGS ANZEIGEN[/bold]")
+    console.print("[bold]VIEW LOGS[/bold]")
     console.print("-" * 60)
 
     while True:
-        console.print("[1] Letzte 20 Zeilen")
-        console.print("[2] Letzte 50 Zeilen")
-        console.print("[3] Letzte Stunde")
-        console.print("[4] Nur Fehler")
-        console.print("[5] Heute")
-        console.print("[0] Zurück")
+        console.print("[1] Last 20 Lines")
+        console.print("[2] Last 50 Lines")
+        console.print("[3] Last Hour")
+        console.print("[4] Errors Only")
+        console.print("[5] Today")
+        console.print("[0] Back")
         console.print()
 
-        choice = console.input("[cyan]Auswahl:[/cyan] ").strip()
+        choice = console.input("[cyan]Selection:[/cyan] ").strip()
 
         mode = None
         lines = 20
@@ -338,7 +338,7 @@ def _show_logs(helper: ServiceHelper):
         elif choice == "5":
             mode = "today"
         else:
-            console.print("[yellow]Ungültige Auswahl[/yellow]")
+            console.print("[yellow]Invalid selection[/yellow]")
             continue
 
         # Get logs
@@ -360,26 +360,26 @@ def _show_logs(helper: ServiceHelper):
                 console.print(line)
 
         console.print()
-        console.input("[dim]Drücken Sie Enter zum Fortfahren...[/dim]")
+        console.input("[dim]Press Enter to continue...[/dim]")
         break
 
 
 def _control_service(helper: ServiceHelper):
     """Control service actions."""
     console.print()
-    console.print("[bold]SERVICE STEUERN[/bold]")
+    console.print("[bold]CONTROL SERVICE[/bold]")
     console.print("-" * 60)
 
     while True:
-        console.print("[1] Backup jetzt starten")
-        console.print("[2] Service neustarten")
-        console.print("[3] Service stoppen")
-        console.print("[4] Timer aktivieren (enable)")
-        console.print("[5] Timer deaktivieren (disable)")
-        console.print("[0] Zurück")
+        console.print("[1] Start Backup Now")
+        console.print("[2] Restart Service")
+        console.print("[3] Stop Service")
+        console.print("[4] Enable Timer")
+        console.print("[5] Disable Timer")
+        console.print("[0] Back")
         console.print()
 
-        choice = console.input("[cyan]Auswahl:[/cyan] ").strip()
+        choice = console.input("[cyan]Selection:[/cyan] ").strip()
 
         action = None
         unit = "service"
@@ -392,7 +392,7 @@ def _control_service(helper: ServiceHelper):
             # Start backup now
             action = "start"
             unit = "service"
-            console.print("[cyan]Starte Backup...[/cyan]")
+            console.print("[cyan]Starting backup...[/cyan]")
         elif choice == "2":
             action = "restart"
             unit = "service"
@@ -400,55 +400,55 @@ def _control_service(helper: ServiceHelper):
             action = "stop"
             unit = "service"
             confirm_required = True
-            confirm_msg = "Service wirklich stoppen?"
+            confirm_msg = "Really stop service?"
         elif choice == "4":
             action = "enable"
             unit = "timer"
             # Also start the timer
-            console.print("[cyan]Aktiviere Timer...[/cyan]")
+            console.print("[cyan]Enabling timer...[/cyan]")
         elif choice == "5":
             action = "disable"
             unit = "timer"
             confirm_required = True
-            confirm_msg = "Timer wirklich deaktivieren?"
+            confirm_msg = "Really disable timer?"
         else:
-            console.print("[yellow]Ungültige Auswahl[/yellow]")
+            console.print("[yellow]Invalid selection[/yellow]")
             continue
 
         # Confirm if needed
         if confirm_required:
             console.print()
-            confirm = console.input(f"[yellow]{confirm_msg} [j/N]:[/yellow] ").strip().lower()
-            if confirm not in ("j", "ja", "y", "yes"):
-                console.print("[yellow]Abgebrochen[/yellow]")
+            confirm = console.input(f"[yellow]{confirm_msg} [y/N]:[/yellow] ").strip().lower()
+            if confirm not in ("y", "yes"):
+                console.print("[yellow]Cancelled[/yellow]")
                 console.print()
                 continue
 
         # Execute action
         if action:
             if helper.control_service(action, unit):
-                console.print(f"[green]✓[/green] {action} {unit} erfolgreich")
+                console.print(f"[green]✓[/green] {action} {unit} successful")
 
                 # If enabling timer, also start it
                 if action == "enable" and unit == "timer":
                     if helper.control_service("start", "timer"):
-                        console.print("[green]✓[/green] Timer gestartet")
+                        console.print("[green]✓[/green] Timer started")
 
                 # Show updated status
                 console.print()
                 if unit == "service":
                     status = helper.get_service_status()
-                    console.print(f"Service Status: {'[green]Aktiv[/green]' if status.active else '[dim]Inaktiv[/dim]'}")
+                    console.print(f"Service Status: {'[green]Active[/green]' if status.active else '[dim]Inactive[/dim]'}")
                 else:
                     status = helper.get_timer_status()
-                    console.print(f"Timer Status: {'[green]Aktiv[/green]' if status.active else '[dim]Inaktiv[/dim]'}")
+                    console.print(f"Timer Status: {'[green]Active[/green]' if status.active else '[dim]Inactive[/dim]'}")
 
                 console.print()
-                console.input("[dim]Drücken Sie Enter zum Fortfahren...[/dim]")
+                console.input("[dim]Press Enter to continue...[/dim]")
                 break
             else:
-                console.print(f"[red]✗[/red] Fehler beim Ausführen von {action} {unit}")
-                console.print("[dim]Überprüfen Sie die Logs für Details[/dim]")
+                console.print(f"[red]✗[/red] Error executing {action} {unit}")
+                console.print("[dim]Check logs for details[/dim]")
                 console.print()
 
 

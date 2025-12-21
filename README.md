@@ -335,6 +335,6 @@ Copyright (c) 2025 Markus F. (TZERO78)
 
 ---
 
-**Current Version:** v3.9.0
+**Current Version:** v3.9.1
 
 **[View changelog](docs/FEATURES.md#whats-new-in-v390)** | **[Contributing](docs/DEVELOPMENT.md#contributing)** | **[Troubleshooting](docs/TROUBLESHOOTING.md)**
