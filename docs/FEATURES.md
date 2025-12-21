@@ -679,7 +679,7 @@ sudo systemctl start kopi-docka-backup.service
 
 **Easy service administration without systemctl knowledge**
 
-Kopi-Docka v3.8.0 introduces an interactive service management wizard that makes systemd service administration accessible to users without systemctl expertise:
+Kopi-Docka v3.9.0 introduces an interactive service management wizard that makes systemd service administration accessible to users without systemctl expertise:
 
 ```bash
 sudo kopi-docka admin service manage
@@ -734,6 +734,131 @@ sudo kopi-docka admin service manage
 - **RuntimeDirectory:** `/run/kopi-docka` (auto-cleanup)
 - **Security:** Minimal privileges, process isolation
 - **Locking:** fcntl-based PID lock
+
+---
+
+## What's New in v3.9.0
+
+### 🎛️ Interactive Service Management
+**Easy systemd service administration without systemctl knowledge**
+
+Kopi-Docka v3.9.0 introduces a comprehensive interactive service management wizard that makes systemd administration accessible to users without systemctl expertise.
+
+**New Command:**
+```bash
+sudo kopi-docka admin service manage
+```
+
+**Features:**
+- **Status Dashboard** - View service/timer status, next backup time, last backup result at a glance
+- **Timer Configuration** - Change backup schedule with presets (02:00, 03:00, 04:00, 23:00) or custom time (HH:MM)
+- **Advanced Scheduling** - Full OnCalendar syntax support for complex schedules (weekly, hourly, etc.)
+- **Log Viewer** - View logs with filters: last N lines, last hour, errors only, today
+- **Service Control** - Start/stop/restart service, enable/disable timer with confirmation dialogs
+- **Auto-Setup** - Automatically creates systemd units if missing (with user confirmation)
+- **Input Validation** - Validates time formats and OnCalendar syntax before applying changes
+- **Root Checking** - Exits with code 13 if not running as root
+
+**User Experience:**
+- Rich-based UI with color-coded status indicators
+- Clear German-language menus
+- Immediate feedback on all changes
+- Confirmation dialogs for destructive actions
+- Syntax highlighting in log viewer
+- No systemctl knowledge required
+
+**Example Workflow:**
+```bash
+sudo kopi-docka admin service manage
+
+# Menu:
+# [1] Status anzeigen       → Service/Timer status dashboard
+# [2] Timer konfigurieren   → Change backup schedule
+# [3] Logs anzeigen         → View filtered logs
+# [4] Service steuern       → Control services
+# [0] Beenden              → Exit
+
+# Select [2] to configure timer:
+#   [1] 02:00 (Standard)
+#   [2] 03:00
+#   [3] 04:00
+#   [4] 23:00
+#   [5] Eigene Zeit (HH:MM)
+#   [6] Erweitert (OnCalendar)
+
+# Enter custom time: 14:30
+# ✓ Timer successfully updated
+# ✓ Next run: Sat 2025-12-21 14:30:00
+```
+
+### 📄 Systemd Template System
+**Unit files moved to templates with extensive documentation**
+
+All systemd unit files are now generated from well-documented templates instead of hardcoded strings:
+
+**Templates:**
+- `kopi-docka.service.template` - Main daemon service with extensive security hardening comments (150+ lines)
+- `kopi-docka.timer.template` - Timer unit with OnCalendar examples and usage guide (100+ lines)
+- `kopi-docka-backup.service.template` - One-shot service for manual/cron usage (80+ lines)
+- `templates/systemd/README.md` - Comprehensive user guide (400+ lines)
+
+**Benefits:**
+- **Self-Documenting** - Every setting explained with comments
+- **OnCalendar Examples** - Extensive scheduling syntax examples in timer template
+- **Security Documentation** - Each security setting documented with rationale
+- **Customization Guide** - README explains how to customize units without editing source
+- **Installation Instructions** - Step-by-step setup guide included
+- **Troubleshooting** - Common issues and solutions documented
+
+**Example from timer template:**
+```ini
+# ONCALENDAR SYNTAX EXAMPLES
+#
+# DAILY BACKUPS:
+#   OnCalendar=*-*-* 02:00:00          # Every day at 02:00 AM
+#   OnCalendar=*-*-* 23:00:00          # Every day at 11 PM
+#
+# WEEKLY BACKUPS:
+#   OnCalendar=Mon *-*-* 03:00:00      # Every Monday at 03:00
+#   OnCalendar=Sun *-*-* 02:00:00      # Every Sunday at 02:00
+#
+# MULTIPLE TIMES PER DAY:
+#   OnCalendar=*-*-* 02:00,14:00:00    # 02:00 and 14:00 daily
+```
+
+### 🛠️ ServiceHelper Class
+**High-level abstraction for systemctl/journalctl operations**
+
+New `ServiceHelper` class provides a clean API for service management:
+
+**Methods:**
+- `get_service_status()` - Check service active/enabled/failed state
+- `get_timer_status()` - Check timer status and next run time
+- `get_current_schedule()` - Read OnCalendar from timer file
+- `get_logs(mode, lines)` - View logs with filters (last, errors, hour, today)
+- `get_last_backup_info()` - Parse logs for last backup timestamp and status
+- `control_service(action, unit)` - Execute systemctl actions (start/stop/restart/enable/disable)
+- `edit_timer_schedule(new_schedule)` - Update OnCalendar with validation
+- `validate_time_format(time_str)` - Validate HH:MM format
+- `validate_oncalendar(calendar_str)` - Test OnCalendar syntax via systemd-analyze
+- `get_lock_status()` - Check lock file status and process state
+- `units_exist()` - Check if systemd units are installed
+- `reload_daemon()` - Reload systemd daemon configuration
+
+**Data Classes:**
+- `ServiceStatus` - Service state (active, enabled, failed)
+- `TimerStatus` - Timer state (active, enabled, next_run, time_left)
+- `BackupInfo` - Last backup info (timestamp, status, duration)
+
+### 📦 Package Updates
+- Added `rich>=13.0.0` to core dependencies
+- Updated package_data to include systemd templates
+- Full test coverage for new functionality (80%+)
+
+### 📚 Documentation Updates
+- Updated FEATURES.md with Interactive Service Management section
+- Updated README.md with `manage` command example
+- Comprehensive systemd template README with examples and troubleshooting
 
 ---
 
