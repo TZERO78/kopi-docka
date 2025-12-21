@@ -43,7 +43,7 @@ Type=notify
 
 # Command to execute when service starts
 # This runs the kopi-docka daemon which idles until triggered by timer
-ExecStart=/usr/bin/env kopi-docka daemon
+ExecStart=/usr/bin/env kopi-docka admin service daemon
 
 # Reload configuration via SIGHUP (currently a no-op, reserved for future use)
 ExecReload=/bin/kill -HUP $MAINPID
