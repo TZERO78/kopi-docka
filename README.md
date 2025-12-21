@@ -141,29 +141,29 @@ Production-ready daemon with sd_notify, watchdog monitoring, PID locking, and se
 
 ---
 
-## What's New in v3.8.0
+## What's New in v3.9.0
 
-- **🔧 Architecture Refactoring** - Eliminated ~1000 lines of duplicate code
-- **📦 Single Source of Truth** - Advanced commands now delegate to legacy modules
-- **🩺 Doctor Fix** - Correct repository type detection (was showing wrong type)
-- **🏷️ Terminology** - Consistent "Repository Type" instead of "Backend Type"
-- **🐛 Tailscale Fix** - Fixed KeyError bug in get_kopia_args()
+- **🎛️ Interactive Service Management** - New wizard for easy systemd administration without systemctl knowledge
+- **📄 Systemd Template System** - Unit files moved to templates with extensive documentation (400+ lines)
+- **🛠️ ServiceHelper Class** - High-level API for systemctl/journalctl operations
+- **✅ Input Validation** - Time format and OnCalendar syntax validation
+- **🎨 Rich UI** - Color-coded status dashboard, log viewer with syntax highlighting
+- **📦 Auto-Setup** - Automatically creates systemd units if missing (with confirmation)
+
+**Command:** `sudo kopi-docka admin service manage`
+
+**Previous (v3.8.0):**
+- Architecture Refactoring - Eliminated ~1000 lines of duplicate code
+- Doctor Fix - Correct repository type detection
+- Terminology - Consistent "Repository Type" usage
+- Tailscale Fix - Fixed KeyError bug
 
 **Previous (v3.6.0):**
 - Smart Restore with dynamic paths
 - Safe Restore with automatic backups
 - Complete Recovery (password files restored)
-- Idempotent Recovery (run recover.sh multiple times)
 
-**Previous (v3.5.0):**
-- Rclone Backend Improvements (PermissionError fix)
-- Enhanced DR Bundles (rclone.conf included)
-
-**Previous (v3.4.0):**
-- Simplified CLI with "The Big 6" commands
-- Doctor Command for system health checks
-
-**[See what's new →](docs/FEATURES.md#whats-new-in-v380)**
+**[See what's new →](docs/FEATURES.md#whats-new-in-v390)**
 
 ---
 
@@ -335,6 +335,6 @@ Copyright (c) 2025 Markus F. (TZERO78)
 
 ---
 
-**Current Version:** v3.8.0
+**Current Version:** v3.9.0
 
-**[View changelog](docs/FEATURES.md#whats-new-in-v380)** | **[Contributing](docs/DEVELOPMENT.md#contributing)** | **[Troubleshooting](docs/TROUBLESHOOTING.md)**
+**[View changelog](docs/FEATURES.md#whats-new-in-v390)** | **[Contributing](docs/DEVELOPMENT.md#contributing)** | **[Troubleshooting](docs/TROUBLESHOOTING.md)**
