@@ -675,6 +675,56 @@ sudo systemctl start kopi-docka-backup.service
 
 **Recommendation:** systemd Timer for production environments.
 
+#### Interactive Service Management
+
+**Easy service administration without systemctl knowledge**
+
+Kopi-Docka v3.8.0 introduces an interactive service management wizard that makes systemd service administration accessible to users without systemctl expertise:
+
+```bash
+sudo kopi-docka admin service manage
+```
+
+The wizard provides a user-friendly menu for all service management tasks:
+
+**Features:**
+- **Status Dashboard:** View service/timer status, next backup time, last backup result
+- **Timer Configuration:** Change backup schedule with presets or custom times
+- **Log Viewer:** View logs with filters (last N lines, errors only, today, etc.)
+- **Service Control:** Start/stop/restart services, enable/disable timer
+- **Auto-Setup:** Automatically creates systemd units if missing
+
+**Example Workflow:**
+```bash
+sudo kopi-docka admin service manage
+
+# Menu shows:
+# [1] Status anzeigen
+# [2] Timer konfigurieren
+# [3] Logs anzeigen
+# [4] Service steuern
+# [0] Beenden
+
+# Select [2] to configure timer:
+# [1] 02:00 (Standard)
+# [2] 03:00
+# [3] 04:00
+# [4] 23:00
+# [5] Eigene Zeit (HH:MM)
+# [6] Erweitert (OnCalendar)
+
+# Changes are applied immediately
+# Next run time is displayed
+```
+
+**Benefits:**
+- No systemctl knowledge required
+- Clear, intuitive menus
+- Confirmation dialogs for destructive actions
+- Immediate feedback on changes
+- Root privilege checking
+- Validates time formats before applying
+
 #### Technical Details
 
 - **Type:** `notify` (sd_notify support)

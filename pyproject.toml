@@ -29,6 +29,7 @@ classifiers = [
 dependencies = [
     "psutil>=5.9.0",
     "typer>=0.9.0",
+    "rich>=13.0.0",
 ]
 
 # Optionale Dependencies
@@ -58,8 +59,10 @@ packages = ["kopi_docka", "kopi_docka.helpers", "kopi_docka.cores", "kopi_docka.
 [tool.setuptools.package-data]
 kopi_docka = [
     "templates/*.conf",
-    "templates/*.ini", 
+    "templates/*.ini",
     "templates/*.json",
+    "templates/systemd/*.template",
+    "templates/systemd/*.md",
     "locales/*/LC_MESSAGES/*.mo",
     "locales/*/LC_MESSAGES/*.po"
 ]

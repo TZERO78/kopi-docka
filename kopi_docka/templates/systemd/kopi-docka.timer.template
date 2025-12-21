@@ -1,0 +1,115 @@
+################################################################################
+# KOPI-DOCKA SYSTEMD TIMER UNIT
+################################################################################
+#
+# This timer triggers the kopi-docka.service at scheduled intervals.
+# By default, it runs daily at 02:00 AM.
+#
+# INSTALLATION:
+#   Run: sudo kopi-docka admin service write-units
+#   Then: sudo systemctl daemon-reload
+#   Finally: sudo systemctl enable --now kopi-docka.timer
+#
+# MANAGEMENT:
+#   - Interactive configuration: sudo kopi-docka admin service manage
+#   - Check next run: systemctl list-timers kopi-docka.timer
+#   - View timer status: systemctl status kopi-docka.timer
+#
+# CUSTOMIZATION:
+#   To change the schedule without editing this file:
+#     sudo systemctl edit kopi-docka.timer
+#   Or use: sudo kopi-docka admin service manage
+#
+################################################################################
+
+[Unit]
+# Timer description shown in systemctl status
+Description=Daily Kopi-Docka Backup at 02:00
+
+[Timer]
+################################################################################
+# SCHEDULE CONFIGURATION
+################################################################################
+#
+# OnCalendar= defines when the timer triggers the backup service.
+# This uses systemd's calendar event syntax.
+#
+# CURRENT SCHEDULE:
+OnCalendar=*-*-* 02:00:00
+#
+# This means: Every day at 02:00:00 (2 AM)
+# Format: Year-Month-Day Hour:Minute:Second
+# Wildcards (*) match any value
+#
+################################################################################
+# ONCALENDAR SYNTAX EXAMPLES
+################################################################################
+#
+# DAILY BACKUPS:
+#   OnCalendar=*-*-* 02:00:00          # Every day at 02:00 AM
+#   OnCalendar=*-*-* 03:30:00          # Every day at 03:30 AM
+#   OnCalendar=*-*-* 23:00:00          # Every day at 23:00 (11 PM)
+#   OnCalendar=daily                   # Every day at 00:00 (midnight)
+#
+# MULTIPLE TIMES PER DAY:
+#   OnCalendar=*-*-* 02:00,14:00:00    # Every day at 02:00 and 14:00
+#   OnCalendar=*-*-* 00,06,12,18:00:00 # Every 6 hours
+#   OnCalendar=hourly                  # Every hour at :00
+#
+# WEEKLY BACKUPS:
+#   OnCalendar=Mon *-*-* 03:00:00      # Every Monday at 03:00
+#   OnCalendar=Sun *-*-* 02:00:00      # Every Sunday at 02:00
+#   OnCalendar=Mon,Wed,Fri *-*-* 02:00:00  # Mon/Wed/Fri at 02:00
+#   OnCalendar=weekly                  # Every Monday at 00:00
+#
+# MONTHLY BACKUPS:
+#   OnCalendar=*-*-01 02:00:00         # First day of every month at 02:00
+#   OnCalendar=*-*-15 02:00:00         # 15th of every month at 02:00
+#   OnCalendar=Mon *-*-1..7 02:00:00   # First Monday of each month
+#
+# SPECIFIC INTERVALS:
+#   OnCalendar=*-*-* *:00:00           # Every hour
+#   OnCalendar=*-*-* *:00/30:00        # Every 30 minutes
+#   OnCalendar=*-*-* *:00/15:00        # Every 15 minutes
+#
+# DAY OF WEEK NAMES:
+#   Mon, Tue, Wed, Thu, Fri, Sat, Sun
+#   Can also use: Monday, Tuesday, etc.
+#
+################################################################################
+# TESTING YOUR SCHEDULE
+################################################################################
+#
+# To test if your OnCalendar syntax is correct and see next trigger times:
+#   systemd-analyze calendar "*-*-* 02:00:00"
+#   systemd-analyze calendar "Mon *-*-* 03:00:00"
+#
+# To see when the timer will next run:
+#   systemctl list-timers kopi-docka.timer
+#
+# After changing the schedule:
+#   sudo systemctl daemon-reload
+#   sudo systemctl restart kopi-docka.timer
+#
+################################################################################
+
+# Persistent=true means if the system was off when the timer should have
+# triggered, it will run the backup once when the system starts up.
+# This ensures backups aren't skipped if the system was powered off.
+Persistent=true
+
+# RandomizedDelaySec adds a random delay (0-15 minutes) to the scheduled time.
+# This is useful if you have multiple systems backing up to the same
+# destination - it prevents all systems from starting at exactly the same time.
+# Set to 0 to disable: RandomizedDelaySec=0
+RandomizedDelaySec=15m
+
+# Optional: AccuracySec controls timer accuracy (default: 1min)
+# The timer may trigger within this window for power efficiency
+# For critical backups, set to a smaller value:
+# AccuracySec=1s
+
+[Install]
+# Start this timer automatically at boot when timers.target is reached
+# timers.target is the systemd target for timer units
+WantedBy=timers.target
