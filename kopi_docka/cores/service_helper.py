@@ -1,0 +1,545 @@
+################################################################################
+# KOPI-DOCKA
+#
+# @file:        service_helper.py
+# @module:      kopi_docka.cores.service_helper
+# @description: Helper class for systemctl and journalctl operations
+# @author:      Markus F. (TZERO78) & KI-Assistenten
+# @repository:  https://github.com/TZERO78/kopi-docka
+# @version:     1.0.0
+#
+# ------------------------------------------------------------------------------
+# Copyright (c) 2025 Markus F. (TZERO78)
+# MIT-Lizenz: siehe LICENSE oder https://opensource.org/licenses/MIT
+################################################################################
+
+"""
+ServiceHelper - Wrapper for systemctl and journalctl operations.
+
+This module provides a high-level interface for managing kopi-docka systemd
+services without requiring direct systemctl knowledge.
+"""
+
+import re
+import subprocess
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+from ..helpers.logging import get_logger
+
+LOGGER = get_logger("kopi_docka.service_helper")
+
+
+@dataclass
+class ServiceStatus:
+    """Status information for a systemd service."""
+
+    active: bool  # Service is currently running
+    enabled: bool  # Service is enabled to start at boot
+    failed: bool  # Service is in failed state
+
+
+@dataclass
+class TimerStatus:
+    """Status information for a systemd timer."""
+
+    active: bool  # Timer is currently active
+    enabled: bool  # Timer is enabled
+    next_run: Optional[str]  # Next scheduled run time
+    left: Optional[str]  # Time remaining until next run
+
+
+@dataclass
+class BackupInfo:
+    """Information about last backup run."""
+
+    timestamp: Optional[str]  # When the backup ran
+    status: str  # 'success', 'failed', or 'unknown'
+    duration: Optional[str]  # How long it took
+
+
+class ServiceHelper:
+    """
+    Helper class for managing kopi-docka systemd services.
+
+    This class wraps systemctl and journalctl commands to provide
+    a simple interface for service management.
+    """
+
+    def __init__(self):
+        """Initialize ServiceHelper."""
+        self.service_name = "kopi-docka.service"
+        self.timer_name = "kopi-docka.timer"
+        self.backup_service_name = "kopi-docka-backup.service"
+        self.timer_file = Path("/etc/systemd/system") / self.timer_name
+
+    # -------------------------------------------------------------------------
+    # Status Methods
+    # -------------------------------------------------------------------------
+
+    def get_service_status(self) -> ServiceStatus:
+        """
+        Get status of kopi-docka.service.
+
+        Returns:
+            ServiceStatus object with active, enabled, and failed states
+        """
+        try:
+            # Check if service is active (running)
+            active_result = subprocess.run(
+                ["systemctl", "is-active", self.service_name],
+                capture_output=True,
+                text=True,
+            )
+            active = active_result.stdout.strip() == "active"
+
+            # Check if service is enabled (starts at boot)
+            enabled_result = subprocess.run(
+                ["systemctl", "is-enabled", self.service_name],
+                capture_output=True,
+                text=True,
+            )
+            enabled = enabled_result.stdout.strip() == "enabled"
+
+            # Check if service is in failed state
+            failed_result = subprocess.run(
+                ["systemctl", "is-failed", self.service_name],
+                capture_output=True,
+                text=True,
+            )
+            failed = failed_result.stdout.strip() == "failed"
+
+            return ServiceStatus(active=active, enabled=enabled, failed=failed)
+
+        except Exception as e:
+            LOGGER.error(f"Failed to get service status: {e}")
+            return ServiceStatus(active=False, enabled=False, failed=False)
+
+    def get_timer_status(self) -> TimerStatus:
+        """
+        Get status of kopi-docka.timer.
+
+        Returns:
+            TimerStatus object with active, enabled, next_run, and left fields
+        """
+        try:
+            # Check if timer is active
+            active_result = subprocess.run(
+                ["systemctl", "is-active", self.timer_name],
+                capture_output=True,
+                text=True,
+            )
+            active = active_result.stdout.strip() == "active"
+
+            # Check if timer is enabled
+            enabled_result = subprocess.run(
+                ["systemctl", "is-enabled", self.timer_name],
+                capture_output=True,
+                text=True,
+            )
+            enabled = enabled_result.stdout.strip() == "enabled"
+
+            # Get next run time
+            next_run, left = self._parse_timer_info()
+
+            return TimerStatus(
+                active=active, enabled=enabled, next_run=next_run, left=left
+            )
+
+        except Exception as e:
+            LOGGER.error(f"Failed to get timer status: {e}")
+            return TimerStatus(active=False, enabled=False, next_run=None, left=None)
+
+    def _parse_timer_info(self) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Parse timer information from systemctl list-timers.
+
+        Returns:
+            Tuple of (next_run_time, time_left)
+        """
+        try:
+            result = subprocess.run(
+                ["systemctl", "list-timers", self.timer_name, "--no-pager"],
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0:
+                return None, None
+
+            # Parse output - looking for line with timer info
+            for line in result.stdout.splitlines():
+                if self.timer_name in line:
+                    # Format: NEXT  LEFT  LAST  PASSED  UNIT  ACTIVATES
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        # NEXT is typically date + time (2-3 columns)
+                        # LEFT is typically "Xh Ymin left" (2-3 columns)
+                        # We need to intelligently parse this
+                        # Simple heuristic: find "left" keyword
+                        left_index = None
+                        for i, part in enumerate(parts):
+                            if "left" in part.lower():
+                                left_index = i
+                                break
+
+                        if left_index and left_index >= 2:
+                            # Next run is everything before LEFT
+                            next_run = " ".join(parts[0:left_index - 1])
+                            # Time left is everything up to and including "left"
+                            left = " ".join(parts[left_index - 1 : left_index + 1])
+                            return next_run, left
+
+            return None, None
+
+        except Exception as e:
+            LOGGER.debug(f"Failed to parse timer info: {e}")
+            return None, None
+
+    def get_current_schedule(self) -> Optional[str]:
+        """
+        Get current OnCalendar value from timer file.
+
+        Returns:
+            OnCalendar string or None if not found
+        """
+        try:
+            if not self.timer_file.exists():
+                return None
+
+            content = self.timer_file.read_text()
+
+            # Parse OnCalendar= line (not commented)
+            for line in content.splitlines():
+                line = line.strip()
+                if line.startswith("OnCalendar=") and not line.startswith("#"):
+                    return line.split("=", 1)[1].strip()
+
+            return None
+
+        except Exception as e:
+            LOGGER.error(f"Failed to read timer schedule: {e}")
+            return None
+
+    def get_lock_status(self) -> Dict[str, any]:
+        """
+        Check lock file status.
+
+        Returns:
+            Dict with exists, pid, and process_running fields
+        """
+        lock_file = Path("/run/kopi-docka/kopi-docka.lock")
+
+        if not lock_file.exists():
+            return {"exists": False, "pid": None, "process_running": False}
+
+        try:
+            # Read PID from lock file
+            pid_str = lock_file.read_text().strip()
+            pid = int(pid_str) if pid_str.isdigit() else None
+
+            # Check if process is running
+            process_running = False
+            if pid:
+                try:
+                    # Check if process exists (signal 0 doesn't kill, just checks)
+                    subprocess.run(
+                        ["kill", "-0", str(pid)],
+                        check=True,
+                        capture_output=True,
+                    )
+                    process_running = True
+                except subprocess.CalledProcessError:
+                    process_running = False
+
+            return {"exists": True, "pid": pid, "process_running": process_running}
+
+        except Exception as e:
+            LOGGER.debug(f"Failed to read lock file: {e}")
+            return {"exists": True, "pid": None, "process_running": False}
+
+    # -------------------------------------------------------------------------
+    # Log Methods
+    # -------------------------------------------------------------------------
+
+    def get_logs(
+        self, mode: str = "last", lines: int = 20, unit: str = "service"
+    ) -> List[str]:
+        """
+        Get backup logs via journalctl.
+
+        Args:
+            mode: Log mode - 'last', 'errors', 'hour', 'today'
+            lines: Number of lines for 'last' mode
+            unit: Which unit to get logs for - 'service' or 'backup'
+
+        Returns:
+            List of log lines
+        """
+        try:
+            unit_name = (
+                self.service_name if unit == "service" else self.backup_service_name
+            )
+            cmd = ["journalctl", "-u", unit_name, "--no-pager"]
+
+            if mode == "last":
+                cmd.extend(["-n", str(lines)])
+            elif mode == "errors":
+                cmd.extend(["-p", "err"])
+            elif mode == "hour":
+                cmd.extend(["--since", "1 hour ago"])
+            elif mode == "today":
+                cmd.extend(["--since", "today"])
+            else:
+                cmd.extend(["-n", str(lines)])
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            if result.returncode != 0:
+                return [f"Failed to retrieve logs: {result.stderr}"]
+
+            lines = result.stdout.splitlines()
+            return lines if lines else ["No logs found"]
+
+        except Exception as e:
+            LOGGER.error(f"Failed to get logs: {e}")
+            return [f"Error retrieving logs: {e}"]
+
+    def get_last_backup_info(self) -> BackupInfo:
+        """
+        Parse logs to find last backup run information.
+
+        Returns:
+            BackupInfo object with timestamp, status, and duration
+        """
+        try:
+            # Get recent logs
+            logs = self.get_logs(mode="last", lines=100)
+
+            # Look for backup-related log lines
+            timestamp = None
+            status = "unknown"
+            duration = None
+
+            # Patterns to match
+            start_pattern = re.compile(r"Starting backup|Backup started")
+            success_pattern = re.compile(
+                r"Backup (finished successfully|completed|success)"
+            )
+            failed_pattern = re.compile(r"Backup (failed|error)")
+
+            for line in reversed(logs):  # Start from most recent
+                # Extract timestamp from journalctl line
+                # Format: "Dec 21 14:00:00 hostname kopi-docka[12345]: message"
+                parts = line.split()
+                if len(parts) >= 3:
+                    timestamp_candidate = " ".join(parts[0:3])
+
+                    if success_pattern.search(line):
+                        status = "success"
+                        timestamp = timestamp_candidate
+                        break
+                    elif failed_pattern.search(line):
+                        status = "failed"
+                        timestamp = timestamp_candidate
+                        break
+                    elif start_pattern.search(line) and timestamp is None:
+                        timestamp = timestamp_candidate
+
+            return BackupInfo(timestamp=timestamp, status=status, duration=duration)
+
+        except Exception as e:
+            LOGGER.error(f"Failed to get last backup info: {e}")
+            return BackupInfo(timestamp=None, status="unknown", duration=None)
+
+    # -------------------------------------------------------------------------
+    # Control Methods
+    # -------------------------------------------------------------------------
+
+    def control_service(self, action: str, unit: str = "service") -> bool:
+        """
+        Execute systemctl action on service.
+
+        Args:
+            action: Action to perform - 'start', 'stop', 'restart', 'enable', 'disable'
+            unit: Which unit to control - 'service' or 'timer'
+
+        Returns:
+            True if successful, False otherwise
+        """
+        valid_actions = ["start", "stop", "restart", "enable", "disable"]
+        if action not in valid_actions:
+            LOGGER.error(f"Invalid action: {action}")
+            return False
+
+        try:
+            unit_name = self.timer_name if unit == "timer" else self.service_name
+
+            result = subprocess.run(
+                ["systemctl", action, unit_name],
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode == 0:
+                LOGGER.info(f"Successfully executed: systemctl {action} {unit_name}")
+                return True
+            else:
+                LOGGER.error(
+                    f"Failed to {action} {unit_name}: {result.stderr or result.stdout}"
+                )
+                return False
+
+        except Exception as e:
+            LOGGER.error(f"Failed to control service: {e}")
+            return False
+
+    def reload_daemon(self) -> bool:
+        """
+        Reload systemd daemon configuration.
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            result = subprocess.run(
+                ["systemctl", "daemon-reload"],
+                capture_output=True,
+                text=True,
+            )
+            return result.returncode == 0
+        except Exception as e:
+            LOGGER.error(f"Failed to reload daemon: {e}")
+            return False
+
+    # -------------------------------------------------------------------------
+    # Configuration Methods
+    # -------------------------------------------------------------------------
+
+    def edit_timer_schedule(self, new_schedule: str) -> bool:
+        """
+        Update OnCalendar in timer file.
+
+        Args:
+            new_schedule: New OnCalendar value (e.g., "*-*-* 03:00:00")
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Validate schedule first
+            if not self.validate_oncalendar(new_schedule):
+                LOGGER.error(f"Invalid OnCalendar syntax: {new_schedule}")
+                return False
+
+            if not self.timer_file.exists():
+                LOGGER.error(f"Timer file not found: {self.timer_file}")
+                return False
+
+            # Backup current file
+            backup_file = self.timer_file.with_suffix(".timer.bak")
+            content = self.timer_file.read_text()
+            backup_file.write_text(content)
+            LOGGER.info(f"Backed up timer file to {backup_file}")
+
+            # Replace OnCalendar= line
+            new_lines = []
+            replaced = False
+
+            for line in content.splitlines():
+                if line.strip().startswith("OnCalendar=") and not line.strip().startswith(
+                    "#"
+                ):
+                    new_lines.append(f"OnCalendar={new_schedule}")
+                    replaced = True
+                else:
+                    new_lines.append(line)
+
+            if not replaced:
+                LOGGER.error("No OnCalendar= line found in timer file")
+                return False
+
+            # Write updated content
+            self.timer_file.write_text("\n".join(new_lines) + "\n")
+            LOGGER.info(f"Updated timer schedule to: {new_schedule}")
+
+            # Reload systemd and restart timer
+            if not self.reload_daemon():
+                LOGGER.error("Failed to reload systemd daemon")
+                return False
+
+            if not self.control_service("restart", unit="timer"):
+                LOGGER.error("Failed to restart timer")
+                return False
+
+            return True
+
+        except Exception as e:
+            LOGGER.error(f"Failed to edit timer schedule: {e}")
+            return False
+
+    # -------------------------------------------------------------------------
+    # Validation Methods
+    # -------------------------------------------------------------------------
+
+    def validate_time_format(self, time_str: str) -> bool:
+        """
+        Validate HH:MM format.
+
+        Args:
+            time_str: Time string to validate (e.g., "14:30")
+
+        Returns:
+            True if valid, False otherwise
+        """
+        pattern = r"^([0-1]?\d|2[0-3]):[0-5]\d$"
+        return bool(re.match(pattern, time_str))
+
+    def validate_oncalendar(self, calendar_str: str) -> bool:
+        """
+        Test OnCalendar syntax via systemd-analyze.
+
+        Args:
+            calendar_str: OnCalendar string to validate
+
+        Returns:
+            True if valid, False otherwise
+        """
+        try:
+            result = subprocess.run(
+                ["systemd-analyze", "calendar", calendar_str],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            # systemd-analyze returns 0 if syntax is valid
+            return result.returncode == 0
+
+        except subprocess.TimeoutExpired:
+            LOGGER.warning("systemd-analyze calendar timed out")
+            return False
+        except FileNotFoundError:
+            LOGGER.warning("systemd-analyze not available, skipping validation")
+            # If systemd-analyze is not available, accept the input
+            # (better to allow the change than block it)
+            return True
+        except Exception as e:
+            LOGGER.debug(f"Failed to validate OnCalendar: {e}")
+            return False
+
+    # -------------------------------------------------------------------------
+    # Installation Methods
+    # -------------------------------------------------------------------------
+
+    def units_exist(self) -> bool:
+        """
+        Check if systemd units are installed.
+
+        Returns:
+            True if units exist, False otherwise
+        """
+        service_file = Path("/etc/systemd/system") / self.service_name
+        timer_file = Path("/etc/systemd/system") / self.timer_name
+
+        return service_file.exists() and timer_file.exists()

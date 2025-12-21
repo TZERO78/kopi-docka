@@ -33,6 +33,7 @@ import typer
 from ..service_commands import (
     cmd_daemon,
     cmd_write_units,
+    cmd_manage,
 )
 
 # Create service subcommand group
@@ -69,6 +70,11 @@ def register(app: typer.Typer):
     ):
         """Write example systemd service and timer units."""
         cmd_write_units(output_dir)
+
+    @service_app.command("manage")
+    def _manage_cmd():
+        """Interactive service management wizard (requires root)."""
+        cmd_manage()
 
     # Add service subgroup to admin app
     app.add_typer(service_app, name="service", help="Systemd service management")

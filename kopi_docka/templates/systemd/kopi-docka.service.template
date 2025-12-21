@@ -1,0 +1,148 @@
+################################################################################
+# KOPI-DOCKA SYSTEMD SERVICE UNIT
+################################################################################
+#
+# This systemd service runs kopi-docka as a daemon that can be triggered by
+# the accompanying timer unit or started manually.
+#
+# INSTALLATION:
+#   Run: sudo kopi-docka admin service write-units
+#   Then: sudo systemctl daemon-reload
+#   Finally: sudo systemctl enable --now kopi-docka.timer
+#
+# MANAGEMENT:
+#   - Interactive management: sudo kopi-docka admin service manage
+#   - Manual control: systemctl {start|stop|restart|status} kopi-docka.service
+#   - View logs: journalctl -u kopi-docka.service -f
+#
+# CUSTOMIZATION:
+#   To override settings without editing this file:
+#     sudo systemctl edit kopi-docka.service
+#   This creates a drop-in file in /etc/systemd/system/kopi-docka.service.d/
+#
+################################################################################
+
+[Unit]
+# Service description shown in systemctl status
+Description=Kopi-Docka Docker Backup Service (Daemon)
+
+# Link to documentation
+Documentation=https://github.com/TZERO78/kopi-docka
+
+# Start only after Docker is available
+# After= ensures Docker starts first but doesn't make it mandatory
+After=docker.service
+
+# Requires= makes Docker mandatory - service fails if Docker fails
+Requires=docker.service
+
+[Service]
+# Type=notify tells systemd to wait for the service to signal it's ready
+# The kopi-docka daemon uses sd_notify to signal READY, STATUS, and STOPPING
+Type=notify
+
+# Command to execute when service starts
+# This runs the kopi-docka daemon which idles until triggered by timer
+ExecStart=/usr/bin/env kopi-docka daemon
+
+# Reload configuration via SIGHUP (currently a no-op, reserved for future use)
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Restart behavior - only restart if the service fails unexpectedly
+# on-failure: restart only on unclean exit (crash, kill signal, timeout)
+Restart=on-failure
+
+# Wait 30 seconds before restarting after a failure
+# This prevents rapid restart loops
+RestartSec=30
+
+# Watchdog timeout - service must send sd_notify WATCHDOG=1 every 300 seconds
+# If the service doesn't respond within this time, systemd will restart it
+# The kopi-docka daemon sends heartbeats automatically when running
+WatchdogSec=300
+
+# Logging configuration - send all output to systemd journal
+StandardOutput=journal
+StandardError=journal
+
+# Tag for journal logs - makes filtering easier: journalctl -t kopi-docka
+SyslogIdentifier=kopi-docka
+
+################################################################################
+# SECURITY HARDENING
+#
+# These settings restrict what the service can do to improve security.
+# They follow systemd security best practices for backup services.
+################################################################################
+
+# Prevent the service from gaining new privileges via setuid/setgid
+# This is important for security - the service runs with fixed permissions
+NoNewPrivileges=true
+
+# Use a private /tmp directory that other processes can't access
+# Prevents /tmp-based attacks and isolation violations
+PrivateTmp=true
+
+# Make most of the filesystem read-only
+# ProtectSystem=strict makes everything read-only except paths in ReadWritePaths=
+ProtectSystem=strict
+
+# Make /home directories read-only
+# The service doesn't need to write to user home directories
+ProtectHome=read-only
+
+# Paths the service needs write access to:
+# - /backup: Default backup storage location
+# - /var/lib/docker: Docker state directory (needed for container inspection)
+# - /var/run/docker.sock: Docker socket (needed for Docker API access)
+# - /var/log: For writing logs if file logging is configured
+# - /run/kopi-docka: Runtime directory for PID locks
+#
+# IMPORTANT: Adjust /backup to match your actual backup path if different
+ReadWritePaths=/backup /var/lib/docker /var/run/docker.sock /var/log /run/kopi-docka
+
+# Create /run/kopi-docka directory automatically on service start
+# This directory is used for PID lock files to prevent concurrent runs
+RuntimeDirectory=kopi-docka
+RuntimeDirectoryMode=0755
+
+# Set default umask for files created by the service
+# 0077 means files are only readable/writable by the service user
+UMask=0077
+
+# Remove all capabilities - the service doesn't need any special privileges
+# Capabilities are Linux kernel features that grant specific privileges
+# Since we run as root (for Docker access), we explicitly drop all capabilities
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# Restrict which address families (network types) the service can use
+# AF_UNIX: Unix domain sockets (for Docker socket communication)
+# AF_INET/AF_INET6: IPv4/IPv6 (for remote backup destinations like S3, rclone)
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+# Whitelist system calls the service is allowed to make
+# @system-service is a predefined set of syscalls appropriate for system services
+# This prevents the service from making dangerous system calls
+SystemCallFilter=@system-service
+
+# Protect kernel tunables from modification
+# Prevents writes to /proc/sys, /sys, etc.
+ProtectKernelTunables=yes
+
+# Prevent loading/unloading kernel modules
+# The service has no legitimate reason to modify kernel modules
+ProtectKernelModules=yes
+
+# Prevent modification of the cgroup filesystem
+# cgroups are used for process isolation and resource control
+ProtectControlGroups=yes
+
+# Restrict device access - service can't directly access hardware devices
+# Exception: Docker socket access is still allowed via ReadWritePaths
+PrivateDevices=yes
+
+[Install]
+# Start this service automatically at boot when multi-user.target is reached
+# multi-user.target is the normal system boot target (non-graphical)
+WantedBy=multi-user.target

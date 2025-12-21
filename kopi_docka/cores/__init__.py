@@ -23,10 +23,11 @@ from .dependency_manager import DependencyManager
 from .dry_run_manager import DryRunReport
 from .disaster_recovery_manager import DisasterRecoveryManager
 from .service_manager import (
-    KopiDockaService, 
+    KopiDockaService,
     ServiceConfig,
     write_systemd_units,  # ← Diese Zeile hinzufügen
 )
+from .service_helper import ServiceHelper
 from .kopia_policy_manager import KopiaPolicyManager
 
 __all__ = [
@@ -40,5 +41,6 @@ __all__ = [
     'KopiDockaService',
     'ServiceConfig',
     'write_systemd_units',  # ← Diese Zeile hinzufügen
+    'ServiceHelper',
     'KopiaPolicyManager',
 ]

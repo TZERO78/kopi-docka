@@ -91,6 +91,9 @@ sudo systemctl enable --now kopi-docka.timer
 
 # Check status
 sudo systemctl status kopi-docka.timer
+
+# Or use the interactive management wizard
+sudo kopi-docka admin service manage
 ```
 
 **[Systemd integration →](docs/FEATURES.md#4-systemd-integration)**
