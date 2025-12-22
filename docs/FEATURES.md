@@ -737,6 +737,67 @@ sudo kopi-docka admin service manage
 
 ---
 
+## What's New in v4.1.0
+
+### 🤖 Non-Interactive Restore Mode
+**Fully automated restore for CI/CD pipelines and disaster recovery testing**
+
+Kopi-Docka v4.1.0 introduces the `--yes` / `-y` flag for the `restore` command, enabling completely unattended restore operations.
+
+**New Option:**
+```bash
+# Interactive mode (default)
+sudo kopi-docka restore
+
+# Non-interactive mode for automation
+sudo kopi-docka restore --yes
+sudo kopi-docka restore -y
+```
+
+**Automatic Behavior with `--yes`:**
+
+| Step | Interactive Mode | Non-Interactive Mode (`--yes`) |
+|------|------------------|-------------------------------|
+| **Session Selection** | User chooses from list | Selects newest session automatically |
+| **Unit Selection** | User chooses which units | Selects first available unit |
+| **Confirmation** | "Proceed?" prompt | Skipped - proceeds directly |
+| **Network Conflicts** | Ask to recreate | Recreates networks automatically |
+| **Volume Restore** | User confirms each | Restores all volumes automatically |
+| **Config Copy** | Ask for directory | Uses default directory, auto-backup on conflict |
+
+**Use Cases:**
+
+1. **CI/CD Pipeline Testing**
+   ```yaml
+   # GitHub Actions example
+   - name: Test Restore
+     run: sudo kopi-docka restore --yes
+   ```
+
+2. **Disaster Recovery Drills**
+   ```bash
+   # Automated DR test script
+   #!/bin/bash
+   ./recover.sh
+   sudo kopi-docka restore --yes
+   docker compose up -d
+   # Run health checks...
+   ```
+
+3. **Scheduled Recovery Tests**
+   ```bash
+   # Cron job for weekly DR tests
+   0 3 * * 0 /opt/scripts/dr-test.sh
+   ```
+
+**Benefits:**
+- ✅ Fully automated disaster recovery testing
+- ✅ CI/CD integration for backup validation
+- ✅ Scripted restore operations
+- ✅ Unattended server recovery
+
+---
+
 ## What's New in v4.0.0
 
 ### 🎨 Complete UI Consistency Refactoring

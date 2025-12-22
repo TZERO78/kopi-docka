@@ -109,6 +109,25 @@ kopi-docka
 | `--update-recovery` | Update DR bundle after backup |
 | `--dry-run` | Simulate only (no changes) |
 
+### Restore Options
+
+| Option | Description |
+|--------|-------------|
+| `--yes` / `-y` | Non-interactive mode - skips all prompts, uses automatic defaults |
+
+**Non-interactive restore (`--yes`) behavior:**
+- Selects newest backup session automatically
+- Restores first available unit
+- Skips confirmation prompts
+- Recreates networks automatically on conflict
+- Restores all volumes without prompting
+- Uses default directory for configs, auto-backup on conflict
+
+**Example: CI/CD restore test**
+```bash
+sudo kopi-docka restore --yes
+```
+
 **💡 Most commands require `sudo` (except: `version`, `doctor`)**
 
 ---
