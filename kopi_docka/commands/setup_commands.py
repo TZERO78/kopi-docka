@@ -32,6 +32,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from ..helpers import get_logger, Config
+from ..cores.dependency_manager import DependencyManager
 from ..helpers.ui_utils import (
     print_step,
     print_success,
