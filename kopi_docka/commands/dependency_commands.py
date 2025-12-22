@@ -19,11 +19,19 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+from rich.console import Console
 
 from ..helpers import Config, get_logger
+from ..helpers.ui_utils import (
+    print_success,
+    print_error,
+    print_error_panel,
+)
 from ..cores import KopiaRepository
 from ..cores import DependencyManager
+
 logger = get_logger(__name__)
+console = Console()
 
 
 def get_config(ctx: typer.Context) -> Optional[Config]:
@@ -46,22 +54,22 @@ def cmd_check(ctx: typer.Context, verbose: bool = False):
         try:
             repo = KopiaRepository(cfg)
             if repo.is_connected():
-                typer.echo("✓ Kopia repository is connected")
-                typer.echo(f"  Profile: {repo.profile_name}")
-                typer.echo(f"  Repository: {repo.repo_path}")
+                print_success("Kopia repository is connected")
+                console.print(f"  [cyan]Profile:[/cyan] {repo.profile_name}")
+                console.print(f"  [cyan]Repository:[/cyan] {repo.repo_path}")
                 if verbose:
                     snapshots = repo.list_snapshots()
-                    typer.echo(f"  Snapshots: {len(snapshots)}")
+                    console.print(f"  [cyan]Snapshots:[/cyan] {len(snapshots)}")
                     units = repo.list_backup_units()
-                    typer.echo(f"  Backup units: {len(units)}")
+                    console.print(f"  [cyan]Backup units:[/cyan] {len(units)}")
             else:
-                typer.echo("✗ Kopia repository not connected")
-                typer.echo("  Run: kopi-docka init")
+                print_error("Kopia repository not connected")
+                console.print("  [dim]Run:[/dim] [cyan]kopi-docka init[/cyan]")
         except Exception as e:
-            typer.echo(f"✗ Repository check failed: {e}")
+            print_error(f"Repository check failed: {e}")
     else:
-        typer.echo("✗ No configuration found")
-        typer.echo("  Run: kopi-docka admin config new")
+        print_error("No configuration found")
+        console.print("  [dim]Run:[/dim] [cyan]kopi-docka admin config new[/cyan]")
 
 
 def cmd_install_deps(force: bool = False, dry_run: bool = False):
@@ -73,7 +81,7 @@ def cmd_install_deps(force: bool = False, dry_run: bool = False):
         if missing:
             deps.install_missing(dry_run=True)
         else:
-            typer.echo("✓ All dependencies already installed")
+            print_success("All dependencies already installed")
         return
 
     missing = deps.get_missing()
@@ -81,14 +89,16 @@ def cmd_install_deps(force: bool = False, dry_run: bool = False):
         success = deps.auto_install(force=force)
         if not success:
             raise typer.Exit(code=1)
-        typer.echo(f"\n✓ Installed {len(missing)} dependencies")
+        console.print()
+        print_success(f"Installed {len(missing)} dependencies")
     else:
-        typer.echo("✓ All required dependencies already installed")
+        print_success("All required dependencies already installed")
 
     # Hint about config
     if not Path.home().joinpath(".config/kopi-docka/config.json").exists() and \
        not Path("/etc/kopi-docka.json").exists():
-        typer.echo("\n💡 Tip: Create config with: kopi-docka admin config new")
+        console.print()
+        console.print("[dim]Tip:[/dim] Create config with: [cyan]kopi-docka admin config new[/cyan]")
 
 
 def cmd_deps():

@@ -21,15 +21,27 @@ Commands:
 - admin snapshot estimate-size - Estimate total backup size
 """
 
+from pathlib import Path
 from typing import Optional
 
 import typer
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich import box
 
 # Note: From advanced/ we need ...helpers (go up two levels)
 from ...helpers import Config, get_logger, extract_filesystem_path
+from ...helpers.ui_utils import (
+    print_success,
+    print_error,
+    print_warning,
+    print_error_panel,
+)
 from ...cores import KopiaRepository, DockerDiscovery
 
 logger = get_logger(__name__)
+console = Console()
 
 # Create snapshot subcommand group
 snapshot_app = typer.Typer(
@@ -48,8 +60,10 @@ def ensure_config(ctx: typer.Context) -> Config:
     """Ensure config exists or exit."""
     cfg = get_config(ctx)
     if not cfg:
-        typer.echo("No configuration found")
-        typer.echo("Run: kopi-docka admin config new")
+        print_error_panel(
+            "No configuration found\n\n"
+            "[dim]Run:[/dim] [cyan]kopi-docka admin config new[/cyan]"
+        )
         raise typer.Exit(code=1)
     return cfg
 
@@ -70,82 +84,119 @@ def cmd_list(
         units = True
 
     if units:
-        typer.echo("Discovering Docker backup units...")
+        console.print("[cyan]Discovering Docker backup units...[/cyan]")
         try:
             discovery = DockerDiscovery()
             found = discovery.discover_backup_units()
             if not found:
-                typer.echo("No units found.")
+                console.print("[dim]No units found.[/dim]")
             else:
-                typer.echo("")
-                typer.echo("=" * 70)
-                typer.echo(f"DISCOVERED BACKUP UNITS ({len(found)} total)")
-                typer.echo("=" * 70)
+                console.print()
 
                 # Separate stacks and standalone
                 stacks = [u for u in found if u.type == "stack"]
                 standalone = [u for u in found if u.type == "standalone"]
 
                 if stacks:
-                    typer.echo("\nDocker Compose Stacks:")
+                    stack_table = Table(
+                        title="Docker Compose Stacks",
+                        box=box.ROUNDED,
+                        border_style="cyan",
+                        title_style="bold cyan"
+                    )
+                    stack_table.add_column("Status", style="bold", width=8)
+                    stack_table.add_column("Name", style="cyan")
+                    stack_table.add_column("Containers", justify="center")
+                    stack_table.add_column("Volumes", justify="center")
+                    stack_table.add_column("Compose File", style="dim")
+
                     for unit in stacks:
                         running = len(unit.running_containers)
                         total = len(unit.containers)
-                        status = "[running]" if running == total else "[partial]" if running > 0 else "[stopped]"
+                        if running == total:
+                            status = "[green]Running[/green]"
+                        elif running > 0:
+                            status = "[yellow]Partial[/yellow]"
+                        else:
+                            status = "[red]Stopped[/red]"
 
-                        typer.echo(f"\n  {status} {unit.name}")
-                        typer.echo(f"     Type: {unit.type}")
-                        typer.echo(f"     Containers: {running}/{total} running")
-                        typer.echo(f"     Volumes: {len(unit.volumes)}")
+                        compose = str(unit.compose_file) if unit.compose_file else "-"
+                        stack_table.add_row(
+                            status,
+                            unit.name,
+                            f"{running}/{total}",
+                            str(len(unit.volumes)),
+                            compose
+                        )
 
-                        if unit.compose_file:
-                            typer.echo(f"     Compose: {unit.compose_file}")
-
-                        if unit.containers:
-                            container_names = [c.name for c in unit.containers[:3]]
-                            if len(unit.containers) > 3:
-                                container_names.append(f"... and {len(unit.containers) - 3} more")
-                            typer.echo(f"     Services: {', '.join(container_names)}")
+                    console.print(stack_table)
+                    console.print()
 
                 if standalone:
-                    typer.echo("\nStandalone Containers:")
+                    standalone_table = Table(
+                        title="Standalone Containers",
+                        box=box.ROUNDED,
+                        border_style="cyan",
+                        title_style="bold cyan"
+                    )
+                    standalone_table.add_column("Status", style="bold", width=8)
+                    standalone_table.add_column("Name", style="cyan")
+                    standalone_table.add_column("Image")
+                    standalone_table.add_column("Volumes", justify="center")
+
                     for unit in standalone:
                         container = unit.containers[0]
-                        status = "[running]" if container.is_running else "[stopped]"
+                        status = "[green]Running[/green]" if container.is_running else "[red]Stopped[/red]"
 
-                        typer.echo(f"\n  {status} {unit.name}")
-                        typer.echo(f"     Type: {unit.type}")
-                        typer.echo(f"     Image: {container.image}")
-                        typer.echo(f"     Status: {'Running' if container.is_running else 'Stopped'}")
-                        typer.echo(f"     Volumes: {len(unit.volumes)}")
+                        standalone_table.add_row(
+                            status,
+                            unit.name,
+                            container.image,
+                            str(len(unit.volumes))
+                        )
 
-                typer.echo("\n" + "=" * 70)
-                typer.echo(f"Total: {len(stacks)} stacks, {len(standalone)} standalone")
-                typer.echo("=" * 70)
+                    console.print(standalone_table)
+                    console.print()
+
+                # Summary
+                console.print(Panel.fit(
+                    f"[bold]Total:[/bold] {len(stacks)} stacks, {len(standalone)} standalone containers",
+                    border_style="dim"
+                ))
+
         except Exception as e:
-            typer.echo(f"Discovery failed: {e}")
+            print_error_panel(f"Discovery failed: {e}")
             raise typer.Exit(code=1)
 
     if snapshots:
-        typer.echo("\nListing snapshots...")
+        console.print()
+        console.print("[cyan]Listing snapshots...[/cyan]")
         try:
             repo = KopiaRepository(cfg)
             snaps = repo.list_snapshots()
             if not snaps:
-                typer.echo("No snapshots found.")
+                console.print("[dim]No snapshots found.[/dim]")
             else:
-                typer.echo("")
-                typer.echo("=" * 70)
-                typer.echo(f"REPOSITORY SNAPSHOTS ({len(snaps)} total)")
-                typer.echo("=" * 70)
+                console.print()
+                snap_table = Table(
+                    title=f"Repository Snapshots ({len(snaps)} total)",
+                    box=box.ROUNDED,
+                    border_style="cyan",
+                    title_style="bold cyan"
+                )
+                snap_table.add_column("ID", style="dim")
+                snap_table.add_column("Unit", style="cyan")
+                snap_table.add_column("Timestamp")
+
                 for s in snaps:
                     unit = s.get("tags", {}).get("unit", "-")
                     ts = s.get("timestamp", "-")
                     sid = s.get("id", "")
-                    typer.echo(f"  {sid[:12]}... | unit={unit} | {ts}")
-                typer.echo("=" * 70)
+                    snap_table.add_row(f"{sid[:12]}...", unit, ts)
+
+                console.print(snap_table)
         except Exception as e:
-            typer.echo(f"Unable to list snapshots: {e}")
+            print_error_panel(f"Unable to list snapshots: {e}")
             raise typer.Exit(code=1)
 
 
@@ -160,26 +211,34 @@ def cmd_estimate_size(ctx: typer.Context):
     """
     cfg = ensure_config(ctx)
 
-    typer.echo("Calculating backup size estimates...")
-    typer.echo("")
+    console.print("[cyan]Calculating backup size estimates...[/cyan]")
+    console.print()
 
     try:
         discovery = DockerDiscovery()
         units = discovery.discover_backup_units()
     except Exception as e:
-        typer.echo(f"Failed to discover units: {e}")
+        print_error_panel(f"Failed to discover units: {e}")
         raise typer.Exit(code=1)
 
     if not units:
-        typer.echo("No backup units found")
+        print_warning("No backup units found")
         raise typer.Exit(code=0)
 
     from ...helpers.system_utils import SystemUtils
     utils = SystemUtils()
 
-    typer.echo("=" * 70)
-    typer.echo("BACKUP SIZE ESTIMATES")
-    typer.echo("=" * 70)
+    # Create table for size estimates
+    size_table = Table(
+        title="Backup Size Estimates",
+        box=box.ROUNDED,
+        border_style="cyan",
+        title_style="bold cyan"
+    )
+    size_table.add_column("Unit", style="cyan")
+    size_table.add_column("Volumes", justify="center")
+    size_table.add_column("Raw Size", justify="right")
+    size_table.add_column("Est. Compressed", justify="right", style="green")
 
     total_size = 0
 
@@ -188,15 +247,21 @@ def cmd_estimate_size(ctx: typer.Context):
         total_size += unit_size
 
         if unit_size > 0:
-            typer.echo(f"\n  {unit.name}")
-            typer.echo(f"   Volumes: {len(unit.volumes)}")
-            typer.echo(f"   Raw Size: {utils.format_bytes(unit_size)}")
-            typer.echo(f"   Estimated (compressed): {utils.format_bytes(int(unit_size * 0.5))}")
+            size_table.add_row(
+                unit.name,
+                str(len(unit.volumes)),
+                utils.format_bytes(unit_size),
+                utils.format_bytes(int(unit_size * 0.5))
+            )
 
-    typer.echo("\n" + "=" * 70)
-    typer.echo(f"Total Raw Size: {utils.format_bytes(total_size)}")
-    typer.echo(f"Estimated Compressed: {utils.format_bytes(int(total_size * 0.5))}")
-    typer.echo("=" * 70)
+    console.print(size_table)
+    console.print()
+
+    # Summary panel
+    summary_lines = [
+        f"[bold]Total Raw Size:[/bold] {utils.format_bytes(total_size)}",
+        f"[bold]Estimated Compressed:[/bold] [green]{utils.format_bytes(int(total_size * 0.5))}[/green]",
+    ]
 
     # Check available space for filesystem repositories
     kopia_params = cfg.get('kopia', 'kopia_params', fallback='')
@@ -204,28 +269,40 @@ def cmd_estimate_size(ctx: typer.Context):
     try:
         repo_path_str = extract_filesystem_path(kopia_params)
         if repo_path_str:
-            from pathlib import Path
             space_gb = utils.get_available_disk_space(str(Path(repo_path_str).parent))
             space_bytes = int(space_gb * (1024**3))
 
-            typer.echo(f"\nAvailable Space: {utils.format_bytes(space_bytes)}")
+            summary_lines.append(f"\n[bold]Available Space:[/bold] {utils.format_bytes(space_bytes)}")
 
             required = int(total_size * 0.5)
             if space_bytes < required:
-                typer.echo("WARNING: Insufficient disk space!")
-                typer.echo(f"   Need: {utils.format_bytes(required)}")
-                typer.echo(f"   Have: {utils.format_bytes(space_bytes)}")
-                typer.echo(f"   Short: {utils.format_bytes(required - space_bytes)}")
+                summary_lines.append(
+                    f"\n[red bold]Insufficient disk space![/red bold]\n"
+                    f"  Need: {utils.format_bytes(required)}\n"
+                    f"  Have: {utils.format_bytes(space_bytes)}\n"
+                    f"  Short: {utils.format_bytes(required - space_bytes)}"
+                )
             else:
                 remaining = space_bytes - required
-                typer.echo(f"Sufficient space (remaining: {utils.format_bytes(remaining)})")
+                summary_lines.append(f"[green]Sufficient space[/green] (remaining: {utils.format_bytes(remaining)})")
     except Exception as e:
         logger.debug(f"Could not check disk space: {e}")
 
-    typer.echo("\nNote: These are estimates. Actual size depends on:")
-    typer.echo("  - Compression efficiency")
-    typer.echo("  - Kopia deduplication")
-    typer.echo("  - File types (text compresses well, media files don't)")
+    console.print(Panel.fit(
+        "\n".join(summary_lines),
+        title="[bold]Summary[/bold]",
+        border_style="cyan"
+    ))
+
+    # Note about estimates
+    console.print()
+    console.print(Panel.fit(
+        "[bold]Note:[/bold] These are estimates. Actual size depends on:\n"
+        "  [dim]•[/dim] Compression efficiency\n"
+        "  [dim]•[/dim] Kopia deduplication\n"
+        "  [dim]•[/dim] File types (text compresses well, media files don't)",
+        border_style="dim"
+    ))
 
 
 # -------------------------

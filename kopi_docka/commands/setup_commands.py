@@ -28,11 +28,22 @@ This is the "one command to set everything up" experience.
 from typing import Optional
 
 import typer
+from rich.console import Console
+from rich.panel import Panel
 
 from ..helpers import get_logger, Config
-from ..cores import DependencyManager
+from ..helpers.ui_utils import (
+    print_step,
+    print_success,
+    print_warning,
+    print_error,
+    print_success_panel,
+    print_next_steps,
+    prompt_confirm,
+)
 
 logger = get_logger(__name__)
+console = Console()
 
 
 def cmd_setup_wizard(
@@ -50,80 +61,68 @@ def cmd_setup_wizard(
     4. Create config file
     5. Initialize repository (optional)
     """
-    import getpass
-    
-    typer.echo("═" * 70)
-    typer.echo("🔥 Kopi-Docka Complete Setup Wizard")
-    typer.echo("═" * 70)
-    typer.echo("")
-    typer.echo("This wizard will guide you through:")
-    typer.echo("  1. ✅ Dependency verification")
-    typer.echo("  2. 📦 Repository storage selection")
-    typer.echo("  3. ⚙️  Configuration")
-    typer.echo("  4. 🔐 Repository initialization")
-    typer.echo("")
-    
-    if not typer.confirm("Continue?", default=True):
+    # Display wizard header
+    console.print()
+    console.print(Panel.fit(
+        "[bold cyan]Kopi-Docka Complete Setup Wizard[/bold cyan]\n\n"
+        "This wizard will guide you through:\n"
+        "  [1] Dependency verification\n"
+        "  [2] Repository storage selection\n"
+        "  [3] Configuration\n"
+        "  [4] Repository initialization",
+        border_style="cyan"
+    ))
+    console.print()
+
+    if not prompt_confirm("Continue?", default=True):
         raise typer.Exit(0)
-    
+
     # ═══════════════════════════════════════════
     # Step 1: Dependencies
     # ═══════════════════════════════════════════
     if not skip_deps:
-        typer.echo("")
-        typer.echo("─" * 70)
-        typer.echo("Step 1/4: Checking Dependencies")
-        typer.echo("─" * 70)
-        
+        print_step(1, 4, "Checking Dependencies")
+
         dep_mgr = DependencyManager()
         status = dep_mgr.check_all()
-        
+
         if not status.get('kopia', False):
-            typer.echo("\n⚠️  Kopia not found!")
-            if typer.confirm("Install Kopia automatically?", default=True):
+            print_warning("Kopia not found!")
+            if prompt_confirm("Install Kopia automatically?", default=True):
                 from ..commands.dependency_commands import cmd_install_deps
                 cmd_install_deps(dry_run=False, tools=['kopia'])
             else:
-                typer.echo("❌ Kopia is required. Install manually:")
-                typer.echo("   https://kopia.io/docs/installation/")
+                print_error("Kopia is required")
+                console.print("   [dim]Install manually: https://kopia.io/docs/installation/[/dim]")
                 raise typer.Exit(1)
         else:
-            typer.echo("✓ Kopia found")
-        
+            print_success("Kopia found")
+
         if not status.get('docker', False):
-            typer.echo("⚠️  Docker not found - required for backups!")
-            typer.echo("Install manually: https://docs.docker.com/engine/install/")
+            print_warning("Docker not found - required for backups!")
+            console.print("   [dim]Install: https://docs.docker.com/engine/install/[/dim]")
         else:
-            typer.echo("✓ Docker found")
-    
+            print_success("Docker found")
+
     # ═══════════════════════════════════════════
     # Step 2-3: Configuration (Repository + Password)
     # ═══════════════════════════════════════════
-    typer.echo("")
-    typer.echo("─" * 70)
-    typer.echo("Step 2/4: Configuration Setup")
-    typer.echo("─" * 70)
-    typer.echo("")
-    
+    print_step(2, 4, "Configuration Setup")
+
     # Use cmd_new_config for configuration - DRY!
     from ..commands.config_commands import cmd_new_config
     cfg = cmd_new_config(force=force, edit=False)
-    
+
     kopia_params = cfg.get('kopia', 'kopia_params')
-    
+
     # ═══════════════════════════════════════════
     # Step 4: Repository Init (Optional)
     # ═══════════════════════════════════════════
     if not skip_init:
-        typer.echo("")
-        typer.echo("─" * 70)
-        typer.echo("Step 4/4: Repository Initialization")
-        typer.echo("─" * 70)
-        typer.echo("")
-        
-        if typer.confirm("Initialize repository now?", default=True):
-            typer.echo("")
-            typer.echo("Initializing repository...")
+        print_step(4, 4, "Repository Initialization")
+
+        if prompt_confirm("Initialize repository now?", default=True):
+            console.print("[cyan]Initializing repository...[/cyan]")
             from ..commands.repository_commands import cmd_init
             try:
                 # Create mock context
@@ -131,35 +130,31 @@ def cmd_setup_wizard(
                 ctx = types.SimpleNamespace()
                 ctx.obj = {"config": cfg}
                 cmd_init(ctx)
-                typer.echo("✓ Repository initialized!")
+                print_success("Repository initialized!")
             except Exception as e:
-                typer.echo(f"⚠️  Repository initialization failed: {e}")
-                typer.echo("You can initialize later with: kopi-docka init")
+                print_warning(f"Repository initialization failed: {e}")
+                console.print("   [dim]You can initialize later with: kopi-docka admin repo init[/dim]")
         else:
-            typer.echo("Skipped repository initialization")
-    
+            console.print("[dim]Skipped repository initialization[/dim]")
+
     # ═══════════════════════════════════════════
     # Success Summary
     # ═══════════════════════════════════════════
-    typer.echo("")
-    typer.echo("═" * 70)
-    typer.echo("✅ Setup Complete!")
-    typer.echo("═" * 70)
-    typer.echo("")
-    typer.echo("What's configured:")
-    typer.echo(f"  • Kopia params: {kopia_params}")
-    typer.echo(f"  • Config:       {cfg.config_file}")
-    typer.echo("")
-    typer.echo("Next steps:")
-    typer.echo("  1. List Docker containers:")
-    typer.echo("     sudo kopi-docka list --units")
-    typer.echo("")
-    typer.echo("  2. Test backup (dry-run):")
-    typer.echo("     sudo kopi-docka dry-run")
-    typer.echo("")
-    typer.echo("  3. Create first backup:")
-    typer.echo("     sudo kopi-docka backup")
-    typer.echo("")
+    console.print()
+    console.print(Panel.fit(
+        "[green]✓ Setup Complete![/green]\n\n"
+        "[bold]Configuration:[/bold]\n"
+        f"  [cyan]Kopia params:[/cyan] {kopia_params}\n"
+        f"  [cyan]Config file:[/cyan] {cfg.config_file}",
+        title="[bold green]Success[/bold green]",
+        border_style="green"
+    ))
+
+    print_next_steps([
+        "List Docker containers:\n   [cyan]sudo kopi-docka admin snapshot list[/cyan]",
+        "Test backup (dry-run):\n   [cyan]sudo kopi-docka dry-run[/cyan]",
+        "Create first backup:\n   [cyan]sudo kopi-docka backup[/cyan]",
+    ])
 
 
 # -------------------------

@@ -141,35 +141,31 @@ Production-ready daemon with sd_notify, watchdog monitoring, PID locking, and se
 
 ---
 
-## What's New in v3.9.1
+## What's New in v4.0.0
 
-- **🔒 Enhanced Lock File Management** - Improved diagnostics and stale lock detection
-  - Better lock status display with informative panels
-  - New "Remove Stale Lock File" option in service wizard
-  - Enhanced logging for lock file operations (DEBUG level)
-  - Automatic detection of stale locks from dead processes
+- **🎨 Complete UI Consistency Refactoring** - Modern, beautiful CLI experience
+  - All 11 command files modernized with Rich (Panels, Tables, Colors)
+  - Consistent color scheme across all commands (green=success, red=error, yellow=warning, cyan=info)
+  - Replaced all `typer.echo()` with Rich Console output
+  - Beautiful styled tables for data presentation
 
-- **🛠️ Improved Service Helper** - More robust lock handling
-  - New `remove_stale_lock()` method for cleaning up dead process locks
-  - Better error handling and logging
-  - More portable process checking using `os.kill(pid, 0)`
+- **📚 rich-click Integration** - Beautiful `--help` output
+  - Styled command help with syntax highlighting
+  - Organized option groups
+  - Markdown support in docstrings
 
-**Command:** `sudo kopi-docka admin service manage`
+- **🔧 New UI Components** - 11 new helper functions in `ui_utils.py`
+  - `print_panel()`, `print_menu()`, `print_step()`, `print_divider()`
+  - `print_success_panel()`, `print_error_panel()`, `print_warning_panel()`, `print_info_panel()`
+  - `print_next_steps()`, `get_menu_choice()`, `confirm_action()`, `create_status_table()`
 
-**Previous (v3.9.0):**
-- Interactive Service Management - New wizard for systemd administration
-- Systemd Template System - Unit files moved to templates (400+ lines docs)
-- ServiceHelper Class - High-level API for systemctl/journalctl
-- Input Validation - Time format and OnCalendar syntax validation
-- Rich UI - Color-coded status dashboard, log viewer with syntax highlighting
+- **🐛 Bug Fixes**
+  - Fixed `log_manager.configure()` -> `log_manager.setup()` method name
+  - Fixed missing imports in `ui_utils.py` (Progress, SpinnerColumn, TextColumn)
 
-**Previous (v3.8.0):**
-- Architecture Refactoring - Eliminated ~1000 lines of duplicate code
-- Doctor Fix - Correct repository type detection
-- Terminology - Consistent "Repository Type" usage
-- Tailscale Fix - Fixed KeyError bug
+**Breaking Changes:** None (UI only, API unchanged)
 
-**[See what's new →](docs/FEATURES.md#whats-new-in-v391)**
+**[See what's new →](docs/FEATURES.md#whats-new-in-v400)**
 
 ---
 
@@ -341,6 +337,6 @@ Copyright (c) 2025 Markus F. (TZERO78)
 
 ---
 
-**Current Version:** v3.9.1
+**Current Version:** v4.0.0
 
-**[View changelog](docs/FEATURES.md#whats-new-in-v390)** | **[Contributing](docs/DEVELOPMENT.md#contributing)** | **[Troubleshooting](docs/TROUBLESHOOTING.md)**
+**[View changelog](docs/FEATURES.md#whats-new-in-v400)** | **[Contributing](docs/DEVELOPMENT.md#contributing)** | **[Troubleshooting](docs/TROUBLESHOOTING.md)**

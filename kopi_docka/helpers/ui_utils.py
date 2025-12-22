@@ -1,17 +1,20 @@
 """
-CLI Utilities for Kopi-Docka v2
+CLI Utilities for Kopi-Docka v4
 
 Rich-based helpers for beautiful CLI output.
+Provides consistent UI components across all commands.
 """
 
 import os
 import sys
-from typing import Any, Callable, List, Optional, TypeVar
+from typing import Any, Callable, List, Optional, Tuple, TypeVar
 
 import typer
+from rich import box
 from rich.console import Console
 from rich.markup import escape
 from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
@@ -211,16 +214,16 @@ def prompt_select(
 def with_spinner(message: str, func: Callable, *args, **kwargs):
     """
     Execute a function with a spinner animation
-    
+
     Args:
         message: Message to show while spinning
         func: Function to execute
         *args: Positional arguments for func
         **kwargs: Keyword arguments for func
-        
+
     Returns:
         Return value of func
-        
+
     Example:
         result = with_spinner(
             "Loading peers...",
@@ -235,3 +238,209 @@ def with_spinner(message: str, func: Callable, *args, **kwargs):
     ) as progress:
         progress.add_task(description=message, total=None)
         return func(*args, **kwargs)
+
+
+# =============================================================================
+# New Components for v4.0.0
+# =============================================================================
+
+def print_panel(
+    content: str,
+    title: str = "",
+    style: str = "cyan"
+) -> None:
+    """
+    Print content in a styled panel.
+
+    Args:
+        content: Panel content (Rich markup supported)
+        title: Optional panel title
+        style: Border and title style (cyan, green, red, yellow)
+    """
+    console.print()
+    if title:
+        console.print(Panel.fit(
+            content,
+            title=f"[bold {style}]{title}[/bold {style}]",
+            border_style=style
+        ))
+    else:
+        console.print(Panel.fit(content, border_style=style))
+    console.print()
+
+
+def print_menu(
+    title: str,
+    options: List[Tuple[str, str]],
+    border_style: str = "cyan"
+) -> None:
+    """
+    Print a consistent menu with numbered options.
+
+    Args:
+        title: Menu title
+        options: List of (key, description) tuples
+        border_style: Panel border color
+    """
+    content = f"[bold cyan]{title}[/bold cyan]\n\n"
+    for key, description in options:
+        content += f"[{key}] {description}\n"
+
+    console.print()
+    console.print(Panel.fit(content.strip(), border_style=border_style))
+    console.print()
+
+
+def print_step(current: int, total: int, description: str) -> None:
+    """
+    Print step indicator for wizards.
+
+    Args:
+        current: Current step number
+        total: Total number of steps
+        description: Step description
+    """
+    console.print()
+    console.print(Panel.fit(
+        f"[bold cyan]Step {current}/{total}: {description}[/bold cyan]",
+        border_style="cyan"
+    ))
+    console.print()
+
+
+def print_divider(title: str = "") -> None:
+    """
+    Print a styled horizontal divider with optional title.
+
+    Args:
+        title: Optional title to display in the divider
+    """
+    if title:
+        console.print(f"\n[cyan]{'─' * 10} {title} {'─' * (50 - len(title))}[/cyan]\n")
+    else:
+        console.print(f"\n[dim]{'─' * 60}[/dim]\n")
+
+
+def confirm_action(message: str, default_no: bool = True) -> bool:
+    """
+    Confirm action with clear y/N or Y/n prompt.
+
+    Args:
+        message: Question to ask
+        default_no: If True, default is No (y/N); if False, default is Yes (Y/n)
+
+    Returns:
+        True if user confirmed, False otherwise
+    """
+    if default_no:
+        prompt = f"{message} [y/N]"
+    else:
+        prompt = f"{message} [Y/n]"
+
+    response = console.input(f"[cyan]{prompt}:[/cyan] ").strip().lower()
+
+    if response in ("y", "yes"):
+        return True
+    elif response in ("n", "no"):
+        return False
+    else:
+        # Empty = use default
+        return not default_no
+
+
+def create_status_table(title: str = "") -> Table:
+    """
+    Create a pre-configured status table (Property | Value format).
+
+    Args:
+        title: Optional table title
+
+    Returns:
+        Configured Rich Table
+    """
+    table = Table(title=title, box=box.SIMPLE, show_header=False)
+    table.add_column("Property", style="cyan", width=20)
+    table.add_column("Value", style="white")
+    return table
+
+
+def print_success_panel(message: str, title: str = "Success") -> None:
+    """Print success message in green panel."""
+    console.print()
+    console.print(Panel.fit(
+        f"[green]✓ {message}[/green]",
+        title=f"[bold green]{title}[/bold green]",
+        border_style="green"
+    ))
+    console.print()
+
+
+def print_error_panel(message: str, title: str = "Error") -> None:
+    """Print error message in red panel."""
+    console.print()
+    console.print(Panel.fit(
+        f"[red]✗ {message}[/red]",
+        title=f"[bold red]{title}[/bold red]",
+        border_style="red"
+    ))
+    console.print()
+
+
+def print_warning_panel(message: str, title: str = "Warning") -> None:
+    """Print warning message in yellow panel."""
+    console.print()
+    console.print(Panel.fit(
+        f"[yellow]⚠ {message}[/yellow]",
+        title=f"[bold yellow]{title}[/bold yellow]",
+        border_style="yellow"
+    ))
+    console.print()
+
+
+def print_info_panel(message: str, title: str = "Info") -> None:
+    """Print info message in cyan panel."""
+    console.print()
+    console.print(Panel.fit(
+        f"[cyan]→ {message}[/cyan]",
+        title=f"[bold cyan]{title}[/bold cyan]",
+        border_style="cyan"
+    ))
+    console.print()
+
+
+def print_next_steps(steps: List[str]) -> None:
+    """
+    Print a list of next steps in a styled panel.
+
+    Args:
+        steps: List of step descriptions
+    """
+    content = "[bold]Next Steps:[/bold]\n\n"
+    for i, step in enumerate(steps, 1):
+        content += f"[{i}] {step}\n"
+
+    console.print()
+    console.print(Panel.fit(
+        content.strip(),
+        title="[bold cyan]What's Next[/bold cyan]",
+        border_style="cyan"
+    ))
+    console.print()
+
+
+def get_menu_choice(prompt_text: str = "Select", valid_choices: List[str] = None) -> str:
+    """
+    Get a menu choice from the user with validation.
+
+    Args:
+        prompt_text: Text to show in prompt
+        valid_choices: List of valid choices (optional)
+
+    Returns:
+        User's choice as string
+    """
+    while True:
+        choice = console.input(f"[cyan]{prompt_text}:[/cyan] ").strip()
+        if valid_choices is None or choice in valid_choices:
+            return choice
+        print_error(f"Invalid choice. Valid options: {', '.join(valid_choices)}")

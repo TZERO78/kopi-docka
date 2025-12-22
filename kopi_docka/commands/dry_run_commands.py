@@ -19,12 +19,24 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich import box
 
 from ..helpers import Config, get_logger, extract_filesystem_path
+from ..helpers.ui_utils import (
+    print_success,
+    print_error,
+    print_warning,
+    print_error_panel,
+    print_next_steps,
+)
 from ..cores import DockerDiscovery
 from ..cores.dry_run_manager import DryRunReport
 
 logger = get_logger(__name__)
+console = Console()
 
 
 def get_config(ctx: typer.Context) -> Optional[Config]:
@@ -36,8 +48,10 @@ def ensure_config(ctx: typer.Context) -> Config:
     """Ensure config exists or exit."""
     cfg = get_config(ctx)
     if not cfg:
-        typer.echo("❌ No configuration found")
-        typer.echo("Run: kopi-docka admin config new")
+        print_error_panel(
+            "No configuration found\n\n"
+            "[dim]Run:[/dim] [cyan]kopi-docka admin config new[/cyan]"
+        )
         raise typer.Exit(code=1)
     return cfg
 
@@ -53,7 +67,7 @@ def cmd_dry_run(
 ):
     """
     Simulate backup without making changes.
-    
+
     Shows what would happen during a backup:
     - Which containers would be stopped
     - Which volumes would be backed up
@@ -61,60 +75,63 @@ def cmd_dry_run(
     - Configuration review
     """
     cfg = ensure_config(ctx)
-    
-    typer.echo("🔍 Analyzing Docker environment...")
-    typer.echo("")
-    
+
+    console.print("[cyan]Analyzing Docker environment...[/cyan]")
+    console.print()
+
     # Discover backup units
     try:
         discovery = DockerDiscovery()
         units = discovery.discover_backup_units()
     except Exception as e:
-        typer.echo(f"❌ Failed to discover Docker environment: {e}")
-        typer.echo("")
-        typer.echo("Make sure:")
-        typer.echo("  • Docker is running")
-        typer.echo("  • You have permission to access Docker socket")
-        typer.echo("  • At least one container is running")
+        print_error_panel(
+            f"Failed to discover Docker environment: {e}\n\n"
+            "[bold]Make sure:[/bold]\n"
+            "  • Docker is running\n"
+            "  • You have permission to access Docker socket\n"
+            "  • At least one container is running"
+        )
         raise typer.Exit(code=1)
-    
+
     if not units:
-        typer.echo("⚠️  No backup units found")
-        typer.echo("")
-        typer.echo("This means:")
-        typer.echo("  • No running Docker containers detected")
-        typer.echo("  • Or Docker socket is not accessible")
-        typer.echo("")
-        typer.echo("Start some containers first:")
-        typer.echo("  docker run -d --name test nginx")
+        console.print(Panel.fit(
+            "[yellow]No backup units found[/yellow]\n\n"
+            "[bold]This means:[/bold]\n"
+            "  • No running Docker containers detected\n"
+            "  • Or Docker socket is not accessible\n\n"
+            "[dim]Start some containers first:[/dim]\n"
+            "  [cyan]docker run -d --name test nginx[/cyan]",
+            title="[bold yellow]Warning[/bold yellow]",
+            border_style="yellow"
+        ))
         raise typer.Exit(code=0)
-    
+
     # Filter to specific unit if requested
     if unit:
         units = [u for u in units if u.name == unit]
         if not units:
-            typer.echo(f"❌ Backup unit '{unit}' not found")
-            typer.echo("")
-            typer.echo("Available units:")
+            print_error(f"Backup unit '{unit}' not found")
+            console.print()
+            console.print("[bold]Available units:[/bold]")
             discovery = DockerDiscovery()
             all_units = discovery.create_backup_units(
                 discovery.discover_containers(),
                 discovery.discover_volumes()
             )
             for u in all_units:
-                typer.echo(f"  • {u.name} ({u.type})")
+                console.print(f"  [cyan]•[/cyan] {u.name} [dim]({u.type})[/dim]")
             raise typer.Exit(code=1)
-        
-        typer.echo(f"📦 Dry run for unit: {unit}")
+
+        console.print(f"[cyan]Dry run for unit:[/cyan] [bold]{unit}[/bold]")
     else:
-        typer.echo(f"📦 Dry run for all units ({len(units)} total)")
-    
+        console.print(f"[cyan]Dry run for all units[/cyan] [dim]({len(units)} total)[/dim]")
+
     # Generate report
     try:
         dry_run = DryRunReport(cfg)
         dry_run.generate(units, update_recovery_bundle=update_recovery)
     except Exception as e:
-        typer.echo(f"❌ Failed to generate dry run report: {e}")
+        print_error_panel(f"Failed to generate dry run report: {e}")
         logger.exception("Dry run failed")
         raise typer.Exit(code=1)
 
@@ -122,7 +139,7 @@ def cmd_dry_run(
 def cmd_list_units(ctx: typer.Context):
     """
     List all discoverable backup units.
-    
+
     Shows:
     - Stack name or container name
     - Type (stack or standalone)
@@ -131,123 +148,169 @@ def cmd_list_units(ctx: typer.Context):
     - Running status
     """
     ensure_config(ctx)
-    
-    typer.echo("🔍 Discovering backup units...")
-    typer.echo("")
-    
+
+    console.print("[cyan]Discovering backup units...[/cyan]")
+    console.print()
+
     try:
         discovery = DockerDiscovery()
         units = discovery.discover_backup_units()
     except Exception as e:
-        typer.echo(f"❌ Failed to discover units: {e}")
+        print_error_panel(f"Failed to discover units: {e}")
         raise typer.Exit(code=1)
-    
+
     if not units:
-        typer.echo("⚠️  No backup units found")
-        typer.echo("Start some Docker containers first.")
+        console.print(Panel.fit(
+            "[yellow]No backup units found[/yellow]\n\n"
+            "Start some Docker containers first.",
+            title="[bold yellow]Warning[/bold yellow]",
+            border_style="yellow"
+        ))
         raise typer.Exit(code=0)
-    
-    typer.echo("=" * 70)
-    typer.echo(f"DISCOVERED BACKUP UNITS ({len(units)} total)")
-    typer.echo("=" * 70)
-    
+
     # Separate stacks and standalone
     stacks = [u for u in units if u.type == "stack"]
     standalone = [u for u in units if u.type == "standalone"]
-    
+
+    # Create table for stacks
     if stacks:
-        typer.echo("\n📚 Docker Compose Stacks:")
+        stack_table = Table(
+            title="Docker Compose Stacks",
+            box=box.ROUNDED,
+            border_style="cyan",
+            title_style="bold cyan"
+        )
+        stack_table.add_column("Status", style="bold", width=8)
+        stack_table.add_column("Name", style="cyan")
+        stack_table.add_column("Containers", justify="center")
+        stack_table.add_column("Volumes", justify="center")
+        stack_table.add_column("Compose File", style="dim")
+
         for unit in stacks:
             running = len(unit.running_containers)
             total = len(unit.containers)
-            status = "🟢" if running == total else "🟡" if running > 0 else "🔴"
-            
-            typer.echo(f"\n  {status} {unit.name}")
-            typer.echo(f"     Type: {unit.type}")
-            typer.echo(f"     Containers: {running}/{total} running")
-            typer.echo(f"     Volumes: {len(unit.volumes)}")
-            
-            if unit.compose_file:
-                typer.echo(f"     Compose: {unit.compose_file}")
-            
-            # Show container names
-            if unit.containers:
-                container_names = [c.name for c in unit.containers[:3]]
-                if len(unit.containers) > 3:
-                    container_names.append(f"... and {len(unit.containers) - 3} more")
-                typer.echo(f"     Services: {', '.join(container_names)}")
-    
+            if running == total:
+                status = "[green]Running[/green]"
+            elif running > 0:
+                status = "[yellow]Partial[/yellow]"
+            else:
+                status = "[red]Stopped[/red]"
+
+            compose = str(unit.compose_file) if unit.compose_file else "-"
+            stack_table.add_row(
+                status,
+                unit.name,
+                f"{running}/{total}",
+                str(len(unit.volumes)),
+                compose
+            )
+
+        console.print(stack_table)
+        console.print()
+
+    # Create table for standalone containers
     if standalone:
-        typer.echo("\n📦 Standalone Containers:")
+        standalone_table = Table(
+            title="Standalone Containers",
+            box=box.ROUNDED,
+            border_style="cyan",
+            title_style="bold cyan"
+        )
+        standalone_table.add_column("Status", style="bold", width=8)
+        standalone_table.add_column("Name", style="cyan")
+        standalone_table.add_column("Image")
+        standalone_table.add_column("Volumes", justify="center")
+
         for unit in standalone:
             container = unit.containers[0]
-            status = "🟢" if container.is_running else "🔴"
-            
-            typer.echo(f"\n  {status} {unit.name}")
-            typer.echo(f"     Type: {unit.type}")
-            typer.echo(f"     Image: {container.image}")
-            typer.echo(f"     Status: {'Running' if container.is_running else 'Stopped'}")
-            typer.echo(f"     Volumes: {len(unit.volumes)}")
-    
-    typer.echo("\n" + "=" * 70)
-    typer.echo(f"Total: {len(stacks)} stacks, {len(standalone)} standalone")
-    typer.echo("=" * 70)
-    
-    typer.echo("\n💡 Next steps:")
-    typer.echo("  • Dry run all: kopi-docka dry-run")
-    typer.echo("  • Dry run one: kopi-docka dry-run --unit <name>")
-    typer.echo("  • Real backup: kopi-docka backup")
+            status = "[green]Running[/green]" if container.is_running else "[red]Stopped[/red]"
+
+            standalone_table.add_row(
+                status,
+                unit.name,
+                container.image,
+                str(len(unit.volumes))
+            )
+
+        console.print(standalone_table)
+        console.print()
+
+    # Summary
+    console.print(Panel.fit(
+        f"[bold]Total:[/bold] {len(stacks)} stacks, {len(standalone)} standalone containers",
+        border_style="dim"
+    ))
+
+    print_next_steps([
+        "Dry run all: [cyan]kopi-docka dry-run[/cyan]",
+        "Dry run one: [cyan]kopi-docka dry-run --unit <name>[/cyan]",
+        "Real backup: [cyan]kopi-docka backup[/cyan]",
+    ])
 
 
 def cmd_estimate_size(ctx: typer.Context):
     """
     Estimate total backup size for all units.
-    
+
     Useful for:
     - Planning storage capacity
     - Checking if enough disk space
     - Understanding data distribution
     """
     cfg = ensure_config(ctx)
-    
-    typer.echo("📊 Calculating backup size estimates...")
-    typer.echo("")
-    
+
+    console.print("[cyan]Calculating backup size estimates...[/cyan]")
+    console.print()
+
     try:
         discovery = DockerDiscovery()
         units = discovery.discover_backup_units()
     except Exception as e:
-        typer.echo(f"❌ Failed to discover units: {e}")
+        print_error_panel(f"Failed to discover units: {e}")
         raise typer.Exit(code=1)
-    
+
     if not units:
-        typer.echo("⚠️  No backup units found")
+        print_warning("No backup units found")
         raise typer.Exit(code=0)
-    
+
     from ..helpers.system_utils import SystemUtils
     utils = SystemUtils()
-    
-    typer.echo("=" * 70)
-    typer.echo("BACKUP SIZE ESTIMATES")
-    typer.echo("=" * 70)
-    
+
+    # Create table for size estimates
+    size_table = Table(
+        title="Backup Size Estimates",
+        box=box.ROUNDED,
+        border_style="cyan",
+        title_style="bold cyan"
+    )
+    size_table.add_column("Unit", style="cyan")
+    size_table.add_column("Volumes", justify="center")
+    size_table.add_column("Raw Size", justify="right")
+    size_table.add_column("Est. Compressed", justify="right", style="green")
+
     total_size = 0
-    
+
     for unit in units:
         unit_size = unit.total_volume_size
         total_size += unit_size
-        
+
         if unit_size > 0:
-            typer.echo(f"\n📦 {unit.name}")
-            typer.echo(f"   Volumes: {len(unit.volumes)}")
-            typer.echo(f"   Raw Size: {utils.format_bytes(unit_size)}")
-            typer.echo(f"   Estimated (compressed): {utils.format_bytes(int(unit_size * 0.5))}")
-    
-    typer.echo("\n" + "=" * 70)
-    typer.echo(f"Total Raw Size: {utils.format_bytes(total_size)}")
-    typer.echo(f"Estimated Compressed: {utils.format_bytes(int(total_size * 0.5))}")
-    typer.echo("=" * 70)
-    
+            size_table.add_row(
+                unit.name,
+                str(len(unit.volumes)),
+                utils.format_bytes(unit_size),
+                utils.format_bytes(int(unit_size * 0.5))
+            )
+
+    console.print(size_table)
+    console.print()
+
+    # Summary panel
+    summary_lines = [
+        f"[bold]Total Raw Size:[/bold] {utils.format_bytes(total_size)}",
+        f"[bold]Estimated Compressed:[/bold] [green]{utils.format_bytes(int(total_size * 0.5))}[/green]",
+    ]
+
     # Check available space for filesystem repositories
     kopia_params = cfg.get('kopia', 'kopia_params', fallback='')
 
@@ -257,24 +320,37 @@ def cmd_estimate_size(ctx: typer.Context):
             space_gb = utils.get_available_disk_space(str(Path(repo_path_str).parent))
             space_bytes = int(space_gb * (1024**3))
 
-            typer.echo(f"\nAvailable Space: {utils.format_bytes(space_bytes)}")
+            summary_lines.append(f"\n[bold]Available Space:[/bold] {utils.format_bytes(space_bytes)}")
 
             required = int(total_size * 0.5)
             if space_bytes < required:
-                typer.echo("⚠️  WARNING: Insufficient disk space!")
-                typer.echo(f"   Need: {utils.format_bytes(required)}")
-                typer.echo(f"   Have: {utils.format_bytes(space_bytes)}")
-                typer.echo(f"   Short: {utils.format_bytes(required - space_bytes)}")
+                summary_lines.append(
+                    f"\n[red bold]Insufficient disk space![/red bold]\n"
+                    f"  Need: {utils.format_bytes(required)}\n"
+                    f"  Have: {utils.format_bytes(space_bytes)}\n"
+                    f"  Short: {utils.format_bytes(required - space_bytes)}"
+                )
             else:
                 remaining = space_bytes - required
-                typer.echo(f"✓ Sufficient space (remaining: {utils.format_bytes(remaining)})")
+                summary_lines.append(f"[green]Sufficient space[/green] (remaining: {utils.format_bytes(remaining)})")
     except Exception as e:
         logger.debug(f"Could not check disk space: {e}")
-    
-    typer.echo("\n💡 Note: These are estimates. Actual size depends on:")
-    typer.echo("  • Compression efficiency")
-    typer.echo("  • Kopia deduplication")
-    typer.echo("  • File types (text compresses well, media files don't)")
+
+    console.print(Panel.fit(
+        "\n".join(summary_lines),
+        title="[bold]Summary[/bold]",
+        border_style="cyan"
+    ))
+
+    # Note about estimates
+    console.print()
+    console.print(Panel.fit(
+        "[bold]Note:[/bold] These are estimates. Actual size depends on:\n"
+        "  [dim]•[/dim] Compression efficiency\n"
+        "  [dim]•[/dim] Kopia deduplication\n"
+        "  [dim]•[/dim] File types (text compresses well, media files don't)",
+        border_style="dim"
+    ))
 
 
 # -------------------------

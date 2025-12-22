@@ -46,6 +46,25 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+from rich.console import Console
+from rich.panel import Panel
+
+# Configure rich-click for beautiful --help output
+# This must be done before any typer commands are defined
+try:
+    import rich_click as click
+    click.rich_click.USE_RICH_MARKUP = True
+    click.rich_click.USE_MARKDOWN = True
+    click.rich_click.SHOW_ARGUMENTS = True
+    click.rich_click.GROUP_ARGUMENTS_OPTIONS = True
+    click.rich_click.STYLE_COMMANDS_TABLE = "bold cyan"
+    click.rich_click.STYLE_OPTIONS_TABLE_LEADING = 1
+    click.rich_click.STYLE_OPTIONS_TABLE_BOX = "SIMPLE"
+except ImportError:
+    pass  # Fallback to plain typer if rich-click not available
+
+console = Console()
+err_console = Console(stderr=True)
 
 # Import from helpers
 from .helpers import Config, get_logger, log_manager
@@ -103,15 +122,19 @@ def initialize_context(
     # Root check for all commands except SAFE_COMMANDS
     if ctx.invoked_subcommand not in SAFE_COMMANDS:
         if os.geteuid() != 0:
-            typer.echo("Kopi-Docka requires root privileges", err=True)
-            typer.echo("\nRun commands with sudo:", err=True)
             cmd = " ".join(sys.argv)
-            typer.echo(f"  sudo {cmd}", err=True)
+            err_console.print(Panel.fit(
+                "[red]Kopi-Docka requires root privileges[/red]\n\n"
+                "[bold]Run with sudo:[/bold]\n"
+                f"  [cyan]sudo {cmd}[/cyan]",
+                title="[bold red]Permission Denied[/bold red]",
+                border_style="red"
+            ))
             raise typer.Exit(code=13)  # EACCES
 
     # Set up logging
     try:
-        log_manager.configure(level=log_level.upper())
+        log_manager.setup(level=log_level.upper())
     except Exception:
         import logging
         logging.basicConfig(level=log_level.upper())
@@ -162,7 +185,7 @@ app.add_typer(
 @app.command("version")
 def cmd_version():
     """Show Kopi-Docka version."""
-    typer.echo(f"Kopi-Docka {VERSION}")
+    console.print(f"[bold cyan]Kopi-Docka[/bold cyan] [green]{VERSION}[/green]")
 
 
 # -------------------------
@@ -182,7 +205,7 @@ def main():
     try:
         app()
     except KeyboardInterrupt:
-        typer.echo("\nInterrupted.")
+        console.print("\n[yellow]Interrupted.[/yellow]")
         sys.exit(130)
     except typer.Exit:
         # Re-raise typer exits (already handled)
@@ -190,8 +213,12 @@ def main():
     except Exception as e:
         # Unexpected error - show and exit
         logger.error(f"Unexpected error: {e}", exc_info=True)
-        typer.echo(f"Unexpected error: {e}", err=True)
-        typer.echo("\nFor details, check logs or run with --log-level=DEBUG", err=True)
+        err_console.print(Panel.fit(
+            f"[red]Unexpected error:[/red]\n{e}\n\n"
+            "[dim]For details, run with --log-level=DEBUG[/dim]",
+            title="[bold red]Error[/bold red]",
+            border_style="red"
+        ))
         sys.exit(1)
 
 

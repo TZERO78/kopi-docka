@@ -737,6 +737,81 @@ sudo kopi-docka admin service manage
 
 ---
 
+## What's New in v4.0.0
+
+### 🎨 Complete UI Consistency Refactoring
+**Modern, beautiful CLI experience across all commands**
+
+Kopi-Docka v4.0.0 introduces a complete UI overhaul, modernizing all 11 command files with consistent Rich-based output.
+
+**Key Changes:**
+
+1. **Rich Console Output**
+   - All `typer.echo()` calls replaced with Rich `console.print()`
+   - Beautiful styled panels for information display
+   - Rich tables for data presentation (backup units, snapshots, size estimates)
+
+2. **Consistent Color Scheme**
+   - Green: Success messages and positive states
+   - Red: Errors and negative states
+   - Yellow: Warnings and caution messages
+   - Cyan: Information and neutral states
+
+3. **rich-click Integration**
+   - Beautiful `--help` output with syntax highlighting
+   - Organized option groups
+   - Markdown support in docstrings
+
+**New UI Components in `ui_utils.py`:**
+```python
+# Display helpers
+print_panel(content, title, style)      # Styled panel
+print_menu(title, options)              # Menu display
+print_step(current, total, description) # Progress steps
+print_divider(title)                    # Section dividers
+
+# Status panels
+print_success_panel(message, title)     # Green success box
+print_error_panel(message, title)       # Red error box
+print_warning_panel(message, title)     # Yellow warning box
+print_info_panel(message, title)        # Cyan info box
+
+# Utilities
+print_next_steps(steps)                 # Next steps list
+get_menu_choice(prompt, valid_choices)  # Menu selection
+confirm_action(message, default_no)     # Confirmation prompt
+create_status_table(title)              # Status table builder
+```
+
+**Files Refactored:**
+- `setup_commands.py` - Wizard panels and step indicators
+- `config_commands.py` - Configuration menus and password displays
+- `backup_commands.py` - Backup progress and status
+- `dry_run_commands.py` - Simulation tables and estimates
+- `repository_commands.py` - Repository status and initialization
+- `dependency_commands.py` - Dependency checks
+- `advanced/snapshot_commands.py` - Snapshot listings
+
+### 🐛 Bug Fixes
+
+1. **log_manager.configure() → log_manager.setup()**
+   - Fixed incorrect method name in `__main__.py`
+   - LogManager singleton now correctly configures logging
+
+2. **ui_utils.py Missing Imports**
+   - Added missing imports: `Progress`, `SpinnerColumn`, `TextColumn`
+   - Added `Tuple` type hint and `box` import for tables
+
+### 📦 Dependencies
+
+- Added `rich-click>=1.7.0` for styled CLI help
+
+### Breaking Changes
+
+**None** - This is a UI-only update. All command APIs remain unchanged.
+
+---
+
 ## What's New in v3.9.1
 
 ### 🔒 Enhanced Lock File Management

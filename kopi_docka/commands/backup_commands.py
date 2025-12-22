@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Optional, List
 
 import typer
+from rich.console import Console
+from rich.panel import Panel
 
 from ..helpers import Config, get_logger
 from ..helpers.constants import (
@@ -26,6 +28,12 @@ from ..helpers.constants import (
     BACKUP_SCOPE_STANDARD,
     BACKUP_SCOPE_FULL,
     BACKUP_SCOPES,
+)
+from ..helpers.ui_utils import (
+    print_success,
+    print_error,
+    print_warning,
+    print_error_panel,
 )
 from ..cores import (
     KopiaRepository,
@@ -36,6 +44,7 @@ from ..cores import (
 )
 
 logger = get_logger(__name__)
+console = Console()
 
 
 def get_config(ctx: typer.Context) -> Optional[Config]:
@@ -47,8 +56,10 @@ def ensure_config(ctx: typer.Context) -> Config:
     """Ensure config exists or exit."""
     cfg = get_config(ctx)
     if not cfg:
-        typer.echo("❌ No configuration found")
-        typer.echo("Run: kopi-docka admin config new")
+        print_error_panel(
+            "No configuration found\n\n"
+            "[dim]Run:[/dim] [cyan]kopi-docka admin config new[/cyan]"
+        )
         raise typer.Exit(code=1)
     return cfg
 
@@ -66,7 +77,7 @@ def ensure_repository(ctx: typer.Context) -> KopiaRepository:
     """Ensure repository is connected."""
     repo = get_repository(ctx)
     if not repo:
-        typer.echo("❌ Repository not available")
+        print_error_panel("Repository not available")
         raise typer.Exit(code=1)
 
     try:
@@ -75,15 +86,15 @@ def ensure_repository(ctx: typer.Context) -> KopiaRepository:
     except Exception:
         pass
 
-    typer.echo("↻ Connecting to Kopia repository…")
+    console.print("[cyan]Connecting to Kopia repository...[/cyan]")
     try:
         repo.connect()
     except Exception as e:
-        typer.echo(f"✗ Connect failed: {e}")
+        print_error(f"Connect failed: {e}")
         raise typer.Exit(code=1)
 
     if not repo.is_connected():
-        typer.echo("✗ Still not connected after connect().")
+        print_error("Still not connected after connect().")
         raise typer.Exit(code=1)
 
     return repo
@@ -113,36 +124,37 @@ def cmd_list(
         units = True
 
     if units:
-        typer.echo("Discovering Docker backup units…")
+        console.print("[cyan]Discovering Docker backup units...[/cyan]")
         try:
             discovery = DockerDiscovery()
             found = discovery.discover_backup_units()
             if not found:
-                typer.echo("No units found.")
+                console.print("[dim]No units found.[/dim]")
             else:
                 for u in found:
-                    typer.echo(
-                        f"- {u.name} ({u.type}): {len(u.containers)} containers, {len(u.volumes)} volumes"
+                    console.print(
+                        f"  [cyan]•[/cyan] {u.name} [dim]({u.type})[/dim]: "
+                        f"{len(u.containers)} containers, {len(u.volumes)} volumes"
                     )
         except Exception as e:
-            typer.echo(f"Discovery failed: {e}")
+            print_error(f"Discovery failed: {e}")
             raise typer.Exit(code=1)
 
     if snapshots:
-        typer.echo("\nListing snapshots…")
+        console.print("\n[cyan]Listing snapshots...[/cyan]")
         try:
             repo = KopiaRepository(cfg)
             snaps = repo.list_snapshots()
             if not snaps:
-                typer.echo("No snapshots found.")
+                console.print("[dim]No snapshots found.[/dim]")
             else:
                 for s in snaps:
                     unit = s.get("tags", {}).get("unit", "-")
                     ts = s.get("timestamp", "-")
                     sid = s.get("id", "")
-                    typer.echo(f"- {sid} | unit={unit} | {ts}")
+                    console.print(f"  [cyan]•[/cyan] {sid} | unit={unit} | {ts}")
         except Exception as e:
-            typer.echo(f"Unable to list snapshots: {e}")
+            print_error(f"Unable to list snapshots: {e}")
             raise typer.Exit(code=1)
 
 
@@ -159,15 +171,22 @@ def cmd_backup(
 
     # Validate scope
     if scope not in BACKUP_SCOPES:
-        typer.echo(f"❌ Invalid scope: {scope}")
-        typer.echo(f"   Valid scopes: {', '.join(BACKUP_SCOPES.keys())}")
+        print_error_panel(
+            f"Invalid scope: {scope}\n\n"
+            f"[dim]Valid scopes:[/dim] {', '.join(BACKUP_SCOPES.keys())}"
+        )
         raise typer.Exit(code=1)
 
     # Display scope information
     scope_info = BACKUP_SCOPES[scope]
-    typer.echo(f"\n📦 Backup Scope: {scope_info['name']}")
-    typer.echo(f"   {scope_info['description']}")
-    typer.echo(f"   Includes: {', '.join(scope_info['includes'])}\n")
+    console.print()
+    console.print(Panel.fit(
+        f"[bold cyan]Backup Scope: {scope_info['name']}[/bold cyan]\n\n"
+        f"{scope_info['description']}\n\n"
+        f"[dim]Includes:[/dim] {', '.join(scope_info['includes'])}",
+        border_style="cyan"
+    ))
+    console.print()
 
     try:
         discovery = DockerDiscovery()
@@ -175,7 +194,7 @@ def cmd_backup(
         selected = _filter_units(units, unit)
 
         if not selected:
-            typer.echo("Nothing to back up (no units found).")
+            console.print("[dim]Nothing to back up (no units found).[/dim]")
             return
 
         if dry_run:
@@ -187,31 +206,31 @@ def cmd_backup(
         overall_ok = True
 
         for u in selected:
-            typer.echo(f"==> Backing up unit: {u.name} ({scope})")
+            console.print(f"[bold cyan]==>[/bold cyan] Backing up unit: [bold]{u.name}[/bold] ({scope})")
             meta = bm.backup_unit(
                 u,
                 backup_scope=scope,
                 update_recovery_bundle=update_recovery_bundle
             )
             if meta.success:
-                typer.echo(f"✓ {u.name} completed in {int(meta.duration_seconds)}s")
-                typer.echo(f"   Volumes: {meta.volumes_backed_up}")
+                print_success(f"{u.name} completed in {int(meta.duration_seconds)}s")
+                console.print(f"   [dim]Volumes:[/dim] {meta.volumes_backed_up}")
                 if meta.networks_backed_up > 0:
-                    typer.echo(f"   Networks: {meta.networks_backed_up}")
+                    console.print(f"   [dim]Networks:[/dim] {meta.networks_backed_up}")
                 if meta.kopia_snapshot_ids:
-                    typer.echo(f"   Snapshots: {len(meta.kopia_snapshot_ids)}")
+                    console.print(f"   [dim]Snapshots:[/dim] {len(meta.kopia_snapshot_ids)}")
             else:
                 overall_ok = False
-                typer.echo(f"✗ {u.name} failed in {int(meta.duration_seconds)}s")
+                print_error(f"{u.name} failed in {int(meta.duration_seconds)}s")
                 for err in meta.errors or [meta.error_message]:
                     if err:
-                        typer.echo(f"   - {err}")
+                        console.print(f"   [red]- {err}[/red]")
 
         if not overall_ok:
             raise typer.Exit(code=1)
 
     except Exception as e:
-        typer.echo(f"Backup failed: {e}")
+        print_error_panel(f"Backup failed: {e}")
         raise typer.Exit(code=1)
 
 
@@ -224,7 +243,7 @@ def cmd_restore(ctx: typer.Context):
         rm = RestoreManager(cfg)
         rm.interactive_restore()
     except Exception as e:
-        typer.echo(f"Restore failed: {e}")
+        print_error_panel(f"Restore failed: {e}")
         raise typer.Exit(code=1)
 
 
