@@ -1,0 +1,126 @@
+# Changelog
+
+All notable changes to Kopi-Docka will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [4.0.0] - 2025-12-22
+
+### Added
+- **rich-click Integration** - Beautiful styled `--help` output with syntax highlighting
+- **11 New UI Components** in `ui_utils.py`:
+  - `print_panel()` - Styled content panels
+  - `print_menu()` - Menu display helper
+  - `print_step()` - Progress step indicators
+  - `print_divider()` - Section dividers
+  - `print_success_panel()` - Green success boxes
+  - `print_error_panel()` - Red error boxes
+  - `print_warning_panel()` - Yellow warning boxes
+  - `print_info_panel()` - Cyan info boxes
+  - `print_next_steps()` - Next steps list
+  - `get_menu_choice()` - Menu selection helper
+  - `confirm_action()` - Confirmation prompt
+  - `create_status_table()` - Status table builder
+- **Unit tests** for new UI components (`tests/unit/test_helpers/test_ui_utils.py`)
+
+### Changed
+- **Complete UI Consistency Refactoring** - All 11 command files modernized with Rich
+  - `setup_commands.py` - Wizard panels and step indicators
+  - `config_commands.py` - Configuration menus and password displays
+  - `backup_commands.py` - Backup progress and status
+  - `dry_run_commands.py` - Simulation tables and estimates
+  - `repository_commands.py` - Repository status and initialization
+  - `dependency_commands.py` - Dependency checks
+  - `advanced/snapshot_commands.py` - Snapshot listings
+- **Consistent Color Scheme** across all commands:
+  - Green: Success messages
+  - Red: Error messages
+  - Yellow: Warning messages
+  - Cyan: Information messages
+- Replaced all `typer.echo()` with Rich `console.print()`
+- Rich Tables for data presentation (backup units, snapshots, size estimates)
+- Rich Panels for structured information display
+
+### Fixed
+- **log_manager.configure() -> log_manager.setup()** - Corrected method name in `__main__.py`
+- **ui_utils.py imports** - Added missing `Progress`, `SpinnerColumn`, `TextColumn` imports
+- Added `Tuple` type hint and `box` import for table styling
+
+### Dependencies
+- Added `rich-click>=1.7.0`
+
+### Breaking Changes
+- **None** - This is a UI-only update. All command APIs remain unchanged.
+
+---
+
+## [3.9.1] - 2025-12-21
+
+### Added
+- **Stale Lock Removal** - New `remove_stale_lock()` method in ServiceHelper
+- **Menu Option** - "Remove Stale Lock File" option in service wizard
+
+### Changed
+- **Lock Status Display** - Rich panels instead of simple text
+- **Process Checking** - More portable using `os.kill(pid, 0)`
+
+### Fixed
+- Improved lock file diagnostics and stale lock detection
+- Better error handling in ServiceHelper
+
+---
+
+## [3.9.0] - 2025-12-20
+
+### Added
+- **Interactive Service Management** - New wizard for systemd administration
+- **Systemd Template System** - Unit files moved to templates
+- **ServiceHelper Class** - High-level API for systemctl/journalctl
+- **Input Validation** - Time format and OnCalendar syntax validation
+
+### Changed
+- Rich-based UI with color-coded status indicators
+- Extensive documentation for systemd templates (400+ lines)
+
+---
+
+## [3.8.0] - 2025-12-15
+
+### Changed
+- **Architecture Refactoring** - Eliminated ~1000 lines of duplicate code
+- Consistent "Repository Type" terminology
+
+### Fixed
+- **Doctor Command** - Correct repository type detection
+- **Tailscale** - Fixed KeyError bug in `get_kopia_args()`
+
+---
+
+## [3.4.0] - 2025-12-01
+
+### Added
+- **Doctor Command** - Comprehensive system health check
+- **Simplified CLI** - "The Big 6" top-level commands
+- **Admin Subcommands** - Organized advanced operations
+
+### Changed
+- Cleaner command organization for better UX
+
+---
+
+## [3.3.0] - 2025-11-15
+
+### Added
+- **Backup Scopes** - minimal, standard, full
+- **Docker Network Backup** - Automatic backup of custom networks
+- **Pre/Post Hooks** - Custom scripts before/after backups
+
+---
+
+[4.0.0]: https://github.com/TZERO78/kopi-docka/compare/v3.9.1...v4.0.0
+[3.9.1]: https://github.com/TZERO78/kopi-docka/compare/v3.9.0...v3.9.1
+[3.9.0]: https://github.com/TZERO78/kopi-docka/compare/v3.8.0...v3.9.0
+[3.8.0]: https://github.com/TZERO78/kopi-docka/compare/v3.4.0...v3.8.0
+[3.4.0]: https://github.com/TZERO78/kopi-docka/compare/v3.3.0...v3.4.0
+[3.3.0]: https://github.com/TZERO78/kopi-docka/releases/tag/v3.3.0
