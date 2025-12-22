@@ -224,40 +224,85 @@ class ServiceHelper:
 
     def get_lock_status(self) -> Dict[str, any]:
         """
-        Check lock file status.
+        Check lock file status (READ-ONLY operation).
+
+        This method ONLY reads the lock file and checks if the process is running.
+        It NEVER creates or modifies the lock file.
+
+        Lock files are ONLY created by the daemon service (kopi-docka.service)
+        when it starts via 'kopi-docka admin service daemon'.
 
         Returns:
             Dict with exists, pid, and process_running fields
         """
+        import os
+
         lock_file = Path("/run/kopi-docka/kopi-docka.lock")
 
+        # Check if lock file exists (READ-ONLY - does not create file)
         if not lock_file.exists():
+            LOGGER.debug("No lock file found at %s", lock_file)
             return {"exists": False, "pid": None, "process_running": False}
 
         try:
-            # Read PID from lock file
+            # Read PID from lock file (READ-ONLY operation)
             pid_str = lock_file.read_text().strip()
+            LOGGER.debug("Lock file found with PID: %s", pid_str)
+
             pid = int(pid_str) if pid_str.isdigit() else None
 
             # Check if process is running
             process_running = False
             if pid:
                 try:
-                    # Check if process exists (signal 0 doesn't kill, just checks)
-                    subprocess.run(
-                        ["kill", "-0", str(pid)],
-                        check=True,
-                        capture_output=True,
-                    )
+                    # Use os.kill(pid, 0) which is safer and more portable
+                    # Signal 0 doesn't actually kill - just checks if process exists
+                    os.kill(pid, 0)
                     process_running = True
-                except subprocess.CalledProcessError:
+                    LOGGER.debug("Process %d is running", pid)
+                except (ProcessLookupError, PermissionError):
                     process_running = False
+                    LOGGER.debug("Process %d is not running (stale lock)", pid)
 
             return {"exists": True, "pid": pid, "process_running": process_running}
 
         except Exception as e:
-            LOGGER.debug(f"Failed to read lock file: {e}")
+            LOGGER.warning(f"Error reading lock file: {e}")
             return {"exists": True, "pid": None, "process_running": False}
+
+    def remove_stale_lock(self) -> bool:
+        """
+        Remove stale lock file if the process is not running.
+
+        A lock is considered stale if:
+        1. The lock file exists
+        2. The PID in the lock file is not a running process
+
+        Returns:
+            True if stale lock was removed, False otherwise
+        """
+        lock_status = self.get_lock_status()
+
+        if not lock_status["exists"]:
+            LOGGER.debug("No lock file to remove")
+            return False
+
+        if lock_status["process_running"]:
+            LOGGER.warning(
+                "Lock file belongs to running process (PID: %s), not removing",
+                lock_status["pid"]
+            )
+            return False
+
+        # Lock exists but process is not running - it's stale
+        lock_file = Path("/run/kopi-docka/kopi-docka.lock")
+        try:
+            lock_file.unlink()
+            LOGGER.info("Removed stale lock file (PID: %s)", lock_status["pid"])
+            return True
+        except Exception as e:
+            LOGGER.error(f"Failed to remove stale lock file: {e}")
+            return False
 
     # -------------------------------------------------------------------------
     # Log Methods

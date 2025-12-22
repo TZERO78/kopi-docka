@@ -237,9 +237,24 @@ def _show_status_dashboard(helper: ServiceHelper):
     # Lock file status
     if lock_status["exists"]:
         if lock_status["process_running"]:
-            console.print(f"[yellow]⚠[/yellow]  Lock file active (PID: {lock_status['pid']})")
+            console.print(Panel.fit(
+                f"[yellow]⚠ Lock File Active[/yellow]\n\n"
+                f"PID: {lock_status['pid']}\n\n"
+                f"[dim]The kopi-docka daemon service is currently running.\n"
+                f"This lock prevents concurrent backup operations.[/dim]",
+                title="[yellow]Lock Status[/yellow]",
+                border_style="yellow"
+            ))
         else:
-            console.print(f"[dim]Lock file present, but process not running (PID: {lock_status['pid']})[/dim]")
+            console.print(Panel.fit(
+                f"[yellow]⚠ Stale Lock File Detected[/yellow]\n\n"
+                f"PID: {lock_status['pid']} (process not running)\n\n"
+                f"[dim]This lock file belongs to a process that is no longer running.\n"
+                f"It may be left over from a crashed service or system reboot.\n"
+                f"You can safely remove it using the Control Service menu.[/dim]",
+                title="[yellow]Lock Status[/yellow]",
+                border_style="yellow"
+            ))
         console.print()
 
     console.input("[dim]Press Enter to continue...[/dim]")
@@ -405,6 +420,7 @@ def _control_service(helper: ServiceHelper):
         console.print("[3] Stop Service")
         console.print("[4] Enable Timer")
         console.print("[5] Disable Timer")
+        console.print("[6] Remove Stale Lock File")
         console.print("[0] Back")
         console.print()
 
@@ -478,6 +494,55 @@ def _control_service(helper: ServiceHelper):
             unit = "timer"
             confirm_required = True
             confirm_msg = "Really disable timer?"
+        elif choice == "6":
+            # Remove stale lock file
+            console.print()
+            console.print("[cyan]Checking for stale lock file...[/cyan]")
+            lock_status = helper.get_lock_status()
+
+            if not lock_status["exists"]:
+                console.print("[green]✓[/green] No lock file found")
+                console.print()
+                console.input("[dim]Press Enter to continue...[/dim]")
+                continue
+
+            if lock_status["process_running"]:
+                console.print(Panel.fit(
+                    f"[red]Cannot Remove Active Lock[/red]\n\n"
+                    f"The lock file belongs to a running process (PID: {lock_status['pid']}).\n\n"
+                    f"[yellow]If you believe this is the daemon service, stop it first:[/yellow]\n"
+                    f"  • Option [2] Restart Service, or\n"
+                    f"  • Option [3] Stop Service\n\n"
+                    f"[dim]Only stale locks from dead processes can be removed.[/dim]",
+                    title="[red]Lock Active[/red]",
+                    border_style="red"
+                ))
+                console.print()
+                console.input("[dim]Press Enter to continue...[/dim]")
+                continue
+
+            # Lock exists but process is not running - stale lock
+            console.print(Panel.fit(
+                f"[yellow]Stale Lock Found[/yellow]\n\n"
+                f"PID: {lock_status['pid']} (process not running)\n\n"
+                f"[dim]This lock can be safely removed.[/dim]",
+                title="[yellow]Stale Lock[/yellow]",
+                border_style="yellow"
+            ))
+            console.print()
+
+            if confirm_action("Remove stale lock file?", default_no=False):
+                if helper.remove_stale_lock():
+                    console.print("[green]✓[/green] Stale lock file removed")
+                else:
+                    console.print("[red]✗[/red] Failed to remove lock file")
+                console.print()
+                console.input("[dim]Press Enter to continue...[/dim]")
+                continue
+            else:
+                console.print("[yellow]Cancelled[/yellow]")
+                console.print()
+                continue
         else:
             console.print("[yellow]Invalid selection[/yellow]")
             continue
