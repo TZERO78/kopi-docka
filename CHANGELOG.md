@@ -5,6 +5,25 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.0] - 2025-12-22
+
+### Added
+- **Non-Interactive Restore Mode** - New `--yes` / `-y` flag for `restore` command
+  - Enables fully automated restore operations for CI/CD pipelines
+  - Automatic session selection (newest backup)
+  - Automatic unit selection (first available)
+  - Skips all confirmation prompts
+  - Auto-recreates networks on conflict
+  - Restores all volumes without prompting
+  - Uses default directory for configs with auto-backup on conflict
+
+### Use Cases
+- CI/CD pipeline testing (`sudo kopi-docka restore --yes`)
+- Automated disaster recovery drills
+- Scheduled restore verification scripts
+
+---
+
 ## [4.0.0] - 2025-12-22
 
 ### Added

@@ -187,6 +187,7 @@ Kopi-Docka features a simplified CLI with top-level commands and an `admin` subc
 sudo kopi-docka setup              # Complete setup wizard
 sudo kopi-docka backup             # Full backup (standard scope)
 sudo kopi-docka restore            # Interactive restore wizard
+sudo kopi-docka restore --yes      # Non-interactive restore (CI/CD)
 sudo kopi-docka disaster-recovery  # Create DR bundle
 sudo kopi-docka dry-run            # Simulate backup (preview)
 sudo kopi-docka doctor             # System health check
