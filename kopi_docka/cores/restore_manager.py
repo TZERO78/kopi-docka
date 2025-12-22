@@ -61,21 +61,27 @@ logger = get_logger(__name__)
 class RestoreManager:
     """Interactive restore wizard for cold backups (recipes + volumes)."""
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, non_interactive: bool = False):
         self.config = config
         self.repo = KopiaRepository(config)
         self.hooks_manager = HooksManager(config)
         self.start_timeout = self.config.getint(
             "backup", "start_timeout", CONTAINER_START_TIMEOUT
         )
+        self.non_interactive = non_interactive
 
     def interactive_restore(self):
         """Run interactive wizard."""
         print("\n" + "=" * 60)
         print("🔄 Kopi-Docka Restore Wizard")
+        if self.non_interactive:
+            print("   (Non-interactive mode: --yes)")
         print("=" * 60)
 
-        logger.info("Starting interactive restore wizard")
+        logger.info(
+            "Starting restore wizard",
+            extra={"non_interactive": self.non_interactive}
+        )
 
         # Check dependencies FIRST
         from ..cores.dependency_manager import DependencyManager
@@ -179,25 +185,31 @@ class RestoreManager:
             print(f"   Total volumes: {total_volumes}\n")
 
         # Session wählen
-        while True:
-            try:
-                choice = input("🎯 Select backup session (number, or 'q' to quit): ").strip().lower()
-                
-                if choice == 'q':
+        if self.non_interactive:
+            # Auto-select most recent session (first one)
+            session_idx = 0
+            print(f"🎯 Auto-selecting most recent session (--yes mode)")
+            logger.info("Auto-selected session 1 (non-interactive)")
+        else:
+            while True:
+                try:
+                    choice = input("🎯 Select backup session (number, or 'q' to quit): ").strip().lower()
+
+                    if choice == 'q':
+                        print("\n⚠️ Restore cancelled.")
+                        logger.info("Restore cancelled by user (quit)")
+                        return
+
+                    session_idx = int(choice) - 1
+                    if 0 <= session_idx < len(sessions):
+                        break
+                    print("❌ Invalid selection. Please try again.")
+                except ValueError:
+                    print("❌ Please enter a number or 'q' to quit.")
+                except KeyboardInterrupt:
                     print("\n⚠️ Restore cancelled.")
-                    logger.info("Restore cancelled by user (quit)")
+                    logger.info("Restore cancelled by user (interrupt)")
                     return
-                
-                session_idx = int(choice) - 1
-                if 0 <= session_idx < len(sessions):
-                    break
-                print("❌ Invalid selection. Please try again.")
-            except ValueError:
-                print("❌ Please enter a number or 'q' to quit.")
-            except KeyboardInterrupt:
-                print("\n⚠️ Restore cancelled.")
-                logger.info("Restore cancelled by user (interrupt)")
-                return
 
         selected_session = sessions[session_idx]
         units = selected_session['units']
@@ -205,22 +217,27 @@ class RestoreManager:
         # Wenn nur 1 Unit in Session → direkt nehmen
         if len(units) == 1:
             sel = units[0]
+        elif self.non_interactive:
+            # Auto-select first unit in non-interactive mode
+            sel = units[0]
+            print(f"\n🎯 Auto-selecting first unit: {sel.unit_name} (--yes mode)")
+            logger.info(f"Auto-selected unit {sel.unit_name} (non-interactive)")
         else:
             # Mehrere Units → User wählen lassen
             print("\n📦 Units in this backup session:\n")
             for idx, u in enumerate(units, 1):
                 ts = u.timestamp.strftime('%H:%M:%S')
                 print(f"{idx}. {u.unit_name} ({len(u.volume_snapshots)} volumes) - {ts}")
-            
+
             while True:
                 try:
                     choice = input("\n🎯 Select unit to restore (number, or 'q' to quit): ").strip().lower()
-                    
+
                     if choice == 'q':
                         print("\n⚠️ Restore cancelled.")
                         logger.info("Restore cancelled by user (quit)")
                         return
-                    
+
                     unit_idx = int(choice) - 1
                     if 0 <= unit_idx < len(units):
                         sel = units[unit_idx]
@@ -245,11 +262,15 @@ class RestoreManager:
             print(f"  - {len(sel.network_snapshots)} network(s)")
         print(f"  - {len(sel.volume_snapshots)} volumes")
 
-        confirm = input("\n⚠️ Proceed with restore? (yes/no/q): ").strip().lower()
-        if confirm not in ('yes', 'y'):
-            print("❌ Restore cancelled.")
-            logger.info("Restore cancelled at confirmation")
-            return
+        if self.non_interactive:
+            print("\n✓ Auto-confirming restore (--yes mode)")
+            logger.info("Auto-confirmed restore (non-interactive)")
+        else:
+            confirm = input("\n⚠️ Proceed with restore? (yes/no/q): ").strip().lower()
+            if confirm not in ('yes', 'y'):
+                print("❌ Restore cancelled.")
+                logger.info("Restore cancelled at confirmation")
+                return
 
         self._restore_unit(sel)
 
@@ -483,11 +504,15 @@ class RestoreManager:
                     if net_name in existing_networks:
                         print(f"   ⚠️ Network '{net_name}' already exists")
 
-                        choice = input(f"      Recreate network '{net_name}'? (yes/no/q): ").strip().lower()
+                        if self.non_interactive:
+                            print(f"      ✓ Auto-recreating '{net_name}' (--yes mode)")
+                            choice = 'yes'
+                        else:
+                            choice = input(f"      Recreate network '{net_name}'? (yes/no/q): ").strip().lower()
 
-                        if choice == 'q':
-                            print("\n   ⚠️ Network restore cancelled.")
-                            return restored_count
+                            if choice == 'q':
+                                print("\n   ⚠️ Network restore cancelled.")
+                                return restored_count
 
                         if choice not in ('yes', 'y'):
                             print(f"      ↷ Skipping '{net_name}'")
@@ -603,15 +628,19 @@ class RestoreManager:
             print(f"\n   📁 Volume: {vol}")
             print(f"   📸 Snapshot: {snap_id[:12]}...")
 
-            # User fragen
-            choice = input(f"\n   ⚠️  Restore '{vol}' NOW? (yes/no/q): ").strip().lower()
+            # User fragen oder auto-bestätigen
+            if self.non_interactive:
+                print(f"\n   ✓ Auto-restoring '{vol}' (--yes mode)")
+                choice = 'yes'
+            else:
+                choice = input(f"\n   ⚠️  Restore '{vol}' NOW? (yes/no/q): ").strip().lower()
 
-            if choice == 'q':
-                print("\n   ⚠️ Restore cancelled.")
-                logger.info("Volume restore cancelled by user")
-                return
-            
-            elif choice in ('yes', 'y'):
+                if choice == 'q':
+                    print("\n   ⚠️ Restore cancelled.")
+                    logger.info("Volume restore cancelled by user")
+                    return
+
+            if choice in ('yes', 'y'):
                 # Python führt direkt aus - MIT UNIT!
                 print(f"\n   🚀 Restoring volume '{vol}'...")
                 print("   " + "=" * 50)
@@ -930,86 +959,106 @@ class RestoreManager:
             console.print(f"   • {file.name}")
         
         # Step 3: Ask user - Copy?
-        while True:
-            copy = input("\n🎯 Copy files to deployment directory? [yes/no/q] (yes): ").strip().lower()
-            if not copy:
-                copy = "yes"
-            # Normalize input
-            if copy in ("y", "yes"):
-                copy = "yes"
-                break
-            elif copy in ("n", "no"):
-                copy = "no"
-                break
-            elif copy == "q":
-                break
-            else:
-                console.print("[yellow]Please enter 'yes', 'no', or 'q'[/yellow]")
-        
-        if copy == "q":
-            return
-        
-        if copy == "no":
-            self._show_manual_instructions(recipe_dir)
-            return
+        if self.non_interactive:
+            copy = "yes"
+            console.print("\n✓ Auto-copying files to deployment directory (--yes mode)")
+        else:
+            while True:
+                copy = input("\n🎯 Copy files to deployment directory? [yes/no/q] (yes): ").strip().lower()
+                if not copy:
+                    copy = "yes"
+                # Normalize input
+                if copy in ("y", "yes"):
+                    copy = "yes"
+                    break
+                elif copy in ("n", "no"):
+                    copy = "no"
+                    break
+                elif copy == "q":
+                    break
+                else:
+                    console.print("[yellow]Please enter 'yes', 'no', or 'q'[/yellow]")
+
+            if copy == "q":
+                return
+
+            if copy == "no":
+                self._show_manual_instructions(recipe_dir)
+                return
         
         # Step 4: Loop for directory selection with conflict handling
         default_target = f"/opt/stacks/{unit_name}"
-        
+
         while True:
             # Get target directory
-            target = Prompt.ask(
-                f"\n📂 Target directory",
-                default=default_target
-            )
+            if self.non_interactive:
+                target = default_target
+                console.print(f"\n📂 Using default target: {target} (--yes mode)")
+            else:
+                target = Prompt.ask(
+                    f"\n📂 Target directory",
+                    default=default_target
+                )
             target_path = Path(target).expanduser()
-            
+
             # Check write permissions (skip if running with sudo)
             running_with_sudo = os.environ.get('SUDO_USER') is not None
-            
+
             if not running_with_sudo:
                 parent_dir = target_path.parent if not target_path.exists() else target_path
                 if not os.access(parent_dir, os.W_OK):
                     console.print(f"[red]✗ No write permission for {parent_dir}[/red]")
+                    if self.non_interactive:
+                        console.print("[red]✗ Cannot continue in non-interactive mode without write permission[/red]")
+                        logger.error(f"No write permission for {parent_dir} in non-interactive mode")
+                        return
                     console.print("Try running with sudo or choose different directory.")
                     retry = Prompt.ask("Try different directory?", choices=["yes", "no"], default="yes")
                     if retry == "no":
                         return
                     continue
-            
+
             # Create directory if needed
             try:
                 target_path.mkdir(parents=True, exist_ok=True)
             except Exception as e:
                 console.print(f"[red]✗ Cannot create directory: {e}[/red]")
+                if self.non_interactive:
+                    logger.error(f"Cannot create directory {target_path}: {e}")
+                    return
                 continue
-            
+
             # Check for conflicts using helper function
             conflicts = check_file_conflicts(target_path, files_to_copy)
-            
+
             if not conflicts:
                 # No conflicts, proceed to copy
                 console.print(f"✓ Target directory is ready")
                 break
-            
+
             # Conflicts found - show them
             console.print("\n⚠️  [bold yellow]Existing files detected:[/bold yellow]")
             for conflict in conflicts:
                 console.print(f"   • {conflict.name}")
-            
-            console.print("\n[bold]What do you want to do?[/bold]")
-            console.print("1. Overwrite existing files")
-            console.print("2. Create backup first (recommended)")
-            console.print("3. Choose different directory")
-            console.print("4. Skip copying (manual restore)")
-            
-            choice = Prompt.ask("Your choice", choices=["1", "2", "3", "4"], default="2")
-            
+
+            if self.non_interactive:
+                # Non-interactive: auto-create backups (safest option)
+                choice = "2"
+                console.print("\n✓ Auto-creating backups before overwrite (--yes mode)")
+            else:
+                console.print("\n[bold]What do you want to do?[/bold]")
+                console.print("1. Overwrite existing files")
+                console.print("2. Create backup first (recommended)")
+                console.print("3. Choose different directory")
+                console.print("4. Skip copying (manual restore)")
+
+                choice = Prompt.ask("Your choice", choices=["1", "2", "3", "4"], default="2")
+
             if choice == "1":
                 # Overwrite without backup
                 console.print("\n⚠️  [yellow]Overwriting files without backup...[/yellow]")
                 break
-                
+
             elif choice == "2":
                 # Create backups using helper function
                 console.print("\n📦 Creating backups (existing .bak files will be overwritten)...")
@@ -1023,15 +1072,15 @@ class RestoreManager:
                     console.print(f"\n[red]✗ Backup failed: {e}[/red]")
                     console.print("Aborting copy operation.")
                     return
-                
+
                 console.print(f"\n✓ Created {len(backup_files)} backup(s)")
                 console.print("💡 Previous .bak files were overwritten (only last backup is kept)")
                 break
-                
+
             elif choice == "3":
                 # Different directory - loop continues
                 continue
-                
+
             elif choice == "4":
                 # Skip copying
                 console.print("\n[yellow]Skipping copy operation.[/yellow]")
