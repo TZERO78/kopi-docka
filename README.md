@@ -141,16 +141,27 @@ Production-ready daemon with sd_notify, watchdog monitoring, PID locking, and se
 
 ---
 
-## What's New in v3.9.0
+## What's New in v3.9.1
 
-- **🎛️ Interactive Service Management** - New wizard for easy systemd administration without systemctl knowledge
-- **📄 Systemd Template System** - Unit files moved to templates with extensive documentation (400+ lines)
-- **🛠️ ServiceHelper Class** - High-level API for systemctl/journalctl operations
-- **✅ Input Validation** - Time format and OnCalendar syntax validation
-- **🎨 Rich UI** - Color-coded status dashboard, log viewer with syntax highlighting
-- **📦 Auto-Setup** - Automatically creates systemd units if missing (with confirmation)
+- **🔒 Enhanced Lock File Management** - Improved diagnostics and stale lock detection
+  - Better lock status display with informative panels
+  - New "Remove Stale Lock File" option in service wizard
+  - Enhanced logging for lock file operations (DEBUG level)
+  - Automatic detection of stale locks from dead processes
+
+- **🛠️ Improved Service Helper** - More robust lock handling
+  - New `remove_stale_lock()` method for cleaning up dead process locks
+  - Better error handling and logging
+  - More portable process checking using `os.kill(pid, 0)`
 
 **Command:** `sudo kopi-docka admin service manage`
+
+**Previous (v3.9.0):**
+- Interactive Service Management - New wizard for systemd administration
+- Systemd Template System - Unit files moved to templates (400+ lines docs)
+- ServiceHelper Class - High-level API for systemctl/journalctl
+- Input Validation - Time format and OnCalendar syntax validation
+- Rich UI - Color-coded status dashboard, log viewer with syntax highlighting
 
 **Previous (v3.8.0):**
 - Architecture Refactoring - Eliminated ~1000 lines of duplicate code
@@ -158,12 +169,7 @@ Production-ready daemon with sd_notify, watchdog monitoring, PID locking, and se
 - Terminology - Consistent "Repository Type" usage
 - Tailscale Fix - Fixed KeyError bug
 
-**Previous (v3.6.0):**
-- Smart Restore with dynamic paths
-- Safe Restore with automatic backups
-- Complete Recovery (password files restored)
-
-**[See what's new →](docs/FEATURES.md#whats-new-in-v390)**
+**[See what's new →](docs/FEATURES.md#whats-new-in-v391)**
 
 ---
 
