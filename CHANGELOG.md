@@ -5,6 +5,17 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.5] - 2025-12-22
+
+### Fixed
+- **ProtectSystem Setting** - Changed from `strict` to `full` for proper filesystem access
+  - Service can now write to all necessary Kopia directories without explicit paths
+  - Fixed all "read-only file system" errors during backup execution
+  - Removed `ReadWritePaths` lines (not needed with `ProtectSystem=full`)
+  - `ProtectSystem=full` makes only `/usr`, `/boot`, `/efi` read-only
+
+---
+
 ## [4.2.4] - 2025-12-22
 
 ### Fixed
@@ -224,6 +235,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[4.2.5]: https://github.com/TZERO78/kopi-docka/compare/v4.2.4...v4.2.5
 [4.2.4]: https://github.com/TZERO78/kopi-docka/compare/v4.2.3...v4.2.4
 [4.2.3]: https://github.com/TZERO78/kopi-docka/compare/v4.2.2...v4.2.3
 [4.2.2]: https://github.com/TZERO78/kopi-docka/compare/v4.2.1...v4.2.2

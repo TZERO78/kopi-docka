@@ -69,29 +69,14 @@ NoNewPrivileges=true
 # Disable private /tmp - we need access to real /tmp for temporary files during backup
 PrivateTmp=no
 
-# Read-only filesystem except for specified paths
-ProtectSystem=strict
+# Protect system directories from modification
+# ProtectSystem=full makes /usr, /boot, /efi read-only
+# Everything else remains writable - perfect for backup services that need
+# filesystem access to various locations (Kopia config, cache, etc.)
+ProtectSystem=full
 
 # Read-only home directories
 ProtectHome=read-only
-
-# Paths the service needs write access to:
-# - /var/lib/docker: Docker state directory
-# - /var/run/docker.sock: Docker socket
-# - /etc/kopi-docka.json: Application configuration
-# - /etc/.kopi-docka.password: Repository password file
-# - /root/.config/kopia: Kopia repository configuration
-# - /root/.cache/kopia: Kopia logs and cache
-# - /tmp: Temporary files during backup operations
-#
-# Note: /run/kopi-docka is not needed here since one-shot runs don't use locks
-ReadWritePaths=/var/lib/docker
-ReadWritePaths=/var/run/docker.sock
-ReadWritePaths=/etc/kopi-docka.json
-ReadWritePaths=/etc/.kopi-docka.password
-ReadWritePaths=/root/.config/kopia
-ReadWritePaths=/root/.cache/kopia
-ReadWritePaths=/tmp
 
 # Set default umask for created files
 UMask=0077
