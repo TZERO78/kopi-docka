@@ -5,6 +5,18 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.1] - 2025-12-22
+
+### Fixed
+- **Rclone Config Root Issue** - Copy user's rclone config to root when running with sudo
+  - Detects when user has `root_folder_id` setting that root config lacks
+  - Offers to copy user config to `/root/.config/rclone/rclone.conf`
+  - Preserves all settings (root_folder_id, tokens, etc.)
+  - Backs up existing root config before overwriting
+  - Prevents folders being created in wrong location (Drive root vs user's folder)
+
+---
+
 ## [4.2.0] - 2025-12-22
 
 ### Added

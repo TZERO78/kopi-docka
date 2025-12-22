@@ -74,7 +74,7 @@ class RcloneBackend(BackendBase):
     def _get_config_candidates(self) -> tuple[Optional[Path], Optional[Path], Optional[str]]:
         """
         Find rclone config file candidates with PermissionError handling.
-        
+
         Returns:
             Tuple of (root_config_path, user_config_path, sudo_user_name)
             - root_config_path: Path object for root config (or None if not accessible)
@@ -84,7 +84,7 @@ class RcloneBackend(BackendBase):
         root_config = Path("/root/.config/rclone/rclone.conf")
         sudo_user = os.environ.get('SUDO_USER')
         user_config = Path(f"/home/{sudo_user}/.config/rclone/rclone.conf") if sudo_user else None
-        
+
         # Check root config with PermissionError handling
         root_config_accessible = None
         try:
@@ -92,7 +92,7 @@ class RcloneBackend(BackendBase):
                 root_config_accessible = root_config
         except PermissionError:
             pass
-        
+
         # Check user config with PermissionError handling
         user_config_accessible = None
         if user_config:
@@ -101,8 +101,54 @@ class RcloneBackend(BackendBase):
                     user_config_accessible = user_config
             except PermissionError:
                 pass
-        
+
         return (root_config_accessible, user_config_accessible, sudo_user)
+
+    def _copy_user_config_to_root(self, user_config: Path) -> Optional[Path]:
+        """
+        Copy user's rclone config to root, preserving all settings.
+
+        Args:
+            user_config: Path to user's rclone config file
+
+        Returns:
+            Path to root config if successful, None otherwise
+        """
+        root_config = Path("/root/.config/rclone/rclone.conf")
+
+        try:
+            # Backup existing root config if it exists
+            if root_config.exists():
+                backup = root_config.with_suffix('.conf.backup')
+                shutil.copy2(root_config, backup)
+                typer.secho(f"  Backed up existing root config to {backup}", fg=typer.colors.BRIGHT_BLACK)
+
+            # Ensure parent directory exists
+            root_config.parent.mkdir(parents=True, exist_ok=True)
+
+            # Copy user config to root
+            shutil.copy2(user_config, root_config)
+
+            return root_config
+        except Exception as e:
+            typer.secho(f"  Failed to copy config: {e}", fg=typer.colors.RED)
+            return None
+
+    def _check_config_has_root_folder_id(self, config_path: Path) -> bool:
+        """
+        Check if an rclone config file contains root_folder_id setting.
+
+        Args:
+            config_path: Path to rclone config file
+
+        Returns:
+            True if root_folder_id is found, False otherwise
+        """
+        try:
+            content = config_path.read_text()
+            return 'root_folder_id' in content
+        except Exception:
+            return False
 
     def _find_rclone_config(self) -> Optional[str]:
         """
@@ -262,7 +308,7 @@ class RcloneBackend(BackendBase):
         typer.secho("✓ rclone is installed", fg=typer.colors.GREEN)
         typer.echo("")
 
-        # Step 2: Sudo-aware config detection
+        # Step 2: Sudo-aware config detection with config copying
         root_config, user_config, sudo_user = self._get_config_candidates()
         rclone_config: Optional[str] = None
 
@@ -271,14 +317,60 @@ class RcloneBackend(BackendBase):
         if root_config:
             typer.secho(f"✓ Found config: {root_config}", fg=typer.colors.GREEN)
             rclone_config = str(root_config)
-        elif user_config:
-            typer.secho(f"Found config in user home: {user_config}", fg=typer.colors.YELLOW)
+
+            # Check if user also has a config with different settings (e.g., root_folder_id)
+            if user_config and sudo_user and sudo_user != 'root':
+                user_has_root_folder = self._check_config_has_root_folder_id(user_config)
+                root_has_root_folder = self._check_config_has_root_folder_id(root_config)
+
+                if user_has_root_folder and not root_has_root_folder:
+                    typer.echo("")
+                    typer.secho("⚠ Warning: User and root rclone configs differ!", fg=typer.colors.YELLOW)
+                    typer.echo(f"  Your config ({user_config}) has root_folder_id setting")
+                    typer.echo(f"  Root config ({root_config}) does NOT have this setting")
+                    typer.echo("")
+                    typer.echo("  This means folders will be created in different locations!")
+                    typer.echo("  You may not see created folders in your normal rclone commands.")
+                    typer.echo("")
+
+                    if typer.confirm(f"Copy your config to root (recommended)?", default=True):
+                        copied_config = self._copy_user_config_to_root(user_config)
+                        if copied_config:
+                            typer.secho(f"✓ Copied config from {user_config}", fg=typer.colors.GREEN)
+                            typer.secho("  Note: This preserves your root_folder_id and other settings", fg=typer.colors.CYAN)
+                            rclone_config = str(copied_config)
+                        else:
+                            typer.secho("  Continuing with existing root config", fg=typer.colors.YELLOW)
+                    else:
+                        typer.secho("  Using existing root config (configs may remain inconsistent)", fg=typer.colors.YELLOW)
+
+        elif user_config and sudo_user and sudo_user != 'root':
+            # No root config, but user has config - offer to copy it
+            typer.secho(f"Found config in user home: {user_config}", fg=typer.colors.CYAN)
             typer.echo(f"  (You're running as root via sudo, but rclone was configured as '{sudo_user}')")
             typer.echo("")
-            if typer.confirm(f"Use config from /home/{sudo_user}?", default=True):
+
+            # Check if user config has root_folder_id
+            if self._check_config_has_root_folder_id(user_config):
+                typer.secho("  Your config contains root_folder_id - this is important to preserve!", fg=typer.colors.YELLOW)
+                typer.echo("")
+
+            if typer.confirm(f"Copy your rclone config to root (recommended)?", default=True):
+                copied_config = self._copy_user_config_to_root(user_config)
+                if copied_config:
+                    typer.secho(f"✓ Copied config from {user_config} to {copied_config}", fg=typer.colors.GREEN)
+                    typer.secho("  Note: This preserves your root_folder_id and other settings", fg=typer.colors.CYAN)
+                    rclone_config = str(copied_config)
+                else:
+                    # Fallback to using user config directly
+                    typer.secho("  Using user config directly instead", fg=typer.colors.YELLOW)
+                    rclone_config = str(user_config)
+            else:
+                # User declined - use user config directly but warn about inconsistency
+                typer.secho("  Using your config directly (not copying to root)", fg=typer.colors.YELLOW)
+                typer.secho("  ⚠ Note: Root rclone commands won't see your settings!", fg=typer.colors.YELLOW)
                 rclone_config = str(user_config)
-                typer.secho(f"✓ Using: {rclone_config}", fg=typer.colors.GREEN)
-        
+
         # If no config was selected, create one
         if not rclone_config:
             typer.secho("No rclone configuration found!", fg=typer.colors.YELLOW)
