@@ -5,6 +5,38 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.0] - 2025-12-22
+
+### Added
+- **Auto-Create Remote Folders with Hostname Suffix** for Rclone backend
+  - Default remote path now includes sanitized hostname (e.g., `kopia-backup_MYSERVER`)
+  - Prevents Kopia repository conflicts when multiple machines use the same cloud storage
+  - Automatic folder creation prompt when remote folder doesn't exist
+  - `get_default_remote_path()` function for hostname-based path generation
+  - `_check_remote_path_exists()` method to verify folder existence
+  - `_rclone_mkdir()` method to create remote folders via rclone
+
+### Changed
+- **Rclone Backend Configuration** - Improved UX with folder detection and creation
+  - Shows folder existence check during configuration
+  - Offers to create missing folders with user confirmation
+  - Handles edge cases: empty hostnames, special characters, mkdir failures
+
+### Use Cases
+- Multi-machine setups using the same cloud storage (e.g., Google Drive, OneDrive)
+- VPS1 → `gdrive:kopia-backup_VPS1/`
+- VPS2 → `gdrive:kopia-backup_VPS2/`
+- Each machine gets its own Kopia repository automatically
+
+---
+
+## [4.1.1] - 2025-12-22
+
+### Fixed
+- **DependencyManager Import** - Fixed missing import in `setup_commands.py`
+
+---
+
 ## [4.1.0] - 2025-12-22
 
 ### Added
@@ -137,6 +169,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[4.2.0]: https://github.com/TZERO78/kopi-docka/compare/v4.1.1...v4.2.0
+[4.1.1]: https://github.com/TZERO78/kopi-docka/compare/v4.1.0...v4.1.1
+[4.1.0]: https://github.com/TZERO78/kopi-docka/compare/v4.0.0...v4.1.0
 [4.0.0]: https://github.com/TZERO78/kopi-docka/compare/v3.9.1...v4.0.0
 [3.9.1]: https://github.com/TZERO78/kopi-docka/compare/v3.9.0...v3.9.1
 [3.9.0]: https://github.com/TZERO78/kopi-docka/compare/v3.8.0...v3.9.0
