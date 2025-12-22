@@ -234,13 +234,13 @@ def cmd_backup(
         raise typer.Exit(code=1)
 
 
-def cmd_restore(ctx: typer.Context):
+def cmd_restore(ctx: typer.Context, yes: bool = False):
     """Launch the interactive restore wizard."""
     cfg = ensure_config(ctx)
     repo = ensure_repository(ctx)
 
     try:
-        rm = RestoreManager(cfg)
+        rm = RestoreManager(cfg, non_interactive=yes)
         rm.interactive_restore()
     except Exception as e:
         print_error_panel(f"Restore failed: {e}")
@@ -275,6 +275,13 @@ def register(app: typer.Typer):
         cmd_backup(ctx, unit, dry_run, update_recovery_bundle, scope)
 
     @app.command("restore")
-    def _restore_cmd(ctx: typer.Context):
+    def _restore_cmd(
+        ctx: typer.Context,
+        yes: bool = typer.Option(
+            False,
+            "--yes", "-y",
+            help="Non-interactive mode: auto-confirm all prompts (for CI/CD and scripts)"
+        ),
+    ):
         """Launch the interactive restore wizard."""
-        cmd_restore(ctx)
+        cmd_restore(ctx, yes=yes)
