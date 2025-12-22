@@ -300,35 +300,38 @@ The current release includes all planned core features:
 
 ---
 
-## Credits & Acknowledgments
+## Thanks & Acknowledgments
 
-**Author:** Markus F. (TZERO78)
+**Kopi-Docka** = **Kopi**a + **Docka**r – the name reflects what this project is: a bridge between two excellent tools.
 
-**Links:**
-- PyPI: [pypi.org/project/kopi-docka](https://pypi.org/project/kopi-docka/)
-- GitHub: [github.com/TZERO78/kopi-docka](https://github.com/TZERO78/kopi-docka)
+Kopi-Docka would not exist without these excellent tools:
 
-### Uses Kopia
+- **Kopia** – the rock-solid backup engine providing encryption, deduplication
+  and snapshot management  
+  https://kopia.io
 
-Kopi-Docka uses [Kopia](https://kopia.io) as its backup engine. Kopia provides:
-- 🔐 End-to-end encryption (AES-256-GCM)
-- 🗜️ Deduplication & compression
-- ☁️ Multi-cloud support
-- 📦 Incremental snapshots
+- **Docker** – container runtime and ecosystem that makes reproducible
+  environments possible  
+  https://www.docker.com
 
-**Links:**
-- Kopia: https://kopia.io
-- Kopia GitHub: https://github.com/kopia/kopia
+- **Tailscale** – secure WireGuard-based networking that enables simple
+  peer-to-peer offsite backups  
+  https://tailscale.com
 
-### Other Dependencies
+- **rclone** – universal storage adapter enabling access to many affordable
+  cloud and remote storage providers  
+  https://rclone.org
 
-- **[Docker](https://www.docker.com/)** - Container lifecycle management
-- **[Rclone](https://rclone.org/)** - Universal cloud storage adapter
-- **[Tailscale](https://tailscale.com/)** - WireGuard-based mesh networking (optional, for P2P backups)
-- **[Typer](https://typer.tiangolo.com/)** - CLI framework
-- **[psutil](https://github.com/giampaolo/psutil)** - System resource monitoring
+- **Typer** – clean and readable CLI framework for Python  
+  https://typer.tiangolo.com
 
-> **Note:** Kopi-Docka is an independent project with no official affiliation to Docker Inc., the Kopia project, or Rclone.
+All of these tools remain under their respective licenses and are **not bundled**
+with Kopi-Docka.
+
+This project is built with deep respect for the open-source ecosystem.
+
+**Author:** Markus F. (TZERO78)  
+**Links:** [PyPI](https://pypi.org/project/kopi-docka/) | [GitHub](https://github.com/TZERO78/kopi-docka)
 
 ---
 
@@ -340,7 +343,15 @@ Copyright (c) 2025 Markus F. (TZERO78)
 
 ---
 
-## Support & Community
+## Feedback & Support
+
+If you find Kopi-Docka useful, feel free to leave a ⭐ on GitHub.
+
+I cannot test all storage backends and edge cases on my own, so feedback from
+real-world setups is highly appreciated.
+
+If something doesn't work as expected, please open an **Issue** and include
+your environment details.
 
 - 📦 **PyPI:** [pypi.org/project/kopi-docka](https://pypi.org/project/kopi-docka/)
 - 📚 **Documentation:** [Complete docs](docs/)
