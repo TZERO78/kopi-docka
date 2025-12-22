@@ -582,7 +582,15 @@ class BackupManager:
     def _backup_volume(
         self, volume: VolumeInfo, unit: BackupUnit, backup_id: str
     ) -> Optional[str]:
-        """Backup a single volume via tar stream → Kopia."""
+        """Backup a single volume via tar stream → Kopia.
+
+        Note: stderr is written to a temporary file instead of a pipe to prevent
+        deadlock when tar produces large amounts of warnings (e.g., "file changed
+        as we read it" on thousands of files). The OS pipe buffer (typically 64KB)
+        would fill up, causing tar to block while Python waits for tar to finish.
+        """
+        import tempfile
+
         try:
             logger.debug(
                 f"Backing up volume: {volume.name}",
@@ -609,34 +617,42 @@ class BackupManager:
                 tar_cmd.extend(["--exclude", pattern])
             tar_cmd.extend(["-C", volume.mountpoint, "."])
 
-            tar_process = subprocess.Popen(
-                tar_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-
-            snap_id = self.repo.create_snapshot_from_stdin(
-                tar_process.stdout,
-                dest_virtual_path=f"{VOLUME_BACKUP_DIR}/{unit.name}/{volume.name}",  # ← FIX!
-                tags={
-                    "type": "volume",
-                    "unit": unit.name,
-                    "volume": volume.name,
-                    "backup_id": backup_id,
-                    "timestamp": datetime.now().isoformat(),
-                    "size_bytes": str(getattr(volume, "size_bytes", 0) or "0"),
-                },
-            )
-
-            tar_process.wait()
-            if tar_process.stdout:
-                tar_process.stdout.close()
-
-            if tar_process.returncode != 0:
-                stderr = tar_process.stderr.read().decode()
-                logger.error(
-                    f"Tar failed for volume {volume.name}: {stderr}",
-                    extra={"unit_name": unit.name, "volume": volume.name},
+            # Use a temporary file for stderr to avoid deadlock.
+            # If tar produces >64KB of warnings, a pipe would fill up and block.
+            with tempfile.TemporaryFile(mode='w+b') as stderr_file:
+                tar_process = subprocess.Popen(
+                    tar_cmd, stdout=subprocess.PIPE, stderr=stderr_file
                 )
-                return None
+
+                snap_id = self.repo.create_snapshot_from_stdin(
+                    tar_process.stdout,
+                    dest_virtual_path=f"{VOLUME_BACKUP_DIR}/{unit.name}/{volume.name}",
+                    tags={
+                        "type": "volume",
+                        "unit": unit.name,
+                        "volume": volume.name,
+                        "backup_id": backup_id,
+                        "timestamp": datetime.now().isoformat(),
+                        "size_bytes": str(getattr(volume, "size_bytes", 0) or "0"),
+                    },
+                )
+
+                tar_process.wait()
+                if tar_process.stdout:
+                    tar_process.stdout.close()
+
+                if tar_process.returncode != 0:
+                    # Read stderr from temp file (seek to beginning first)
+                    stderr_file.seek(0)
+                    stderr_content = stderr_file.read().decode(errors='replace')
+                    # Truncate very long error output for logging
+                    if len(stderr_content) > 4096:
+                        stderr_content = stderr_content[:4096] + "\n... (truncated)"
+                    logger.error(
+                        f"Tar failed for volume {volume.name}: {stderr_content}",
+                        extra={"unit_name": unit.name, "volume": volume.name},
+                    )
+                    return None
 
             return snap_id
         except Exception as e:
