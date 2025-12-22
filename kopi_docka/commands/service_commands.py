@@ -183,79 +183,128 @@ def _show_status_dashboard(helper: ServiceHelper):
     timer_status = helper.get_timer_status()
     lock_status = helper.get_lock_status()
     backup_info = helper.get_last_backup_info()
+    config_validation = helper.validate_service_configuration()
 
-    # Service/Timer status table
+    # 1. Health Status Panel (Top Priority)
+    health = config_validation["health"]
+    health_message = config_validation["message"]
+
+    if health == "healthy":
+        health_icon = "✓"
+        health_color = "green"
+        border_color = "green"
+    elif health == "warning":
+        health_icon = "⚠"
+        health_color = "yellow"
+        border_color = "yellow"
+    elif health == "error":
+        health_icon = "✗"
+        health_color = "red"
+        border_color = "red"
+    else:
+        health_icon = "?"
+        health_color = "dim"
+        border_color = "dim"
+
+    # Build health panel content
+    health_content = f"[{health_color}]{health_icon} {health_message}[/{health_color}]"
+
+    # Add timer mode info if healthy
+    if health == "healthy":
+        health_content += "\n[dim]Timer-triggered mode[/dim]"
+
+    # Add next backup if available
+    if timer_status.next_run:
+        health_content += f"\n[bold]Next:[/bold] {timer_status.next_run}"
+
+    console.print(Panel.fit(
+        health_content,
+        title=f"[bold {health_color}]System Health[/bold {health_color}]",
+        border_style=border_color
+    ))
+    console.print()
+
+    # 2. Service/Timer Status Table with Notes
     status_table = Table(box=box.SIMPLE, show_header=True)
     status_table.add_column("Component", style="cyan", width=20)
-    status_table.add_column("Active", width=12)
-    status_table.add_column("Enabled", width=12)
-    status_table.add_column("Status", style="dim")
+    status_table.add_column("Active", width=10)
+    status_table.add_column("Enabled", width=10)
+    status_table.add_column("Notes", style="dim")
 
-    # Service row
+    # Service row with explanation
     service_active = "[green]Active[/green]" if service_status.active else "[dim]Inactive[/dim]"
     service_enabled = "[green]Enabled[/green]" if service_status.enabled else "[dim]Disabled[/dim]"
-    service_extra = "[red]Failed[/red]" if service_status.failed else ""
-    status_table.add_row("kopi-docka.service", service_active, service_enabled, service_extra)
 
-    # Timer row
+    # Service notes based on configuration
+    if service_status.failed:
+        service_notes = "[red]Failed[/red]"
+    elif not config_validation["service_enabled"]:
+        service_notes = "[green]✓ Correct (timer-triggered)[/green]"
+    else:
+        service_notes = "[yellow]⚠ Should be disabled[/yellow]"
+
+    status_table.add_row("kopi-docka.service", service_active, service_enabled, service_notes)
+
+    # Timer row with explanation
     timer_active = "[green]Active[/green]" if timer_status.active else "[dim]Inactive[/dim]"
     timer_enabled = "[green]Enabled[/green]" if timer_status.enabled else "[dim]Disabled[/dim]"
-    status_table.add_row("kopi-docka.timer", timer_active, timer_enabled, "")
+
+    # Timer notes based on configuration
+    if config_validation["timer_enabled"]:
+        timer_notes = "[green]✓ Correct[/green]"
+    else:
+        timer_notes = "[yellow]⚠ Should be enabled[/yellow]"
+
+    status_table.add_row("kopi-docka.timer", timer_active, timer_enabled, timer_notes)
 
     console.print(status_table)
     console.print()
 
-    # Next backup time
-    if timer_status.next_run:
-        console.print(Panel.fit(
-            f"[bold]Next Backup:[/bold] {timer_status.next_run}\n"
-            f"[dim]Time until backup:[/dim] {timer_status.left or 'Unknown'}",
-            title="[cyan]Timer Info[/cyan]",
-            border_style="cyan"
-        ))
-        console.print()
-
-    # Current schedule
+    # 3. Current Schedule
     current_schedule = helper.get_current_schedule()
     if current_schedule:
-        console.print(f"[bold]Current Schedule:[/bold] {current_schedule}")
+        console.print(f"[bold]Schedule:[/bold] {current_schedule}")
         console.print()
 
-    # Last backup info
+    # 4. Last Backup Info
     if backup_info.timestamp:
         status_color = "green" if backup_info.status == "success" else "red" if backup_info.status == "failed" else "yellow"
         status_text = "Successful" if backup_info.status == "success" else "Failed" if backup_info.status == "failed" else "Unknown"
 
+        console.print(f"[bold]Last Backup:[/bold] {backup_info.timestamp} - [{status_color}]{status_text}[/{status_color}]")
+        console.print()
+
+    # 5. Lock File Status
+    if lock_status["exists"]:
+        if lock_status["process_running"]:
+            console.print(f"[yellow]⚠[/yellow] Lock file active (PID: {lock_status['pid']})")
+        else:
+            console.print(f"[dim]Stale lock file (PID: {lock_status['pid']}) - use Control Service to remove[/dim]")
+        console.print()
+
+    # 6. Configuration Issues (if any)
+    if config_validation["issues"]:
         console.print(Panel.fit(
-            f"[bold]Last Backup:[/bold] {backup_info.timestamp}\n"
-            f"[bold]Status:[/bold] [{status_color}]{status_text}[/{status_color}]",
-            title="[cyan]Backup Info[/cyan]",
-            border_style="cyan"
+            "[yellow]Configuration Issues:[/yellow]\n" +
+            "\n".join([f"  • {issue}" for issue in config_validation["issues"]]) +
+            "\n\n[yellow]Recommendations:[/yellow]\n" +
+            "\n".join([f"  • {rec}" for rec in config_validation["recommendations"]]) +
+            "\n\n[bold]Fix:[/bold] Control Service → [7] Fix Configuration",
+            title="[yellow]⚠ Needs Attention[/yellow]",
+            border_style="yellow"
         ))
         console.print()
 
-    # Lock file status
-    if lock_status["exists"]:
-        if lock_status["process_running"]:
-            console.print(Panel.fit(
-                f"[yellow]⚠ Lock File Active[/yellow]\n\n"
-                f"PID: {lock_status['pid']}\n\n"
-                f"[dim]The kopi-docka daemon service is currently running.\n"
-                f"This lock prevents concurrent backup operations.[/dim]",
-                title="[yellow]Lock Status[/yellow]",
-                border_style="yellow"
-            ))
-        else:
-            console.print(Panel.fit(
-                f"[yellow]⚠ Stale Lock File Detected[/yellow]\n\n"
-                f"PID: {lock_status['pid']} (process not running)\n\n"
-                f"[dim]This lock file belongs to a process that is no longer running.\n"
-                f"It may be left over from a crashed service or system reboot.\n"
-                f"You can safely remove it using the Control Service menu.[/dim]",
-                title="[yellow]Lock Status[/yellow]",
-                border_style="yellow"
-            ))
-        console.print()
+    # 7. Always-Visible Explanation
+    console.print(Panel.fit(
+        "[bold]Timer-Triggered Mode[/bold] (Recommended)\n\n"
+        "[cyan]Service:[/cyan] disabled = starts only when timer triggers it\n"
+        "[cyan]Timer:[/cyan]   enabled  = schedules automatic backups\n\n"
+        "[dim]This prevents restart loops and lock file issues.[/dim]",
+        title="[cyan]ℹ️  How It Works[/cyan]",
+        border_style="cyan"
+    ))
+    console.print()
 
     console.input("[dim]Press Enter to continue...[/dim]")
 
@@ -421,6 +470,7 @@ def _control_service(helper: ServiceHelper):
         console.print("[4] Enable Timer")
         console.print("[5] Disable Timer")
         console.print("[6] Remove Stale Lock File")
+        console.print("[7] Fix Configuration (Timer-Triggered Mode)")
         console.print("[0] Back")
         console.print()
 
@@ -536,6 +586,67 @@ def _control_service(helper: ServiceHelper):
                     console.print("[green]✓[/green] Stale lock file removed")
                 else:
                     console.print("[red]✗[/red] Failed to remove lock file")
+                console.print()
+                console.input("[dim]Press Enter to continue...[/dim]")
+                continue
+            else:
+                console.print("[yellow]Cancelled[/yellow]")
+                console.print()
+                continue
+        elif choice == "7":
+            # Fix Configuration - Set up timer-triggered mode
+            console.print()
+            console.print("[cyan]Fix Configuration[/cyan]")
+            console.print()
+
+            # Check current configuration
+            config_validation = helper.validate_service_configuration()
+
+            if config_validation["health"] == "healthy":
+                console.print("[green]✓[/green] Configuration is already correct!")
+                console.print()
+                console.print("Current setup:")
+                console.print("  • Service: disabled (timer-triggered)")
+                console.print("  • Timer: enabled (schedules backups)")
+                console.print()
+                console.input("[dim]Press Enter to continue...[/dim]")
+                continue
+
+            # Show what will be done
+            console.print(Panel.fit(
+                "[bold]This will configure timer-triggered mode:[/bold]\n\n"
+                "  1. Stop kopi-docka.service (if running)\n"
+                "  2. Disable kopi-docka.service (prevents restart loops)\n"
+                "  3. Enable kopi-docka.timer (schedules backups)\n"
+                "  4. Start kopi-docka.timer (if not running)\n"
+                "  5. Remove stale lock files\n\n"
+                "[dim]This is the recommended configuration for automatic backups.[/dim]",
+                title="[cyan]Configuration Fix[/cyan]",
+                border_style="cyan"
+            ))
+            console.print()
+
+            if confirm_action("Apply this configuration?", default_no=False):
+                console.print()
+                console.print("[cyan]Applying configuration...[/cyan]")
+
+                if helper.fix_service_configuration():
+                    console.print("[green]✓[/green] Configuration fixed successfully!")
+                    console.print()
+
+                    # Show new status
+                    timer_status = helper.get_timer_status()
+                    if timer_status.next_run:
+                        console.print(f"[green]✓[/green] Next backup: {timer_status.next_run}")
+                    console.print()
+
+                    console.print("[bold]New configuration:[/bold]")
+                    console.print("  • Service: disabled (timer-triggered)")
+                    console.print("  • Timer: enabled (schedules backups)")
+                else:
+                    console.print("[red]✗[/red] Some configuration steps failed")
+                    console.print("[yellow]Check logs for details[/yellow]")
+
                 console.print()
                 console.input("[dim]Press Enter to continue...[/dim]")
                 continue

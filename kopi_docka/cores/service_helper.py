@@ -458,6 +458,157 @@ class ServiceHelper:
             LOGGER.error(f"Failed to reload daemon: {e}")
             return False
 
+    def validate_service_configuration(self) -> Dict[str, any]:
+        """
+        Validate service/timer configuration for timer-triggered mode.
+
+        Timer-triggered mode (recommended):
+        - Service: disabled (only runs when timer triggers it)
+        - Timer: enabled (schedules automatic backups)
+
+        Returns:
+            Dict with:
+                - health: str ('healthy', 'warning', 'error')
+                - message: str (brief health description)
+                - issues: List[str] (problems found)
+                - recommendations: List[str] (what to do)
+                - service_enabled: bool
+                - timer_enabled: bool
+        """
+        try:
+            # Check if service is enabled
+            service_enabled_result = subprocess.run(
+                ["systemctl", "is-enabled", self.service_name],
+                capture_output=True,
+                text=True,
+            )
+            service_enabled = service_enabled_result.stdout.strip() == "enabled"
+
+            # Check if timer is enabled
+            timer_enabled_result = subprocess.run(
+                ["systemctl", "is-enabled", self.timer_name],
+                capture_output=True,
+                text=True,
+            )
+            timer_enabled = timer_enabled_result.stdout.strip() == "enabled"
+
+            issues = []
+            recommendations = []
+
+            # Validate configuration
+            # CORRECT: Timer enabled + Service disabled (timer-triggered mode)
+            if timer_enabled and not service_enabled:
+                health = "healthy"
+                message = "Healthy (timer-triggered mode)"
+
+            # WARNING: Both enabled (causes restart loops)
+            elif timer_enabled and service_enabled:
+                health = "warning"
+                message = "Service should be disabled"
+                issues.append("Service is enabled (can cause restart loops)")
+                issues.append("May create unnecessary lock files")
+                recommendations.append("Disable service: allows timer to control it")
+                recommendations.append("Keep timer enabled: schedules automatic backups")
+
+            # ERROR: Timer disabled (backups won't run)
+            elif not timer_enabled and not service_enabled:
+                health = "error"
+                message = "Timer disabled - backups won't run"
+                issues.append("Timer is disabled (backups will not run automatically)")
+                recommendations.append("Enable timer: enables automatic scheduled backups")
+
+            # WARNING: Only service enabled (no scheduling)
+            elif not timer_enabled and service_enabled:
+                health = "warning"
+                message = "Timer disabled - using service mode"
+                issues.append("Timer is disabled (no automatic scheduling)")
+                issues.append("Service runs continuously without timer")
+                recommendations.append("Enable timer: enables scheduled backups")
+                recommendations.append("Disable service: prevents continuous running")
+
+            else:
+                health = "unknown"
+                message = "Unknown configuration"
+                issues.append("Unexpected configuration state")
+
+            return {
+                "health": health,
+                "message": message,
+                "issues": issues,
+                "recommendations": recommendations,
+                "service_enabled": service_enabled,
+                "timer_enabled": timer_enabled,
+            }
+
+        except Exception as e:
+            LOGGER.error(f"Failed to validate configuration: {e}")
+            return {
+                "health": "unknown",
+                "message": "Failed to check configuration",
+                "issues": [f"Error: {e}"],
+                "recommendations": [],
+                "service_enabled": False,
+                "timer_enabled": False,
+            }
+
+    def fix_service_configuration(self) -> bool:
+        """
+        Fix service configuration to recommended timer-triggered mode.
+
+        Actions performed:
+        1. Stop kopi-docka.service (if running)
+        2. Disable kopi-docka.service
+        3. Enable kopi-docka.timer
+        4. Start kopi-docka.timer (if not running)
+        5. Remove stale lock files
+
+        Returns:
+            True if all steps successful, False otherwise
+        """
+        try:
+            success = True
+
+            # Step 1: Stop service if running
+            LOGGER.info("Stopping service...")
+            if not self.control_service("stop", "service"):
+                LOGGER.warning("Failed to stop service (may already be stopped)")
+                # Don't fail - service might already be stopped
+
+            # Step 2: Disable service
+            LOGGER.info("Disabling service...")
+            if not self.control_service("disable", "service"):
+                LOGGER.error("Failed to disable service")
+                success = False
+
+            # Step 3: Enable timer
+            LOGGER.info("Enabling timer...")
+            if not self.control_service("enable", "timer"):
+                LOGGER.error("Failed to enable timer")
+                success = False
+
+            # Step 4: Start timer if not running
+            timer_status = self.get_timer_status()
+            if not timer_status.active:
+                LOGGER.info("Starting timer...")
+                if not self.control_service("start", "timer"):
+                    LOGGER.error("Failed to start timer")
+                    success = False
+
+            # Step 5: Remove stale lock files
+            LOGGER.info("Cleaning up stale lock files...")
+            self.remove_stale_lock()  # Don't fail if this doesn't work
+
+            if success:
+                LOGGER.info("Configuration fixed successfully")
+            else:
+                LOGGER.error("Some configuration steps failed")
+
+            return success
+
+        except Exception as e:
+            LOGGER.error(f"Failed to fix configuration: {e}")
+            return False
+
     def start_backup_now(self) -> bool:
         """
         Start a backup immediately using the one-shot backup service.
