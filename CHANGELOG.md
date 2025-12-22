@@ -5,7 +5,7 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [4.2.3] - 2025-12-22
+## [4.2.4] - 2025-12-22
 
 ### Fixed
 - **Timer-Triggered Mode Restart Loop** - Timer now triggers oneshot backup service
@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Service now properly: starts → runs backup → exits cleanly
   - No more systemd timeouts or "restart counter is at 702" errors
   - Timer-triggered mode is now the recommended approach
+- **Service Permission Errors** - Added missing ReadWritePaths for Kopia directories
+  - Added `/root/.config/kopia` for Kopia repository configuration
+  - Added `/root/.cache/kopia` for Kopia logs and cache
+  - Added `/etc/kopi-docka.json` and `/etc/.kopi-docka.password` for app config
+  - Added `/tmp` for temporary files during backup operations
+  - Changed `PrivateTmp=no` to allow access to real `/tmp` directory
+  - Fixes "read-only file system" and "no such file or directory" errors
 
 ### Changed
 - **Clarified Service Architecture**:
@@ -217,6 +224,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[4.2.4]: https://github.com/TZERO78/kopi-docka/compare/v4.2.3...v4.2.4
 [4.2.3]: https://github.com/TZERO78/kopi-docka/compare/v4.2.2...v4.2.3
 [4.2.2]: https://github.com/TZERO78/kopi-docka/compare/v4.2.1...v4.2.2
 [4.2.1]: https://github.com/TZERO78/kopi-docka/compare/v4.2.0...v4.2.1
