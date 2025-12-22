@@ -5,6 +5,23 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.2] - 2025-12-22
+
+### Fixed
+- **Rclone Config: Single Source of Truth** - Use user's config path directly instead of copying
+  - Follows industry best practice (same approach as Restic, rclone docs)
+  - Uses `--config` parameter to reference user's config directly
+  - Prevents config duplication and OAuth token staleness
+  - Preserves `root_folder_id` and other user settings correctly
+  - Eliminates confusion from having multiple config files
+
+### Changed
+- Removed config copying logic (`_copy_user_config_to_root()`)
+- Simplified config detection to find and use path directly
+- Improved user messaging during config detection
+
+---
+
 ## [4.2.1] - 2025-12-22
 
 ### Fixed
@@ -181,6 +198,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[4.2.2]: https://github.com/TZERO78/kopi-docka/compare/v4.2.1...v4.2.2
+[4.2.1]: https://github.com/TZERO78/kopi-docka/compare/v4.2.0...v4.2.1
 [4.2.0]: https://github.com/TZERO78/kopi-docka/compare/v4.1.1...v4.2.0
 [4.1.1]: https://github.com/TZERO78/kopi-docka/compare/v4.1.0...v4.1.1
 [4.1.0]: https://github.com/TZERO78/kopi-docka/compare/v4.0.0...v4.1.0
