@@ -2,8 +2,17 @@
 # KOPI-DOCKA SYSTEMD TIMER UNIT
 ################################################################################
 #
-# This timer triggers the kopi-docka.service at scheduled intervals.
-# By default, it runs daily at 02:00 AM.
+# This timer triggers kopi-docka-backup.service (Type=oneshot) at scheduled
+# intervals. By default, it runs daily at 02:00 AM.
+#
+# TIMER-TRIGGERED MODE (This Timer):
+#   Timer → starts kopi-docka-backup.service → runs backup → exits
+#   Service is Type=oneshot: starts, runs, exits. No restart loops.
+#
+# DAEMON MODE (Alternative - kopi-docka.service):
+#   For continuous operation with internal scheduling, use:
+#     kopi-docka admin service daemon --interval-minutes 60
+#   This runs as Type=notify daemon with internal scheduling.
 #
 # INSTALLATION:
 #   Run: sudo kopi-docka admin service write-units
@@ -27,6 +36,18 @@
 Description=Daily Kopi-Docka Backup at 02:00
 
 [Timer]
+################################################################################
+# SERVICE TO TRIGGER
+################################################################################
+#
+# Unit= specifies which service to start when the timer triggers.
+# We use kopi-docka-backup.service (Type=oneshot) instead of the daemon
+# service to prevent restart loops and timeout issues.
+#
+# The oneshot service: starts → runs backup → exits cleanly
+# The daemon service: starts → idles → causes systemd timeouts
+Unit=kopi-docka-backup.service
+
 ################################################################################
 # SCHEDULE CONFIGURATION
 ################################################################################

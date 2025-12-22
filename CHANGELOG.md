@@ -5,6 +5,25 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.3] - 2025-12-22
+
+### Fixed
+- **Timer-Triggered Mode Restart Loop** - Timer now triggers oneshot backup service
+  - Changed `kopi-docka.timer` to trigger `kopi-docka-backup.service` (Type=oneshot)
+  - Prevents infinite restart loops when timer triggers the daemon service
+  - Service now properly: starts → runs backup → exits cleanly
+  - No more systemd timeouts or "restart counter is at 702" errors
+  - Timer-triggered mode is now the recommended approach
+
+### Changed
+- **Clarified Service Architecture**:
+  - `kopi-docka.timer` → triggers `kopi-docka-backup.service` (Type=oneshot)
+  - `kopi-docka.service` → daemon mode with internal scheduling (Type=notify)
+- Updated systemd template documentation to explain both modes
+- Improved header comments in all three service unit templates
+
+---
+
 ## [4.2.2] - 2025-12-22
 
 ### Fixed
@@ -198,6 +217,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[4.2.3]: https://github.com/TZERO78/kopi-docka/compare/v4.2.2...v4.2.3
 [4.2.2]: https://github.com/TZERO78/kopi-docka/compare/v4.2.1...v4.2.2
 [4.2.1]: https://github.com/TZERO78/kopi-docka/compare/v4.2.0...v4.2.1
 [4.2.0]: https://github.com/TZERO78/kopi-docka/compare/v4.1.1...v4.2.0
