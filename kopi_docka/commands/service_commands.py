@@ -33,6 +33,37 @@ console = Console()
 
 
 # -------------------------
+# Helper Functions
+# -------------------------
+
+def confirm_action(message: str, default_no: bool = True) -> bool:
+    """
+    Ask user for yes/no confirmation with clear options.
+
+    Args:
+        message: Question to ask
+        default_no: If True, default is No (shown as [y/N])
+
+    Returns:
+        bool: True if user confirmed, False otherwise
+    """
+    if default_no:
+        prompt = f"{message} [y/N]: "
+    else:
+        prompt = f"{message} [Y/n]: "
+
+    response = console.input(f"[cyan]{prompt}[/cyan]").strip().lower()
+
+    if response in ("y", "yes"):
+        return True
+    elif response in ("n", "no"):
+        return False
+    else:
+        # Empty = use default
+        return not default_no
+
+
+# -------------------------
 # Commands
 # -------------------------
 
@@ -94,8 +125,7 @@ def cmd_manage():
         ))
         console.print()
 
-        response = console.input("[cyan]Create units? [Y/n]:[/cyan] ").strip().lower()
-        if response in ("", "y", "yes"):
+        if confirm_action("Create units?", default_no=False):
             try:
                 write_systemd_units()
                 console.print("[green]✓[/green] Units created successfully")
@@ -282,9 +312,8 @@ def _configure_timer(helper: ServiceHelper):
             console.print()
             console.print(f"[bold]New Schedule:[/bold] {new_schedule}")
             console.print()
-            confirm = console.input("[cyan]Apply changes? [y/N]:[/cyan] ").strip().lower()
 
-            if confirm in ("y", "yes"):
+            if confirm_action("Apply changes?"):
                 if helper.edit_timer_schedule(new_schedule):
                     console.print("[green]✓[/green] Timer updated successfully")
 
@@ -389,10 +418,48 @@ def _control_service(helper: ServiceHelper):
         if choice == "0":
             break
         elif choice == "1":
-            # Start backup now
-            action = "start"
-            unit = "service"
+            # Start backup now - use one-shot backup service
+            console.print()
             console.print("[cyan]Starting backup...[/cyan]")
+            console.print("[dim]Using kopi-docka-backup.service (one-shot)[/dim]")
+            console.print()
+
+            if helper.start_backup_now():
+                console.print("[green]✓ Backup started successfully[/green]")
+                console.print()
+                console.print("[dim]View progress:[/dim]")
+                console.print("  [cyan]journalctl -u kopi-docka-backup.service -f[/cyan]")
+                console.print()
+
+                # Wait briefly and check status
+                console.print("[dim]Waiting for backup to complete (30s max)...[/dim]")
+                import time
+                for i in range(30):
+                    time.sleep(1)
+                    status = helper.get_backup_service_status()
+                    if not status["active"]:
+                        # Backup completed
+                        if status["result"] == "success":
+                            console.print("[green]✓ Backup completed successfully![/green]")
+                        elif status["result"] == "failed":
+                            console.print("[red]✗ Backup failed[/red]")
+                            console.print("[yellow]Check logs for details:[/yellow]")
+                            console.print("  [cyan]journalctl -u kopi-docka-backup.service[/cyan]")
+                        break
+                else:
+                    # Still running after 30s
+                    console.print("[yellow]⏳ Backup still running...[/yellow]")
+                    console.print("[dim]It will continue in the background.[/dim]")
+
+                console.print()
+                console.input("[dim]Press Enter to continue...[/dim]")
+            else:
+                console.print("[red]✗ Error starting backup[/red]")
+                console.print("[yellow]Check logs for details:[/yellow]")
+                console.print("  [cyan]journalctl -u kopi-docka-backup.service[/cyan]")
+                console.print()
+                console.input("[dim]Press Enter to continue...[/dim]")
+            continue  # Skip the rest of the action logic
         elif choice == "2":
             action = "restart"
             unit = "service"
@@ -418,8 +485,7 @@ def _control_service(helper: ServiceHelper):
         # Confirm if needed
         if confirm_required:
             console.print()
-            confirm = console.input(f"[yellow]{confirm_msg} [y/N]:[/yellow] ").strip().lower()
-            if confirm not in ("y", "yes"):
+            if not confirm_action(confirm_msg):
                 console.print("[yellow]Cancelled[/yellow]")
                 console.print()
                 continue

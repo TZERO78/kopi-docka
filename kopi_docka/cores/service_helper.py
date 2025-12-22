@@ -413,6 +413,95 @@ class ServiceHelper:
             LOGGER.error(f"Failed to reload daemon: {e}")
             return False
 
+    def start_backup_now(self) -> bool:
+        """
+        Start a backup immediately using the one-shot backup service.
+
+        This uses kopi-docka-backup.service (Type=oneshot) instead of
+        kopi-docka.service (Type=notify daemon) to avoid timeout issues.
+
+        The daemon service idles waiting for timer events, which causes
+        systemd to timeout waiting for sd_notify READY signal. The one-shot
+        backup service executes immediately and completes.
+
+        Returns:
+            True if backup started successfully, False otherwise
+        """
+        try:
+            LOGGER.info("Starting one-shot backup via kopi-docka-backup.service")
+            cmd = ["systemctl", "start", self.backup_service_name]
+
+            result = subprocess.run(
+                cmd,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=300,  # 5 minute timeout for backup start
+            )
+
+            LOGGER.info("Backup service started successfully")
+            return True
+
+        except subprocess.CalledProcessError as e:
+            LOGGER.error(f"Failed to start backup: {e.stderr}")
+            return False
+        except subprocess.TimeoutExpired:
+            LOGGER.error("Backup start timed out after 5 minutes")
+            return False
+        except Exception as e:
+            LOGGER.error(f"Unexpected error starting backup: {e}")
+            return False
+
+    def get_backup_service_status(self) -> Dict[str, any]:
+        """
+        Get status of the last backup run from kopi-docka-backup.service.
+
+        Returns:
+            Dict with:
+                - active: bool (service is currently running)
+                - result: str ('success', 'failed', 'running', 'unknown')
+                - exit_code: int or None
+        """
+        try:
+            cmd = [
+                "systemctl",
+                "show",
+                self.backup_service_name,
+                "--property=ActiveState,SubState,ExecMainStatus",
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+            # Parse output
+            props = {}
+            for line in result.stdout.strip().split("\n"):
+                if "=" in line:
+                    key, value = line.split("=", 1)
+                    props[key] = value
+
+            active = props.get("ActiveState", "unknown") == "active"
+            exit_code_str = props.get("ExecMainStatus", "-1")
+            exit_code = int(exit_code_str) if exit_code_str.lstrip("-").isdigit() else -1
+
+            # Determine result
+            if active:
+                result_status = "running"
+            elif exit_code == 0:
+                result_status = "success"
+            elif exit_code > 0:
+                result_status = "failed"
+            else:
+                result_status = "unknown"
+
+            return {
+                "active": active,
+                "result": result_status,
+                "exit_code": exit_code if exit_code >= 0 else None,
+            }
+
+        except Exception as e:
+            LOGGER.error(f"Failed to get backup service status: {e}")
+            return {"active": False, "result": "unknown", "exit_code": None}
+
     # -------------------------------------------------------------------------
     # Configuration Methods
     # -------------------------------------------------------------------------
