@@ -94,9 +94,8 @@ SyslogIdentifier=kopi-docka
 # This is important for security - the service runs with fixed permissions
 NoNewPrivileges=true
 
-# Use a private /tmp directory that other processes can't access
-# Prevents /tmp-based attacks and isolation violations
-PrivateTmp=true
+# Disable private /tmp - we need access to real /tmp for temporary files during backup
+PrivateTmp=no
 
 # Make most of the filesystem read-only
 # ProtectSystem=strict makes everything read-only except paths in ReadWritePaths=
@@ -107,14 +106,22 @@ ProtectSystem=strict
 ProtectHome=read-only
 
 # Paths the service needs write access to:
-# - /backup: Default backup storage location
 # - /var/lib/docker: Docker state directory (needed for container inspection)
 # - /var/run/docker.sock: Docker socket (needed for Docker API access)
-# - /var/log: For writing logs if file logging is configured
+# - /etc/kopi-docka.json: Application configuration
+# - /etc/.kopi-docka.password: Repository password file
+# - /root/.config/kopia: Kopia repository configuration
+# - /root/.cache/kopia: Kopia logs and cache
+# - /tmp: Temporary files during backup operations
 # - /run/kopi-docka: Runtime directory for PID locks
-#
-# IMPORTANT: Adjust /backup to match your actual backup path if different
-ReadWritePaths=/backup /var/lib/docker /var/run/docker.sock /var/log /run/kopi-docka
+ReadWritePaths=/var/lib/docker
+ReadWritePaths=/var/run/docker.sock
+ReadWritePaths=/etc/kopi-docka.json
+ReadWritePaths=/etc/.kopi-docka.password
+ReadWritePaths=/root/.config/kopia
+ReadWritePaths=/root/.cache/kopia
+ReadWritePaths=/tmp
+ReadWritePaths=/run/kopi-docka
 
 # Create /run/kopi-docka directory automatically on service start
 # This directory is used for PID lock files to prevent concurrent runs

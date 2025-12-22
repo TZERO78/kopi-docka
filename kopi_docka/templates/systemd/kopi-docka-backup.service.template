@@ -66,8 +66,8 @@ SyslogIdentifier=kopi-docka
 # Prevent privilege escalation
 NoNewPrivileges=true
 
-# Private /tmp directory
-PrivateTmp=true
+# Disable private /tmp - we need access to real /tmp for temporary files during backup
+PrivateTmp=no
 
 # Read-only filesystem except for specified paths
 ProtectSystem=strict
@@ -76,14 +76,22 @@ ProtectSystem=strict
 ProtectHome=read-only
 
 # Paths the service needs write access to:
-# - /backup: Default backup storage location
 # - /var/lib/docker: Docker state directory
 # - /var/run/docker.sock: Docker socket
-# - /var/log: For writing logs if file logging is configured
+# - /etc/kopi-docka.json: Application configuration
+# - /etc/.kopi-docka.password: Repository password file
+# - /root/.config/kopia: Kopia repository configuration
+# - /root/.cache/kopia: Kopia logs and cache
+# - /tmp: Temporary files during backup operations
 #
-# IMPORTANT: Adjust /backup to match your actual backup path if different
 # Note: /run/kopi-docka is not needed here since one-shot runs don't use locks
-ReadWritePaths=/backup /var/lib/docker /var/run/docker.sock /var/log
+ReadWritePaths=/var/lib/docker
+ReadWritePaths=/var/run/docker.sock
+ReadWritePaths=/etc/kopi-docka.json
+ReadWritePaths=/etc/.kopi-docka.password
+ReadWritePaths=/root/.config/kopia
+ReadWritePaths=/root/.cache/kopia
+ReadWritePaths=/tmp
 
 # Set default umask for created files
 UMask=0077
