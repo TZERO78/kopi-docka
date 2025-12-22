@@ -737,6 +737,54 @@ sudo kopi-docka admin service manage
 
 ---
 
+## What's New in v3.9.1
+
+### 🔒 Enhanced Lock File Management
+**Improved diagnostics and stale lock detection**
+
+Kopi-Docka v3.9.1 enhances lock file handling with better diagnostics and automatic detection of stale locks from dead processes.
+
+**New Features:**
+
+1. **Improved Lock Status Display**
+   - Lock status now shown in informative Rich panels instead of simple text
+   - Clear distinction between active locks (running process) and stale locks (dead process)
+   - Helpful explanations and next steps for users
+
+2. **Stale Lock Removal**
+   - New `remove_stale_lock()` method in ServiceHelper
+   - New menu option **[6] Remove Stale Lock File** in service wizard
+   - Prevents removal of locks from running processes
+   - Safe cleanup of locks from dead processes (crashes, reboots)
+
+3. **Enhanced Logging**
+   - DEBUG-level logging for lock operations:
+     - "No lock file found"
+     - "Lock file found with PID: X"
+     - "Process X is running"
+     - "Process X is not running (stale lock)"
+   - Better error messages and warnings
+
+4. **More Portable Process Checking**
+   - Changed from `subprocess.run(["kill", "-0"])` to `os.kill(pid, 0)`
+   - Handles `ProcessLookupError` and `PermissionError` properly
+   - More efficient and portable
+
+**Example Usage:**
+```bash
+sudo kopi-docka admin service manage
+# → [1] Show Status (shows lock status if present)
+# → [4] Control Service
+#    → [6] Remove Stale Lock File (if needed)
+```
+
+**Technical Details:**
+- Lock files are ONLY created by the daemon service (`kopi-docka admin service daemon`)
+- The wizard's `get_lock_status()` method is read-only and never creates locks
+- Comprehensive investigation documented in `INVESTIGATION_LOCK_FILE_CREATION.md`
+
+---
+
 ## What's New in v3.9.0
 
 ### 🎛️ Interactive Service Management

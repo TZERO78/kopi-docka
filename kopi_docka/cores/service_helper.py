@@ -224,40 +224,85 @@ class ServiceHelper:
 
     def get_lock_status(self) -> Dict[str, any]:
         """
-        Check lock file status.
+        Check lock file status (READ-ONLY operation).
+
+        This method ONLY reads the lock file and checks if the process is running.
+        It NEVER creates or modifies the lock file.
+
+        Lock files are ONLY created by the daemon service (kopi-docka.service)
+        when it starts via 'kopi-docka admin service daemon'.
 
         Returns:
             Dict with exists, pid, and process_running fields
         """
+        import os
+
         lock_file = Path("/run/kopi-docka/kopi-docka.lock")
 
+        # Check if lock file exists (READ-ONLY - does not create file)
         if not lock_file.exists():
+            LOGGER.debug("No lock file found at %s", lock_file)
             return {"exists": False, "pid": None, "process_running": False}
 
         try:
-            # Read PID from lock file
+            # Read PID from lock file (READ-ONLY operation)
             pid_str = lock_file.read_text().strip()
+            LOGGER.debug("Lock file found with PID: %s", pid_str)
+
             pid = int(pid_str) if pid_str.isdigit() else None
 
             # Check if process is running
             process_running = False
             if pid:
                 try:
-                    # Check if process exists (signal 0 doesn't kill, just checks)
-                    subprocess.run(
-                        ["kill", "-0", str(pid)],
-                        check=True,
-                        capture_output=True,
-                    )
+                    # Use os.kill(pid, 0) which is safer and more portable
+                    # Signal 0 doesn't actually kill - just checks if process exists
+                    os.kill(pid, 0)
                     process_running = True
-                except subprocess.CalledProcessError:
+                    LOGGER.debug("Process %d is running", pid)
+                except (ProcessLookupError, PermissionError):
                     process_running = False
+                    LOGGER.debug("Process %d is not running (stale lock)", pid)
 
             return {"exists": True, "pid": pid, "process_running": process_running}
 
         except Exception as e:
-            LOGGER.debug(f"Failed to read lock file: {e}")
+            LOGGER.warning(f"Error reading lock file: {e}")
             return {"exists": True, "pid": None, "process_running": False}
+
+    def remove_stale_lock(self) -> bool:
+        """
+        Remove stale lock file if the process is not running.
+
+        A lock is considered stale if:
+        1. The lock file exists
+        2. The PID in the lock file is not a running process
+
+        Returns:
+            True if stale lock was removed, False otherwise
+        """
+        lock_status = self.get_lock_status()
+
+        if not lock_status["exists"]:
+            LOGGER.debug("No lock file to remove")
+            return False
+
+        if lock_status["process_running"]:
+            LOGGER.warning(
+                "Lock file belongs to running process (PID: %s), not removing",
+                lock_status["pid"]
+            )
+            return False
+
+        # Lock exists but process is not running - it's stale
+        lock_file = Path("/run/kopi-docka/kopi-docka.lock")
+        try:
+            lock_file.unlink()
+            LOGGER.info("Removed stale lock file (PID: %s)", lock_status["pid"])
+            return True
+        except Exception as e:
+            LOGGER.error(f"Failed to remove stale lock file: {e}")
+            return False
 
     # -------------------------------------------------------------------------
     # Log Methods
@@ -411,6 +456,157 @@ class ServiceHelper:
             return result.returncode == 0
         except Exception as e:
             LOGGER.error(f"Failed to reload daemon: {e}")
+            return False
+
+    def validate_service_configuration(self) -> Dict[str, any]:
+        """
+        Validate service/timer configuration for timer-triggered mode.
+
+        Timer-triggered mode (recommended):
+        - Service: disabled (only runs when timer triggers it)
+        - Timer: enabled (schedules automatic backups)
+
+        Returns:
+            Dict with:
+                - health: str ('healthy', 'warning', 'error')
+                - message: str (brief health description)
+                - issues: List[str] (problems found)
+                - recommendations: List[str] (what to do)
+                - service_enabled: bool
+                - timer_enabled: bool
+        """
+        try:
+            # Check if service is enabled
+            service_enabled_result = subprocess.run(
+                ["systemctl", "is-enabled", self.service_name],
+                capture_output=True,
+                text=True,
+            )
+            service_enabled = service_enabled_result.stdout.strip() == "enabled"
+
+            # Check if timer is enabled
+            timer_enabled_result = subprocess.run(
+                ["systemctl", "is-enabled", self.timer_name],
+                capture_output=True,
+                text=True,
+            )
+            timer_enabled = timer_enabled_result.stdout.strip() == "enabled"
+
+            issues = []
+            recommendations = []
+
+            # Validate configuration
+            # CORRECT: Timer enabled + Service disabled (timer-triggered mode)
+            if timer_enabled and not service_enabled:
+                health = "healthy"
+                message = "Healthy (timer-triggered mode)"
+
+            # WARNING: Both enabled (causes restart loops)
+            elif timer_enabled and service_enabled:
+                health = "warning"
+                message = "Service should be disabled"
+                issues.append("Service is enabled (can cause restart loops)")
+                issues.append("May create unnecessary lock files")
+                recommendations.append("Disable service: allows timer to control it")
+                recommendations.append("Keep timer enabled: schedules automatic backups")
+
+            # ERROR: Timer disabled (backups won't run)
+            elif not timer_enabled and not service_enabled:
+                health = "error"
+                message = "Timer disabled - backups won't run"
+                issues.append("Timer is disabled (backups will not run automatically)")
+                recommendations.append("Enable timer: enables automatic scheduled backups")
+
+            # WARNING: Only service enabled (no scheduling)
+            elif not timer_enabled and service_enabled:
+                health = "warning"
+                message = "Timer disabled - using service mode"
+                issues.append("Timer is disabled (no automatic scheduling)")
+                issues.append("Service runs continuously without timer")
+                recommendations.append("Enable timer: enables scheduled backups")
+                recommendations.append("Disable service: prevents continuous running")
+
+            else:
+                health = "unknown"
+                message = "Unknown configuration"
+                issues.append("Unexpected configuration state")
+
+            return {
+                "health": health,
+                "message": message,
+                "issues": issues,
+                "recommendations": recommendations,
+                "service_enabled": service_enabled,
+                "timer_enabled": timer_enabled,
+            }
+
+        except Exception as e:
+            LOGGER.error(f"Failed to validate configuration: {e}")
+            return {
+                "health": "unknown",
+                "message": "Failed to check configuration",
+                "issues": [f"Error: {e}"],
+                "recommendations": [],
+                "service_enabled": False,
+                "timer_enabled": False,
+            }
+
+    def fix_service_configuration(self) -> bool:
+        """
+        Fix service configuration to recommended timer-triggered mode.
+
+        Actions performed:
+        1. Stop kopi-docka.service (if running)
+        2. Disable kopi-docka.service
+        3. Enable kopi-docka.timer
+        4. Start kopi-docka.timer (if not running)
+        5. Remove stale lock files
+
+        Returns:
+            True if all steps successful, False otherwise
+        """
+        try:
+            success = True
+
+            # Step 1: Stop service if running
+            LOGGER.info("Stopping service...")
+            if not self.control_service("stop", "service"):
+                LOGGER.warning("Failed to stop service (may already be stopped)")
+                # Don't fail - service might already be stopped
+
+            # Step 2: Disable service
+            LOGGER.info("Disabling service...")
+            if not self.control_service("disable", "service"):
+                LOGGER.error("Failed to disable service")
+                success = False
+
+            # Step 3: Enable timer
+            LOGGER.info("Enabling timer...")
+            if not self.control_service("enable", "timer"):
+                LOGGER.error("Failed to enable timer")
+                success = False
+
+            # Step 4: Start timer if not running
+            timer_status = self.get_timer_status()
+            if not timer_status.active:
+                LOGGER.info("Starting timer...")
+                if not self.control_service("start", "timer"):
+                    LOGGER.error("Failed to start timer")
+                    success = False
+
+            # Step 5: Remove stale lock files
+            LOGGER.info("Cleaning up stale lock files...")
+            self.remove_stale_lock()  # Don't fail if this doesn't work
+
+            if success:
+                LOGGER.info("Configuration fixed successfully")
+            else:
+                LOGGER.error("Some configuration steps failed")
+
+            return success
+
+        except Exception as e:
+            LOGGER.error(f"Failed to fix configuration: {e}")
             return False
 
     def start_backup_now(self) -> bool:
