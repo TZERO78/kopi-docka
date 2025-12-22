@@ -1,14 +1,29 @@
 ################################################################################
-# KOPI-DOCKA SYSTEMD SERVICE UNIT
+# KOPI-DOCKA SYSTEMD SERVICE UNIT (DAEMON MODE)
 ################################################################################
 #
-# This systemd service runs kopi-docka as a daemon that can be triggered by
-# the accompanying timer unit or started manually.
+# This service runs kopi-docka as a long-running daemon with INTERNAL scheduling.
+# It is Type=notify and stays running continuously.
+#
+# IMPORTANT: This is for DAEMON MODE with internal scheduling.
+#   For timer-triggered backups, use kopi-docka.timer instead, which triggers
+#   kopi-docka-backup.service (Type=oneshot).
+#
+# DAEMON MODE (This Service):
+#   - Type=notify: stays running, sends sd_notify heartbeats
+#   - Use with: --interval-minutes 60 for internal 60-minute schedule
+#   - Runs continuously, manages its own backup schedule
+#
+# TIMER-TRIGGERED MODE (Recommended - Use Timer Instead):
+#   - kopi-docka.timer → triggers kopi-docka-backup.service
+#   - kopi-docka-backup.service is Type=oneshot: starts, runs, exits
+#   - No restart loops, no timeout issues
 #
 # INSTALLATION:
 #   Run: sudo kopi-docka admin service write-units
 #   Then: sudo systemctl daemon-reload
-#   Finally: sudo systemctl enable --now kopi-docka.timer
+#   For timer mode: sudo systemctl enable --now kopi-docka.timer
+#   For daemon mode: sudo systemctl enable --now kopi-docka.service
 #
 # MANAGEMENT:
 #   - Interactive management: sudo kopi-docka admin service manage
