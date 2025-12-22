@@ -1,8 +1,8 @@
 # Kopi-Docka
 
-> **Robust Cold Backup for Docker Environments using Kopia**
+> **Cold Backup Tool for Docker Environments using Kopia**
 
-Kopi-Docka is a Python-based backup tool for Docker containers and their volumes. Features controlled downtime windows, encrypted snapshots, and automatic disaster recovery bundles.
+Kopi-Docka is a Python-based backup wrapper for Docker containers and volumes. It uses Kopia for encryption and deduplication, with specific focus on Docker Compose stack awareness.
 
 [![PyPI](https://img.shields.io/pypi/v/kopi-docka)](https://pypi.org/project/kopi-docka/)
 [![Python Version](https://img.shields.io/pypi/pyversions/kopi-docka)](https://pypi.org/project/kopi-docka/)
@@ -15,17 +15,17 @@ Kopi-Docka is a Python-based backup tool for Docker containers and their volumes
 
 **Kopi-Docka = Kopia + Docker + Backup**
 
-A wrapper around [Kopia](https://kopia.io), specifically designed for Docker environments:
+A wrapper around [Kopia](https://kopia.io), designed for Docker environments:
 
-- **📦 Stack-Aware** - Backs up entire Docker Compose stacks as logical units
+- **📦 Stack-Aware** - Recognizes Docker Compose stacks and backs them up as logical units
 - **🔐 Encrypted** - End-to-end encryption via Kopia (AES-256-GCM)
-- **🌐 Multi-Storage** - Local, S3, B2, Azure, GCS, SFTP, Tailscale
-- **💾 Disaster Recovery** - Encrypted emergency bundles with auto-reconnect
-- **🔧 Pre/Post Hooks** - Custom scripts for maintenance mode
-- **📊 Systemd-Native** - Production-ready daemon with sd_notify & watchdog
-- **🚀 Restore Anywhere** - Recovery on completely new hardware
+- **🌐 Multiple Storage Options** - Local, S3, B2, Azure, GCS, SFTP, Tailscale, Rclone
+- **💾 Disaster Recovery** - Encrypted bundles with auto-reconnect scripts
+- **🔧 Pre/Post Hooks** - Custom scripts (maintenance mode, notifications, etc.)
+- **📊 Systemd Integration** - Daemon with sd_notify and watchdog support
+- **🚀 Restore on New Hardware** - Recovery without original system
 
-**[See all features →](docs/FEATURES.md)**
+**[See detailed features →](docs/FEATURES.md)**
 
 ---
 
@@ -52,7 +52,7 @@ sudo kopi-docka setup
 
 The wizard guides you through:
 1. ✅ Dependency check (Kopia, Docker)
-2. ✅ Repository storage selection (Local, S3, B2, Azure, GCS, SFTP, Tailscale)
+2. ✅ Repository storage selection (Local, S3, B2, Azure, GCS, SFTP, Tailscale, Rclone)
 3. ✅ Repository initialization
 4. ✅ Connection test
 
@@ -73,9 +73,9 @@ sudo kopi-docka dry-run
 # Full backup
 sudo kopi-docka backup
 
-# Create disaster recovery bundle (IMPORTANT!)
+# Create disaster recovery bundle
 sudo kopi-docka disaster-recovery
-# → Copy bundle to safe location: USB/cloud/safe!
+# → Store bundle off-site: USB/cloud/safe
 ```
 
 **[Usage guide →](docs/USAGE.md)**
@@ -100,83 +100,71 @@ sudo kopi-docka admin service manage
 
 ---
 
-## Unique Features
+## Key Features
 
 ### 1. Compose-Stack-Awareness
 
-Automatically recognizes Docker Compose stacks and backs them up as atomic units with docker-compose.yml included.
+Recognizes Docker Compose stacks and backs them up as atomic units with docker-compose.yml included.
 
-```bash
-kopi-docka admin snapshot list
-
-Backup Units:
-  - wordpress (Stack, 3 containers, 2 volumes)
-  - nextcloud (Stack, 5 containers, 3 volumes)
-  - gitlab (Stack, 4 containers, 4 volumes)
+**Traditional vs. Kopi-Docka:**
+```
+Traditional:                    Kopi-Docka:
+├── wordpress_web_1            Stack: wordpress
+├── wordpress_db_1             ├── Containers: web, db, redis
+└── wordpress_redis_1          ├── Volumes: wordpress_data, mysql_data
+                               ├── docker-compose.yml
+❌ Context lost                └── Common backup_id
+                               ✅ Complete stack restorable
 ```
 
 ### 2. Disaster Recovery Bundles
 
-Encrypted packages containing everything needed to reconnect to your repository on a new server. Time to recovery: 15-30 minutes instead of hours.
+Encrypted packages containing repository connection data and auto-reconnect scripts:
+
+```bash
+# Create bundle
+sudo kopi-docka disaster-recovery
+
+# In emergency (on new server):
+1. Decrypt bundle
+2. Run ./recover.sh
+3. kopi-docka restore
+4. docker compose up -d
+```
 
 ### 3. Tailscale Integration
 
-Automatic peer discovery for P2P backups over your private network. Use your own hardware instead of cloud storage.
+Automatic peer discovery for P2P backups over WireGuard mesh network:
 
-```
-Available Backup Targets
-┌─────────────┬─────────────────┐
-│ Status      │ Hostname        │
-├─────────────┼─────────────────┤
-│ 🟢 Online  │ cloud-vps       │
-│ 🟢 Online  │ home-nas        │
-└────────────┴──────────────────┘
+```bash
+sudo kopi-docka admin config new
+# → Select Tailscale
+# → Shows all devices in your Tailnet
+# → Auto-configures SSH keys
+# → Direct encrypted connection (no cloud costs)
 ```
 
 ### 4. Systemd Integration
 
-Production-ready daemon with sd_notify, watchdog monitoring, PID locking, and security hardening.
+Daemon implementation with:
+- sd_notify status reporting
+- Watchdog monitoring
+- Security hardening (ProtectSystem, NoNewPrivileges, etc.)
+- PID locking (prevents parallel runs)
+- Structured logging to systemd journal
 
-**[Read detailed feature documentation →](docs/FEATURES.md)**
-
----
-
-## What's New in v4.0.0
-
-- **🎨 Complete UI Consistency Refactoring** - Modern, beautiful CLI experience
-  - All 11 command files modernized with Rich (Panels, Tables, Colors)
-  - Consistent color scheme across all commands (green=success, red=error, yellow=warning, cyan=info)
-  - Replaced all `typer.echo()` with Rich Console output
-  - Beautiful styled tables for data presentation
-
-- **📚 rich-click Integration** - Beautiful `--help` output
-  - Styled command help with syntax highlighting
-  - Organized option groups
-  - Markdown support in docstrings
-
-- **🔧 New UI Components** - 11 new helper functions in `ui_utils.py`
-  - `print_panel()`, `print_menu()`, `print_step()`, `print_divider()`
-  - `print_success_panel()`, `print_error_panel()`, `print_warning_panel()`, `print_info_panel()`
-  - `print_next_steps()`, `get_menu_choice()`, `confirm_action()`, `create_status_table()`
-
-- **🐛 Bug Fixes**
-  - Fixed `log_manager.configure()` -> `log_manager.setup()` method name
-  - Fixed missing imports in `ui_utils.py` (Progress, SpinnerColumn, TextColumn)
-
-**Breaking Changes:** None (UI only, API unchanged)
-
-**[See what's new →](docs/FEATURES.md#whats-new-in-v400)**
+**[See detailed features →](docs/FEATURES.md)**
 
 ---
 
 ## Documentation
 
-📚 **Complete Documentation:**
+📚 **Guides:**
 
-- **[Features](docs/FEATURES.md)** - Unique features, what's new, why Kopi-Docka?
 - **[Installation](docs/INSTALLATION.md)** - System requirements, installation options
 - **[Configuration](docs/CONFIGURATION.md)** - Wizards, config files, storage backends
 - **[Usage](docs/USAGE.md)** - CLI commands, workflows, how it works
+- **[Features](docs/FEATURES.md)** - Detailed feature documentation
 - **[Hooks](docs/HOOKS.md)** - Pre/post backup hooks, examples
 - **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues, FAQ
 - **[Development](docs/DEVELOPMENT.md)** - Project structure, contributing
@@ -192,9 +180,9 @@ Production-ready daemon with sd_notify, watchdog monitoring, PID locking, and se
 
 ## CLI Commands
 
-Kopi-Docka v3.4+ features a simplified CLI with **"The Big 6"** top-level commands and an `admin` subcommand for advanced operations.
+Kopi-Docka features a simplified CLI with top-level commands and an `admin` subcommand for advanced operations.
 
-### Top-Level Commands ("The Big 6")
+### Top-Level Commands
 ```bash
 sudo kopi-docka setup              # Complete setup wizard
 sudo kopi-docka backup             # Full backup (standard scope)
@@ -205,7 +193,7 @@ sudo kopi-docka doctor             # System health check
 kopi-docka version                 # Show version
 ```
 
-### Admin Commands (Advanced)
+### Admin Commands
 ```bash
 # Configuration
 sudo kopi-docka admin config show      # Show config
@@ -232,19 +220,20 @@ sudo kopi-docka admin service daemon         # Run as daemon
 
 ---
 
-## Repository Storage Types
+## Storage Backend Options
 
-Kopi-Docka supports 7 different repository storage types:
+Kopi-Docka supports 8 different storage backends:
 
 1. **Local Filesystem** - Local disk or NAS mount
-2. **AWS S3** - Amazon S3 or compatible (Wasabi, MinIO)
-3. **Backblaze B2** - Affordable cloud storage (~$5/TB/month)
+2. **AWS S3** - Amazon S3 or S3-compatible (Wasabi, MinIO)
+3. **Backblaze B2** - ~$6/TB/month (includes egress)
 4. **Azure Blob** - Microsoft Azure storage
 5. **Google Cloud Storage** - GCS
 6. **SFTP** - Remote server via SSH
-7. **Tailscale** - P2P over private network (no cloud costs!)
+7. **Tailscale** - P2P over WireGuard mesh network
+8. **Rclone** - Universal adapter (OneDrive, Dropbox, Google Drive, 70+ services)
 
-**[Repository storage configuration →](docs/CONFIGURATION.md#storage-backends)**
+**[Storage configuration →](docs/CONFIGURATION.md#storage-backends)**
 
 ---
 
@@ -264,24 +253,50 @@ Kopi-Docka supports 7 different repository storage types:
 | Feature | Kopi-Docka | docker-volume-backup | Duplicati | Restic |
 |---------|------------|----------------------|-----------|--------|
 | **Docker-native** | ✅ | ✅ | ❌ | ❌ |
+| **Cold Backups** | ✅ | ✅ | ❌ | ❌ |
 | **Compose-Stack-Aware** | ✅ | ❌ | ❌ | ❌ |
-| **Network Backup** | ✅ | ❌ | ❌ | ❌ |
+| **Network Backup*** | ✅ | ❌ | ❌ | ❌ |
 | **DR Bundles** | ✅ | ❌ | ❌ | ❌ |
 | **Tailscale Integration** | ✅ | ❌ | ❌ | ❌ |
-| **systemd-native** | ✅ | ❌ | ❌ | ❌ |
+| **Rclone Support** | ✅ | ❌ | ❌ | ❌ |
+| **systemd Integration** | ✅ | ❌ | ❌ | ❌ |
 | **Pre/Post Hooks** | ✅ | ⚠️ | ❌ | ❌ |
-| **Multi-Cloud** | ✅ | ✅ | ✅ | ✅ |
+| **Storage Options** | 8 backends | Basic | Many | Many |
+| **Deduplication** | ✅ (Kopia) | ❌ | ✅ | ✅ |
+
+*Network Backup = Automatic backup of custom Docker networks with IPAM configuration (subnets, gateways)
+
+**Kopi-Docka's focus:** Stack-awareness, disaster recovery bundles, Tailscale P2P, and systemd hardening
 
 **[Full comparison →](docs/FEATURES.md#why-kopi-docka)**
 
 ---
 
-## Who Is It For?
+## Project Status
 
-- **Homelab Operators** - Multiple Docker hosts with offsite backups
-- **Self-Hosters** - Docker services with professional backup strategy
-- **Small Businesses** - Disaster recovery without enterprise costs
-- **Power Users** - Full control over backup and restore processes
+**Status:** Feature-Complete, Stabilization Phase  
+**Latest Release:** See badges above ↑
+
+The current release includes all planned core features:
+- ✅ Backup scope selection (minimal/standard/full)
+- ✅ Docker network backup with IPAM
+- ✅ Pre/Post backup hooks
+- ✅ Disaster recovery bundles
+- ✅ Systemd integration with hardening
+
+**Current Focus:**
+- Bug fixing and edge-case handling
+- Test coverage expansion
+- Documentation improvements
+
+**Known Limitations:**
+- Single repository only (no parallel multi-cloud backup)
+- Hooks require careful configuration ([Safety Guide](docs/HOOKS.md#hook-safety-rules))
+- Restore edge-cases still being hardened
+
+**New major features:** Only after stable foundation
+
+[View Changelog](CHANGELOG.md) | [Development Roadmap](docs/DEVELOPMENT.md#planned-features)
 
 ---
 
@@ -293,16 +308,13 @@ Kopi-Docka supports 7 different repository storage types:
 - PyPI: [pypi.org/project/kopi-docka](https://pypi.org/project/kopi-docka/)
 - GitHub: [github.com/TZERO78/kopi-docka](https://github.com/TZERO78/kopi-docka)
 
-### Powered by Kopia
+### Uses Kopia
 
-**Kopi-Docka wouldn't exist without [Kopia](https://kopia.io)!**
-
-Kopi-Docka is a wrapper that uses Kopia's powerful backup engine. Kopia provides:
+Kopi-Docka uses [Kopia](https://kopia.io) as its backup engine. Kopia provides:
 - 🔐 End-to-end encryption (AES-256-GCM)
 - 🗜️ Deduplication & compression
 - ☁️ Multi-cloud support
 - 📦 Incremental snapshots
-- 🚀 High performance
 
 **Links:**
 - Kopia: https://kopia.io
@@ -311,10 +323,12 @@ Kopi-Docka is a wrapper that uses Kopia's powerful backup engine. Kopia provides
 ### Other Dependencies
 
 - **[Docker](https://www.docker.com/)** - Container lifecycle management
+- **[Rclone](https://rclone.org/)** - Universal cloud storage adapter
+- **[Tailscale](https://tailscale.com/)** - WireGuard-based mesh networking (optional, for P2P backups)
 - **[Typer](https://typer.tiangolo.com/)** - CLI framework
 - **[psutil](https://github.com/giampaolo/psutil)** - System resource monitoring
 
-> **Note:** Kopi-Docka is an independent project with no official affiliation to Docker Inc. or the Kopia project.
+> **Note:** Kopi-Docka is an independent project with no official affiliation to Docker Inc., the Kopia project, or Rclone.
 
 ---
 
@@ -332,11 +346,3 @@ Copyright (c) 2025 Markus F. (TZERO78)
 - 📚 **Documentation:** [Complete docs](docs/)
 - 🐛 **Bug Reports:** [GitHub Issues](https://github.com/TZERO78/kopi-docka/issues)
 - 💬 **Discussions:** [GitHub Discussions](https://github.com/TZERO78/kopi-docka/discussions)
-
-**Love Kopi-Docka?** Give us a ⭐ on GitHub!
-
----
-
-**Current Version:** v4.0.0
-
-**[View changelog](docs/FEATURES.md#whats-new-in-v400)** | **[Contributing](docs/DEVELOPMENT.md#contributing)** | **[Troubleshooting](docs/TROUBLESHOOTING.md)**
