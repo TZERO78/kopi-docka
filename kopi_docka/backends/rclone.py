@@ -22,14 +22,33 @@ that rclone supports (OneDrive, Dropbox, Google Drive, etc.).
 """
 
 import os
+import re
 import shutil
+import socket
 import subprocess
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 import typer
 
 from .base import BackendBase
+
+
+def get_default_remote_path() -> str:
+    """
+    Generate a hostname-based default remote path.
+
+    Returns:
+        String like "kopia-backup_HOSTNAME" with sanitized hostname.
+    """
+    hostname = socket.gethostname()
+    # Sanitize hostname: remove special chars, replace . and - with _, uppercase
+    clean_hostname = re.sub(r'[^a-zA-Z0-9_]', '_', hostname.replace('.', '_').replace('-', '_'))
+    clean_hostname = re.sub(r'_+', '_', clean_hostname).strip('_').upper()
+    # Fallback if hostname is empty after sanitization
+    if not clean_hostname:
+        clean_hostname = "DEFAULT"
+    return f"kopia-backup_{clean_hostname}"
 
 
 class RcloneBackend(BackendBase):
@@ -129,6 +148,92 @@ class RcloneBackend(BackendBase):
             return (result.returncode == 0, result.stderr)
         except subprocess.TimeoutExpired:
             return (False, "Connection timed out after 30 seconds")
+        except Exception as e:
+            return (False, str(e))
+
+    def _check_remote_path_exists(
+        self, remote: str, path: str, config_path: Optional[str] = None
+    ) -> Tuple[bool, str]:
+        """
+        Check if a remote path exists using rclone lsd on the parent directory.
+
+        Args:
+            remote: Rclone remote name
+            path: Path on the remote to check
+            config_path: Optional path to rclone config file
+
+        Returns:
+            Tuple of (exists: bool, error_message: str)
+        """
+        # For root-level folder, we need to check if it exists in the remote root
+        # Use lsd to list directories at the parent level
+        if '/' in path:
+            parent = '/'.join(path.split('/')[:-1])
+            folder_name = path.split('/')[-1]
+        else:
+            parent = ''
+            folder_name = path
+
+        cmd = ["rclone", "lsd", f"{remote}:{parent}"]
+        if config_path:
+            cmd.extend(["--config", config_path])
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            # Check if the folder name appears in the output
+            if result.returncode == 0:
+                # Parse lsd output - each line contains folder info
+                for line in result.stdout.strip().split('\n'):
+                    if line.strip() and folder_name in line:
+                        # lsd format: "          -1 2024-01-01 00:00:00        -1 foldername"
+                        # The folder name is at the end
+                        parts = line.split()
+                        if parts and parts[-1] == folder_name:
+                            return (True, "")
+                return (False, f"Folder '{path}' not found")
+            else:
+                return (False, result.stderr)
+        except subprocess.TimeoutExpired:
+            return (False, "Connection timed out after 30 seconds")
+        except Exception as e:
+            return (False, str(e))
+
+    def _rclone_mkdir(
+        self, remote: str, path: str, config_path: Optional[str] = None
+    ) -> Tuple[bool, str]:
+        """
+        Create a directory on the remote using rclone mkdir.
+
+        Args:
+            remote: Rclone remote name
+            path: Path to create on the remote
+            config_path: Optional path to rclone config file
+
+        Returns:
+            Tuple of (success: bool, error_message: str)
+        """
+        cmd = ["rclone", "mkdir", f"{remote}:{path}"]
+        if config_path:
+            cmd.extend(["--config", config_path])
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            if result.returncode == 0:
+                return (True, "")
+            else:
+                return (False, result.stderr)
+        except subprocess.TimeoutExpired:
+            return (False, "Operation timed out after 60 seconds")
         except Exception as e:
             return (False, str(e))
 
@@ -234,18 +339,55 @@ class RcloneBackend(BackendBase):
             typer.secho("Remote name cannot be empty!", fg=typer.colors.RED)
             raise SystemExit(1)
 
-        # Get remote path
+        # Get remote path with hostname-based default
+        default_remote_path = get_default_remote_path()
         remote_path = typer.prompt(
             "Remote path (folder for backups)",
-            default="kopia-backup",
+            default=default_remote_path,
             type=str
         ).strip().lstrip('/')  # Remove leading slash if present
 
+        # Use default if user provides empty string
+        if not remote_path:
+            remote_path = default_remote_path
+
         typer.echo("")
 
-        # Step 4: Live connection test
-        typer.echo("Testing connection...")
+        # Step 4: Check if folder exists and offer to create it
+        typer.echo("Checking if folder exists...")
         full_remote_path = f"{remote}:{remote_path}"
+
+        exists, check_error = self._check_remote_path_exists(remote, remote_path, rclone_config)
+
+        if exists:
+            typer.secho(f"✓ Folder '{remote_path}' exists on {remote}:", fg=typer.colors.GREEN)
+        else:
+            typer.secho(f"✗ Folder '{remote_path}' not found in {remote}:", fg=typer.colors.YELLOW)
+            typer.echo("")
+
+            if typer.confirm("  Create it now?", default=True):
+                typer.echo("  Creating folder...")
+                create_success, create_error = self._rclone_mkdir(remote, remote_path, rclone_config)
+
+                if create_success:
+                    typer.secho(f"✓ Created: {full_remote_path}", fg=typer.colors.GREEN)
+                else:
+                    typer.secho(f"✗ Failed to create folder: {create_error}", fg=typer.colors.RED)
+                    typer.echo("")
+                    if not typer.confirm("Continue anyway? (You may need to create the folder manually)", default=False):
+                        typer.secho("Configuration cancelled.", fg=typer.colors.YELLOW)
+                        raise SystemExit(1)
+                    typer.secho("Proceeding without folder creation", fg=typer.colors.YELLOW)
+            else:
+                typer.secho("⚠ Folder not created. You may need to create it manually.", fg=typer.colors.YELLOW)
+                if not typer.confirm("Continue anyway?", default=False):
+                    typer.secho("Configuration cancelled.", fg=typer.colors.YELLOW)
+                    raise SystemExit(1)
+
+        typer.echo("")
+
+        # Step 5: Live connection test
+        typer.echo("Testing connection...")
 
         success, stderr = self._test_rclone_connection(remote, remote_path, rclone_config)
 
