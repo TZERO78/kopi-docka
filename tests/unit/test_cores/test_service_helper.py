@@ -186,10 +186,10 @@ class TestLockStatus:
             assert status["pid"] is None
             assert status["process_running"] is False
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_get_lock_status_exists_running(self, mock_run, helper):
         """Test lock status when file exists and process is running."""
-        mock_run.return_value = Mock()  # kill -0 succeeds
+        mock_run.return_value = Mock(returncode=0)  # kill -0 succeeds
 
         with patch("pathlib.Path.exists", return_value=True):
             with patch("pathlib.Path.read_text", return_value="12345"):
@@ -199,10 +199,10 @@ class TestLockStatus:
                 assert status["pid"] == 12345
                 assert status["process_running"] is True
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_get_lock_status_exists_not_running(self, mock_run, helper):
         """Test lock status when file exists but process is not running."""
-        mock_run.side_effect = subprocess.CalledProcessError(1, "kill")
+        mock_run.return_value = Mock(returncode=1)
 
         with patch("pathlib.Path.exists", return_value=True):
             with patch("pathlib.Path.read_text", return_value="12345"):

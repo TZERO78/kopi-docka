@@ -262,11 +262,11 @@ class ServiceHelper:
             process_running = False
             if pid:
                 try:
-                    proc_check = subprocess.run(
+                    proc_check = run_command(
                         ["kill", "-0", str(pid)],
-                        capture_output=True,
-                        text=True,
+                        "Checking lock PID",
                         timeout=5,
+                        check=False,
                     )
                     returncode = getattr(proc_check, "returncode", 0)
                     try:
