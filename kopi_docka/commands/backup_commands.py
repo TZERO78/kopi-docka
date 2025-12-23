@@ -234,19 +234,37 @@ def cmd_backup(
         raise typer.Exit(code=1)
 
 
-def cmd_restore(ctx: typer.Context, yes: bool = False, advanced: bool = False):
+def cmd_restore(
+    ctx: typer.Context,
+    yes: bool = False,
+    advanced: bool = False,
+    force_recreate_networks: bool = False,
+    no_recreate_networks: bool = False,
+):
     """Launch the interactive restore wizard.
 
     Args:
         ctx: Typer context
         yes: Non-interactive mode
         advanced: Enable cross-machine restore (show all machines in repository)
+        force_recreate_networks: Force recreation of existing networks (non-interactive)
+        no_recreate_networks: Never recreate existing networks
     """
+    if force_recreate_networks and no_recreate_networks:
+        raise typer.BadParameter(
+            "Cannot use --force-recreate-networks and --no-recreate-networks together"
+        )
+
     cfg = ensure_config(ctx)
     repo = ensure_repository(ctx)
 
     try:
-        rm = RestoreManager(cfg, non_interactive=yes)
+        rm = RestoreManager(
+            cfg,
+            non_interactive=yes,
+            force_recreate_networks=force_recreate_networks,
+            skip_network_recreation=no_recreate_networks,
+        )
         if advanced:
             rm.advanced_interactive_restore()
         else:
@@ -296,9 +314,27 @@ def register(app: typer.Typer):
             "--advanced",
             help="Cross-machine restore: show backups from ALL machines in repository"
         ),
+        force_recreate_networks: bool = typer.Option(
+            False,
+            "--force-recreate-networks",
+            help=(
+                "Always recreate existing networks (stop/restart attached containers automatically)"
+            ),
+        ),
+        no_recreate_networks: bool = typer.Option(
+            False,
+            "--no-recreate-networks",
+            help="Never recreate existing networks during restore",
+        ),
     ):
         """Launch the interactive restore wizard.
 
         Use --advanced for cross-machine restore (e.g., restoring from a crashed server).
         """
-        cmd_restore(ctx, yes=yes, advanced=advanced)
+        cmd_restore(
+            ctx,
+            yes=yes,
+            advanced=advanced,
+            force_recreate_networks=force_recreate_networks,
+            no_recreate_networks=no_recreate_networks,
+        )

@@ -114,12 +114,14 @@ kopi-docka
 | Option | Description |
 |--------|-------------|
 | `--yes` / `-y` | Non-interactive mode - skips all prompts, uses automatic defaults |
+| `--force-recreate-networks` | Always recreate existing networks (stops/restarts attached containers) |
+| `--no-recreate-networks` | Never recreate existing networks during restore |
 
 **Non-interactive restore (`--yes`) behavior:**
 - Selects newest backup session automatically
 - Restores first available unit
 - Skips confirmation prompts
-- Recreates networks automatically on conflict
+- Recreates networks automatically on conflict (unless `--no-recreate-networks` is set)
 - Restores all volumes without prompting
 - Uses default directory for configs, auto-backup on conflict
 
