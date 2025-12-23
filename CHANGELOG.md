@@ -5,6 +5,21 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.1.0] - 2025-12-23
+
+### Added
+
+- **Advanced Restore with Cross-Machine Support** (`--advanced`)
+  - New `kopi-docka restore --advanced` for cross-machine restore
+  - Machine discovery: shows all machines with backups in repository
+  - Cross-machine warning with conflict detection hints
+  - `MachineInfo` dataclass for machine metadata aggregation
+  - `list_all_snapshots()` method with `--all` flag for full repository scan
+  - `discover_machines()` method for machine enumeration
+  - Use case: Restore from crashed server to new hardware
+
+---
+
 ## [5.0.0] - 2025-12-23
 
 ### BREAKING CHANGES

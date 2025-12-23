@@ -32,6 +32,7 @@ import json
 import os
 import shutil
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, IO, List, Optional, Tuple, Union
 
@@ -392,6 +393,10 @@ class KopiaRepository:
         Returns:
             Snapshot ID
         """
+        # Validate path is not empty
+        if not path or path.strip() == "":
+            raise ValueError("Snapshot path cannot be empty")
+
         args = ["kopia", "snapshot", "create", path, "--json"]
         if tags:
             for k, v in tags.items():
@@ -399,9 +404,31 @@ class KopiaRepository:
         if exclude_patterns:
             for pattern in exclude_patterns:
                 args += ["--ignore", pattern]
+
+        # Debug: Log the actual command being executed
+        logger.debug(
+            f"Executing Kopia snapshot create",
+            extra={
+                "path": path,
+                "tags": tags,
+                "exclude_patterns": exclude_patterns,
+                "full_command": " ".join(args[:10]) + ("..." if len(args) > 10 else ""),
+            }
+        )
+
         proc = self._run(args, check=True)
         snap = self._parse_single_json_line(proc.stdout)
         snap_id = snap.get("snapshotID") or snap.get("id") or ""
+
+        # Debug: Log raw Kopia response
+        logger.debug(
+            f"Kopia snapshot created",
+            extra={
+                "snapshot_id": snap_id,
+                "raw_response_preview": proc.stdout[:500] if proc.stdout else "empty",
+            }
+        )
+
         if not snap_id:
             raise RuntimeError(f"Could not determine snapshot ID from output: {proc.stdout[:200]}")
         return snap_id
@@ -497,7 +524,117 @@ class KopiaRepository:
             })
         
         return snaps
-  
+
+    def list_all_snapshots(self, tag_filter: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
+        """
+        List ALL snapshots from ALL machines in repository.
+
+        Unlike list_snapshots(), this includes snapshots from other hosts.
+        Used for cross-machine restore functionality.
+
+        Args:
+            tag_filter: Optional dict to filter by tags
+
+        Returns:
+            List of snapshot dicts with id, path, timestamp, tags, size, host
+        """
+        proc = self._run(["kopia", "snapshot", "list", "--all", "--json"], check=True)
+
+        try:
+            raw_snaps = json.loads(proc.stdout or "[]")
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse snapshot list: {e}")
+            return []
+
+        if not isinstance(raw_snaps, list):
+            logger.warning("Unexpected snapshot list format (not an array)")
+            return []
+
+        snaps: List[Dict[str, Any]] = []
+        for obj in raw_snaps:
+            # Remove "tag:" prefix from tags
+            tags_raw = obj.get("tags") or {}
+            tags = {k.replace("tag:", ""): v for k, v in tags_raw.items()}
+
+            # Apply tag filter if provided
+            if tag_filter and any(tags.get(k) != v for k, v in tag_filter.items()):
+                continue
+
+            src = obj.get("source") or {}
+            stats = obj.get("stats") or {}
+            snaps.append({
+                "id": obj.get("id", ""),
+                "path": src.get("path", ""),
+                "host": src.get("host", "unknown"),  # Include hostname!
+                "userName": src.get("userName", ""),
+                "timestamp": obj.get("startTime") or obj.get("time") or "",
+                "tags": tags,
+                "size": stats.get("totalSize") or 0,
+            })
+
+        return snaps
+
+    def discover_machines(self) -> List["MachineInfo"]:
+        """
+        Discover all machines that have backups in the repository.
+
+        Aggregates snapshot information by hostname to provide an overview
+        of all backup sources.
+
+        Returns:
+            List of MachineInfo objects sorted by last backup (newest first)
+        """
+        from ..types import MachineInfo
+
+        all_snapshots = self.list_all_snapshots()
+        machines: Dict[str, MachineInfo] = {}
+
+        for snap in all_snapshots:
+            host = snap.get("host", "unknown")
+
+            if host not in machines:
+                machines[host] = MachineInfo(
+                    hostname=host,
+                    last_backup=datetime.min,
+                    backup_count=0,
+                    units=[],
+                    total_size=0
+                )
+
+            m = machines[host]
+            m.backup_count += 1
+
+            # Parse timestamp
+            ts_str = snap.get("timestamp")
+            if ts_str:
+                try:
+                    # Handle ISO format with timezone
+                    ts_str_clean = ts_str.replace("Z", "+00:00")
+                    ts = datetime.fromisoformat(ts_str_clean)
+                    if ts > m.last_backup:
+                        m.last_backup = ts
+                except ValueError:
+                    pass
+
+            # Extract unit name from tags
+            tags = snap.get("tags", {})
+            unit = tags.get("unit")
+            if unit and unit not in m.units:
+                m.units.append(unit)
+
+            # Aggregate size
+            m.total_size += snap.get("size", 0)
+
+        # Sort by last backup (newest first)
+        result = sorted(machines.values(), key=lambda m: m.last_backup, reverse=True)
+
+        logger.debug(
+            f"Discovered {len(result)} machines in repository",
+            extra={"machines": [m.hostname for m in result]}
+        )
+
+        return result
+
     # --------------- Restore / Verify / Maintenance ---------------
 
     def restore_snapshot(self, snapshot_id: str, target_path: str) -> None:
