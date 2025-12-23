@@ -392,6 +392,10 @@ class KopiaRepository:
         Returns:
             Snapshot ID
         """
+        # Validate path is not empty
+        if not path or path.strip() == "":
+            raise ValueError("Snapshot path cannot be empty")
+
         args = ["kopia", "snapshot", "create", path, "--json"]
         if tags:
             for k, v in tags.items():
@@ -399,9 +403,31 @@ class KopiaRepository:
         if exclude_patterns:
             for pattern in exclude_patterns:
                 args += ["--ignore", pattern]
+
+        # Debug: Log the actual command being executed
+        logger.debug(
+            f"Executing Kopia snapshot create",
+            extra={
+                "path": path,
+                "tags": tags,
+                "exclude_patterns": exclude_patterns,
+                "full_command": " ".join(args[:10]) + ("..." if len(args) > 10 else ""),
+            }
+        )
+
         proc = self._run(args, check=True)
         snap = self._parse_single_json_line(proc.stdout)
         snap_id = snap.get("snapshotID") or snap.get("id") or ""
+
+        # Debug: Log raw Kopia response
+        logger.debug(
+            f"Kopia snapshot created",
+            extra={
+                "snapshot_id": snap_id,
+                "raw_response_preview": proc.stdout[:500] if proc.stdout else "empty",
+            }
+        )
+
         if not snap_id:
             raise RuntimeError(f"Could not determine snapshot ID from output: {proc.stdout[:200]}")
         return snap_id
