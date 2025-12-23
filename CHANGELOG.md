@@ -5,6 +5,45 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.0.0] - 2025-12-23
+
+### BREAKING CHANGES
+
+- **Direct Kopia Snapshots** - Volume backups now use direct Kopia snapshots instead of TAR streams
+  - **Impact**: Block-level deduplication now works correctly
+  - **Impact**: Incremental backups are significantly smaller and faster
+  - **Migration**: No action required - old TAR-based backups remain fully restorable
+  - **Compatibility**: Kopi-Docka < 5.0 cannot restore backups created with v5.0+
+
+### Added
+
+- **Direct Backup Format** (`backup_format: direct`)
+  - New `_backup_volume_direct()` method for direct Kopia snapshots
+  - New `_execute_volume_restore_direct()` for restoring direct snapshots
+  - Automatic format detection in restore workflow
+  - `backup_format` tag added to all volume snapshots
+  - `backup_format` field added to `BackupMetadata` dataclass
+- **Exclude Patterns for Direct Mode** - `exclude_patterns` config now works with direct snapshots
+- **Constants**: `BACKUP_FORMAT_TAR`, `BACKUP_FORMAT_DIRECT`, `BACKUP_FORMAT_DEFAULT`
+
+### Changed
+
+- **Default Backup Format** - Changed from TAR to direct Kopia snapshots
+- **Restore Logic** - Now auto-detects backup format and uses appropriate restore method
+- `create_snapshot()` now accepts optional `exclude_patterns` parameter
+
+### Deprecated
+
+- **`create_snapshot_from_stdin()`** - Deprecated in favor of `create_snapshot()`
+  - Will be removed in v6.0.0
+  - TAR-based backups prevent block-level deduplication
+
+### Fixed
+
+- **Storage Efficiency** - 100 GB volume with 1 GB changes now only backs up ~1 GB (was 100 GB)
+
+---
+
 ## [4.2.5] - 2025-12-22
 
 ### Fixed

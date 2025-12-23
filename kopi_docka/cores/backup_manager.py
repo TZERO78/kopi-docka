@@ -652,6 +652,7 @@ class BackupManager:
             )
 
             # Create direct Kopia snapshot of volume directory
+            # Pass exclude patterns from config (same as TAR mode)
             snap_id = self.repo.create_snapshot(
                 str(volume_path),
                 tags={
@@ -663,6 +664,7 @@ class BackupManager:
                     "size_bytes": str(getattr(volume, "size_bytes", 0) or "0"),
                     "backup_format": BACKUP_FORMAT_DIRECT,
                 },
+                exclude_patterns=self.exclude_patterns if self.exclude_patterns else None,
             )
 
             logger.debug(
