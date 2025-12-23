@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from ..helpers.logging import get_logger
+from ..helpers.ui_utils import run_command, SubprocessError
 
 LOGGER = get_logger("kopi_docka.service_helper")
 
@@ -87,26 +88,29 @@ class ServiceHelper:
         """
         try:
             # Check if service is active (running)
-            active_result = subprocess.run(
+            active_result = run_command(
                 ["systemctl", "is-active", self.service_name],
-                capture_output=True,
-                text=True,
+                "Checking service status",
+                timeout=10,
+                check=False,
             )
             active = active_result.stdout.strip() == "active"
 
             # Check if service is enabled (starts at boot)
-            enabled_result = subprocess.run(
+            enabled_result = run_command(
                 ["systemctl", "is-enabled", self.service_name],
-                capture_output=True,
-                text=True,
+                "Checking service enabled",
+                timeout=10,
+                check=False,
             )
             enabled = enabled_result.stdout.strip() == "enabled"
 
             # Check if service is in failed state
-            failed_result = subprocess.run(
+            failed_result = run_command(
                 ["systemctl", "is-failed", self.service_name],
-                capture_output=True,
-                text=True,
+                "Checking service failed",
+                timeout=10,
+                check=False,
             )
             failed = failed_result.stdout.strip() == "failed"
 
@@ -125,18 +129,20 @@ class ServiceHelper:
         """
         try:
             # Check if timer is active
-            active_result = subprocess.run(
+            active_result = run_command(
                 ["systemctl", "is-active", self.timer_name],
-                capture_output=True,
-                text=True,
+                "Checking timer status",
+                timeout=10,
+                check=False,
             )
             active = active_result.stdout.strip() == "active"
 
             # Check if timer is enabled
-            enabled_result = subprocess.run(
+            enabled_result = run_command(
                 ["systemctl", "is-enabled", self.timer_name],
-                capture_output=True,
-                text=True,
+                "Checking timer enabled",
+                timeout=10,
+                check=False,
             )
             enabled = enabled_result.stdout.strip() == "enabled"
 
@@ -159,10 +165,11 @@ class ServiceHelper:
             Tuple of (next_run_time, time_left)
         """
         try:
-            result = subprocess.run(
+            result = run_command(
                 ["systemctl", "list-timers", self.timer_name, "--no-pager"],
-                capture_output=True,
-                text=True,
+                "Getting timer schedule",
+                timeout=10,
+                check=False,
             )
 
             if result.returncode != 0:
@@ -339,13 +346,13 @@ class ServiceHelper:
             else:
                 cmd.extend(["-n", str(lines)])
 
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = run_command(cmd, "Retrieving logs", timeout=30, check=False)
 
             if result.returncode != 0:
                 return [f"Failed to retrieve logs: {result.stderr}"]
 
-            lines = result.stdout.splitlines()
-            return lines if lines else ["No logs found"]
+            log_lines = result.stdout.splitlines()
+            return log_lines if log_lines else ["No logs found"]
 
         except Exception as e:
             LOGGER.error(f"Failed to get logs: {e}")
@@ -421,10 +428,11 @@ class ServiceHelper:
         try:
             unit_name = self.timer_name if unit == "timer" else self.service_name
 
-            result = subprocess.run(
+            result = run_command(
                 ["systemctl", action, unit_name],
-                capture_output=True,
-                text=True,
+                f"Running systemctl {action}",
+                timeout=30,
+                check=False,
             )
 
             if result.returncode == 0:
@@ -448,10 +456,11 @@ class ServiceHelper:
             True if successful, False otherwise
         """
         try:
-            result = subprocess.run(
+            result = run_command(
                 ["systemctl", "daemon-reload"],
-                capture_output=True,
-                text=True,
+                "Reloading systemd daemon",
+                timeout=30,
+                check=False,
             )
             return result.returncode == 0
         except Exception as e:
@@ -477,18 +486,20 @@ class ServiceHelper:
         """
         try:
             # Check if service is enabled
-            service_enabled_result = subprocess.run(
+            service_enabled_result = run_command(
                 ["systemctl", "is-enabled", self.service_name],
-                capture_output=True,
-                text=True,
+                "Checking service enabled",
+                timeout=10,
+                check=False,
             )
             service_enabled = service_enabled_result.stdout.strip() == "enabled"
 
             # Check if timer is enabled
-            timer_enabled_result = subprocess.run(
+            timer_enabled_result = run_command(
                 ["systemctl", "is-enabled", self.timer_name],
-                capture_output=True,
-                text=True,
+                "Checking timer enabled",
+                timeout=10,
+                check=False,
             )
             timer_enabled = timer_enabled_result.stdout.strip() == "enabled"
 
@@ -627,18 +638,16 @@ class ServiceHelper:
             LOGGER.info("Starting one-shot backup via kopi-docka-backup.service")
             cmd = ["systemctl", "start", self.backup_service_name]
 
-            result = subprocess.run(
+            run_command(
                 cmd,
-                check=True,
-                capture_output=True,
-                text=True,
+                "Starting backup service",
                 timeout=300,  # 5 minute timeout for backup start
             )
 
             LOGGER.info("Backup service started successfully")
             return True
 
-        except subprocess.CalledProcessError as e:
+        except SubprocessError as e:
             LOGGER.error(f"Failed to start backup: {e.stderr}")
             return False
         except subprocess.TimeoutExpired:
@@ -665,7 +674,7 @@ class ServiceHelper:
                 self.backup_service_name,
                 "--property=ActiveState,SubState,ExecMainStatus",
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            result = run_command(cmd, "Getting backup service status", timeout=10)
 
             # Parse output
             props = {}
@@ -792,11 +801,11 @@ class ServiceHelper:
             True if valid, False otherwise
         """
         try:
-            result = subprocess.run(
+            result = run_command(
                 ["systemd-analyze", "calendar", calendar_str],
-                capture_output=True,
-                text=True,
+                "Validating calendar syntax",
                 timeout=5,
+                check=False,
             )
             # systemd-analyze returns 0 if syntax is valid
             return result.returncode == 0
