@@ -44,6 +44,7 @@ from rich.console import Console
 from rich.prompt import Prompt
 
 from ..helpers.logging import get_logger
+from ..helpers.ui_utils import run_command, SubprocessError
 from ..types import RestorePoint
 from ..helpers.config import Config
 from ..cores.repository_manager import KopiaRepository
@@ -799,11 +800,10 @@ class RestoreManager:
                 network_configs = json.loads(networks_file.read_text())
 
                 # Get list of existing networks
-                result = subprocess.run(
+                result = run_command(
                     ["docker", "network", "ls", "--format", "{{.Name}}"],
-                    capture_output=True,
-                    text=True,
-                    check=True
+                    "Listing existing networks",
+                    timeout=10,
                 )
                 existing_networks = set(result.stdout.strip().split("\n"))
 
@@ -834,13 +834,12 @@ class RestoreManager:
                         # Remove existing network
                         print(f"      🗑️  Removing existing network '{net_name}'...")
                         try:
-                            subprocess.run(
+                            run_command(
                                 ["docker", "network", "rm", net_name],
-                                capture_output=True,
-                                text=True,
-                                check=True
+                                f"Removing network {net_name}",
+                                timeout=30,
                             )
-                        except subprocess.CalledProcessError as e:
+                        except SubprocessError as e:
                             print(f"      ❌ Failed to remove network: {e.stderr}")
                             print(f"         Network may be in use. Stop containers first.")
                             continue
@@ -886,7 +885,7 @@ class RestoreManager:
                         cmd.append(net_name)
 
                         # Execute
-                        subprocess.run(cmd, capture_output=True, text=True, check=True)
+                        run_command(cmd, f"Creating network {net_name}", timeout=30)
                         print(f"      ✅ Network '{net_name}' created")
                         restored_count += 1
 
@@ -895,7 +894,7 @@ class RestoreManager:
                             extra={"unit_name": rp.unit_name, "network": net_name}
                         )
 
-                    except subprocess.CalledProcessError as e:
+                    except SubprocessError as e:
                         print(f"      ❌ Failed to create network: {e.stderr}")
                         logger.error(
                             f"Network creation failed: {e.stderr}",
@@ -1101,14 +1100,19 @@ class RestoreManager:
         try:
             # 1. Stop containers
             print("   1️⃣ Stopping containers...")
-            result = subprocess.run(
+            result = run_command(
                 ["docker", "ps", "-q", "--filter", f"volume={vol}"],
-                capture_output=True, text=True, check=True
+                "Finding containers using volume",
+                timeout=10,
             )
             stopped_ids = [s for s in result.stdout.strip().split() if s]
 
             if stopped_ids:
-                subprocess.run(["docker", "stop"] + stopped_ids, check=True)
+                run_command(
+                    ["docker", "stop"] + stopped_ids,
+                    f"Stopping {len(stopped_ids)} container(s)",
+                    timeout=60,
+                )
                 print(f"      ✓ Stopped {len(stopped_ids)} container(s)")
             else:
                 print("      ℹ No running containers using this volume")
@@ -1117,13 +1121,13 @@ class RestoreManager:
             print("\n   2️⃣ Creating safety backup...")
             backup_name = f"{vol}-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.tar.gz"
 
-            result = subprocess.run([
+            run_command([
                 "docker", "run", "--rm",
                 "-v", f"{vol}:/src",
                 "-v", "/tmp:/backup",
                 "alpine",
                 "sh", "-c", f"tar -czf /backup/{backup_name} -C /src . 2>/dev/null || true"
-            ], capture_output=True, text=True)
+            ], "Creating safety backup", timeout=300, check=False)
 
             backup_path = Path(f"/tmp/{backup_name}")
             if backup_path.exists():
@@ -1138,20 +1142,21 @@ class RestoreManager:
 
             with temp_restore_dir() as restore_dir:
                 # Restore snapshot directly
-                subprocess.run([
+                run_command([
                     "kopia", "snapshot", "restore", snap_id,
                     "--config-file", config_file,
                     str(restore_dir)
-                ], check=True, capture_output=True, text=True)
+                ], "Restoring snapshot from Kopia", show_output=True)
 
                 # Count restored files
                 file_count = sum(1 for _ in restore_dir.rglob("*") if _.is_file())
                 print(f"      ✓ Restored {file_count} files")
 
                 # Get Docker volume mountpoint
-                result = subprocess.run(
+                result = run_command(
                     ["docker", "volume", "inspect", vol, "--format", "{{.Mountpoint}}"],
-                    capture_output=True, text=True, check=True
+                    f"Getting mountpoint for {vol}",
+                    timeout=10,
                 )
                 volume_mountpoint = result.stdout.strip()
 
@@ -1163,38 +1168,44 @@ class RestoreManager:
                 print("      ℹ Copying files to volume...")
 
                 # Use rsync for efficient copy with permissions preserved
-                rsync_result = subprocess.run([
+                rsync_result = run_command([
                     "rsync", "-a", "--delete",
                     "--numeric-ids",
                     f"{restore_dir}/",
                     f"{volume_mountpoint}/"
-                ], capture_output=True, text=True)
+                ], "Syncing files to volume", timeout=600, check=False)
 
                 if rsync_result.returncode != 0:
                     # Fallback to cp if rsync not available
                     logger.warning("rsync failed, falling back to cp")
+                    # shell=True required for glob patterns - see Phase 0 analysis
                     subprocess.run(
                         f"rm -rf {volume_mountpoint}/* {volume_mountpoint}/.[!.]* {volume_mountpoint}/..?* 2>/dev/null || true",
                         shell=True
                     )
-                    subprocess.run([
+                    run_command([
                         "cp", "-a",
                         f"{restore_dir}/.",
                         f"{volume_mountpoint}/"
-                    ], check=True)
+                    ], "Copying files to volume", timeout=600)
 
                 print("      ✓ Volume restored (direct format)")
 
             # 4. Restart containers
             print("\n   4️⃣ Restarting containers...")
-            result = subprocess.run(
+            result = run_command(
                 ["docker", "ps", "-a", "-q", "--filter", f"volume={vol}"],
-                capture_output=True, text=True, check=True
+                "Finding containers to restart",
+                timeout=10,
             )
             container_ids = [c for c in result.stdout.strip().split() if c]
 
             if container_ids:
-                subprocess.run(["docker", "start"] + container_ids, check=True)
+                run_command(
+                    ["docker", "start"] + container_ids,
+                    f"Starting {len(container_ids)} container(s)",
+                    timeout=60,
+                )
                 print(f"      ✓ Restarted {len(container_ids)} container(s)")
             else:
                 print("      ℹ No containers to restart")
@@ -1204,7 +1215,7 @@ class RestoreManager:
 
             return True
 
-        except subprocess.CalledProcessError as e:
+        except SubprocessError as e:
             print(f"      ❌ Command failed: {e}")
             return False
         except KeyboardInterrupt:
@@ -1246,14 +1257,19 @@ class RestoreManager:
         try:
             # 1. Stop containers
             print("   1️⃣ Stopping containers...")
-            result = subprocess.run(
+            result = run_command(
                 ["docker", "ps", "-q", "--filter", f"volume={vol}"],
-                capture_output=True, text=True, check=True
+                "Finding containers using volume",
+                timeout=10,
             )
             stopped_ids = [s for s in result.stdout.strip().split() if s]
 
             if stopped_ids:
-                subprocess.run(["docker", "stop"] + stopped_ids, check=True)
+                run_command(
+                    ["docker", "stop"] + stopped_ids,
+                    f"Stopping {len(stopped_ids)} container(s)",
+                    timeout=60,
+                )
                 print(f"      ✓ Stopped {len(stopped_ids)} container(s)")
             else:
                 print("      ℹ No running containers using this volume")
@@ -1262,13 +1278,13 @@ class RestoreManager:
             print("\n   2️⃣ Creating safety backup...")
             backup_name = f"{vol}-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.tar.gz"
 
-            result = subprocess.run([
+            run_command([
                 "docker", "run", "--rm",
                 "-v", f"{vol}:/src",
                 "-v", "/tmp:/backup",
                 "alpine",
                 "sh", "-c", f"tar -czf /backup/{backup_name} -C /src . 2>/dev/null || true"
-            ], capture_output=True, text=True)
+            ], "Creating safety backup", timeout=300, check=False)
 
             backup_path = Path(f"/tmp/{backup_name}")
             if backup_path.exists():
@@ -1287,11 +1303,11 @@ class RestoreManager:
                 volume_path.mkdir(parents=True, exist_ok=True)
 
                 # Restore snapshot
-                subprocess.run([
+                run_command([
                     "kopia", "snapshot", "restore", snap_id,
                     "--config-file", config_file,
                     str(restore_dir)
-                ], check=True, capture_output=True, text=True)
+                ], "Restoring snapshot from Kopia", show_output=True)
 
                 # Find tar file
                 tar_file = restore_dir / "volumes" / unit / vol
@@ -1301,9 +1317,11 @@ class RestoreManager:
                     return False
 
                 # Verify it's a tar
-                file_check = subprocess.run(
+                file_check = run_command(
                     ["file", str(tar_file)],
-                    capture_output=True, text=True
+                    "Checking file type",
+                    timeout=10,
+                    check=False,
                 )
 
                 if "tar archive" not in file_check.stdout.lower():
@@ -1315,7 +1333,7 @@ class RestoreManager:
 
                 # Extract tar into volume
                 print("      ℹ Extracting into volume...")
-                docker_proc = subprocess.run([
+                docker_proc = run_command([
                     "docker", "run", "--rm",
                     "-v", f"{vol}:/target",
                     "-v", f"{tar_file}:/backup.tar:ro",
@@ -1323,7 +1341,7 @@ class RestoreManager:
                     "bash", "-c",
                     "rm -rf /target/* /target/..?* /target/.[!.]* 2>/dev/null || true; "
                     "tar -xpf /backup.tar --numeric-owner --xattrs --acls -C /target"
-                ], capture_output=True, text=True)
+                ], "Extracting tar to volume", timeout=600, check=False)
 
                 if docker_proc.returncode != 0:
                     print(f"      ❌ Tar extract failed: {docker_proc.stderr}")
@@ -1333,14 +1351,19 @@ class RestoreManager:
 
             # 4. Restart containers
             print("\n   4️⃣ Restarting containers...")
-            result = subprocess.run(
+            result = run_command(
                 ["docker", "ps", "-a", "-q", "--filter", f"volume={vol}"],
-                capture_output=True, text=True, check=True
+                "Finding containers to restart",
+                timeout=10,
             )
             container_ids = [c for c in result.stdout.strip().split() if c]
 
             if container_ids:
-                subprocess.run(["docker", "start"] + container_ids, check=True)
+                run_command(
+                    ["docker", "start"] + container_ids,
+                    f"Starting {len(container_ids)} container(s)",
+                    timeout=60,
+                )
                 print(f"      ✓ Restarted {len(container_ids)} container(s)")
             else:
                 print("      ℹ No containers to restart")
@@ -1615,13 +1638,13 @@ class RestoreManager:
             uid, gid, username = self._get_real_user_ids()
             if uid != 0:  # Nur wenn mit sudo gestartet (nicht als root direkt)
                 try:
-                    subprocess.run([
+                    run_command([
                         "chown", "-R", f"{username}:{username}", str(target_path)
-                    ], check=True, capture_output=True)
+                    ], f"Fixing ownership to {username}", timeout=60)
                     console.print(f"✓ Fixed ownership: [cyan]{username}:{username}[/cyan]")
                     logger.info(f"Changed ownership to {username}:{username}", extra={"path": str(target_path)})
-                except subprocess.CalledProcessError as e:
-                    console.print(f"[yellow]⚠️  Could not fix ownership: {e.stderr.decode() if e.stderr else str(e)}[/yellow]")
+                except SubprocessError as e:
+                    console.print(f"[yellow]⚠️  Could not fix ownership: {e.stderr}[/yellow]")
                     logger.warning(f"Ownership change failed: {e}")
             
             console.print(f"\n📄 Copied files:")
