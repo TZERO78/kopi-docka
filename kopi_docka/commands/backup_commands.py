@@ -234,14 +234,23 @@ def cmd_backup(
         raise typer.Exit(code=1)
 
 
-def cmd_restore(ctx: typer.Context, yes: bool = False):
-    """Launch the interactive restore wizard."""
+def cmd_restore(ctx: typer.Context, yes: bool = False, advanced: bool = False):
+    """Launch the interactive restore wizard.
+
+    Args:
+        ctx: Typer context
+        yes: Non-interactive mode
+        advanced: Enable cross-machine restore (show all machines in repository)
+    """
     cfg = ensure_config(ctx)
     repo = ensure_repository(ctx)
 
     try:
         rm = RestoreManager(cfg, non_interactive=yes)
-        rm.interactive_restore()
+        if advanced:
+            rm.advanced_interactive_restore()
+        else:
+            rm.interactive_restore()
     except Exception as e:
         print_error_panel(f"Restore failed: {e}")
         raise typer.Exit(code=1)
@@ -282,6 +291,14 @@ def register(app: typer.Typer):
             "--yes", "-y",
             help="Non-interactive mode: auto-confirm all prompts (for CI/CD and scripts)"
         ),
+        advanced: bool = typer.Option(
+            False,
+            "--advanced",
+            help="Cross-machine restore: show backups from ALL machines in repository"
+        ),
     ):
-        """Launch the interactive restore wizard."""
-        cmd_restore(ctx, yes=yes)
+        """Launch the interactive restore wizard.
+
+        Use --advanced for cross-machine restore (e.g., restoring from a crashed server).
+        """
+        cmd_restore(ctx, yes=yes, advanced=advanced)

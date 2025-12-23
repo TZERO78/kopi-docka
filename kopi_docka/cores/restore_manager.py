@@ -281,6 +281,308 @@ class RestoreManager:
 
         self._restore_unit(sel)
 
+    def advanced_interactive_restore(self):
+        """Run advanced interactive wizard with cross-machine support.
+
+        This wizard shows ALL machines that have backups in the repository,
+        allowing restore from a different/crashed server.
+        """
+        import socket
+
+        print("\n" + "=" * 60)
+        print("🔄 Kopi-Docka Advanced Restore Wizard")
+        print("   (Cross-Machine Restore Mode)")
+        if self.non_interactive:
+            print("   (Non-interactive mode: --yes)")
+        print("=" * 60)
+
+        logger.info(
+            "Starting advanced restore wizard",
+            extra={"non_interactive": self.non_interactive}
+        )
+
+        # Check dependencies
+        from ..cores.dependency_manager import DependencyManager
+
+        deps = DependencyManager()
+        missing = []
+
+        if not deps.check_docker():
+            missing.append("Docker")
+        if not deps.check_tar():
+            missing.append("tar")
+        if not deps.check_kopia():
+            missing.append("Kopia")
+
+        if missing:
+            print("\n❌ Missing required dependencies:")
+            for dep in missing:
+                print(f"   • {dep}")
+            print("\nPlease install missing dependencies:")
+            print("   kopi-docka install-deps")
+            logger.error(f"Restore aborted: missing dependencies {missing}")
+            return
+
+        if not self.repo.is_connected():
+            print("\n❌ Not connected to Kopia repository")
+            print("\nPlease connect first:")
+            print("   kopi-docka init")
+            logger.error("Restore aborted: repository not connected")
+            return
+
+        print("\n✓ Dependencies OK")
+        print("✓ Repository connected")
+
+        # Step 1: Discover all machines
+        print("\n📡 Scanning repository for all machines...")
+        machines = self.repo.discover_machines()
+
+        if not machines:
+            print("\n❌ No backups found in repository.")
+            logger.warning("No machines found in repository")
+            return
+
+        current_hostname = socket.gethostname()
+
+        print("\n📋 Machines with backups in repository:\n")
+        for idx, m in enumerate(machines, 1):
+            is_current = "⭐" if m.hostname == current_hostname else "  "
+            last_backup_str = m.last_backup.strftime('%Y-%m-%d %H:%M:%S') if m.last_backup.year > 1 else "unknown"
+            size_mb = m.total_size / 1024 / 1024
+
+            print(f"{idx}. {is_current} 🖥️  {m.hostname}")
+            print(f"      Last backup: {last_backup_str}")
+            print(f"      Units: {', '.join(m.units[:5])}{' ...' if len(m.units) > 5 else ''} ({len(m.units)} total)")
+            print(f"      Snapshots: {m.backup_count} ({size_mb:.1f} MB)")
+            print()
+
+        # Step 2: Select machine
+        if self.non_interactive:
+            machine_idx = 0
+            print(f"🎯 Auto-selecting first machine (--yes mode)")
+            logger.info("Auto-selected first machine (non-interactive)")
+        else:
+            while True:
+                try:
+                    choice = input("🎯 Select source machine (number, or 'q' to quit): ").strip().lower()
+
+                    if choice == 'q':
+                        print("\n⚠️ Restore cancelled.")
+                        logger.info("Restore cancelled by user")
+                        return
+
+                    machine_idx = int(choice) - 1
+                    if 0 <= machine_idx < len(machines):
+                        break
+                    print("❌ Invalid selection. Please try again.")
+                except ValueError:
+                    print("❌ Please enter a number or 'q' to quit.")
+                except KeyboardInterrupt:
+                    print("\n⚠️ Restore cancelled.")
+                    logger.info("Restore cancelled by user (interrupt)")
+                    return
+
+        selected_machine = machines[machine_idx]
+
+        # Cross-machine warning
+        if selected_machine.hostname != current_hostname:
+            print("\n" + "=" * 60)
+            print("⚠️  CROSS-MACHINE RESTORE WARNING")
+            print("=" * 60)
+            print(f"\n   Source:  {selected_machine.hostname}")
+            print(f"   Target:  {current_hostname} (current)")
+            print("\n   ⚠️  Potential Issues:")
+            print("   • Container names may conflict with existing containers")
+            print("   • Network names may conflict with existing networks")
+            print("   • Volume names may conflict with existing volumes")
+            print("   • Paths in configs may need adjustment")
+
+            if not self.non_interactive:
+                confirm = input("\n⚠️  Proceed with cross-machine restore? (yes/no): ").strip().lower()
+                if confirm not in ('yes', 'y'):
+                    print("❌ Restore cancelled.")
+                    logger.info("Cross-machine restore cancelled by user")
+                    return
+
+        # Step 3: Find restore points for selected machine
+        points = self._find_restore_points_for_machine(selected_machine.hostname)
+
+        if not points:
+            print(f"\n❌ No backups found for machine: {selected_machine.hostname}")
+            logger.warning(f"No restore points found for machine {selected_machine.hostname}")
+            return
+
+        # Group by sessions (same as interactive_restore)
+        sorted_points = sorted(points, key=lambda x: x.timestamp, reverse=True)
+
+        sessions = []
+        current_session = None
+
+        for p in sorted_points:
+            if current_session is None:
+                current_session = {'timestamp': p.timestamp, 'units': [p]}
+            else:
+                time_diff = current_session['timestamp'] - p.timestamp
+                if time_diff <= timedelta(minutes=5):
+                    current_session['units'].append(p)
+                else:
+                    sessions.append(current_session)
+                    current_session = {'timestamp': p.timestamp, 'units': [p]}
+
+        if current_session:
+            sessions.append(current_session)
+
+        print(f"\n📋 Backup sessions for {selected_machine.hostname}:\n")
+        for idx, session in enumerate(sessions, 1):
+            ts = session['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
+            units = session['units']
+            unit_names = ', '.join([u.unit_name for u in units])
+            total_volumes = sum(len(u.volume_snapshots) for u in units)
+
+            print(f"{idx}. 📅 {ts}")
+            print(f"   Units: {unit_names}")
+            print(f"   Total volumes: {total_volumes}\n")
+
+        # Select session
+        if self.non_interactive:
+            session_idx = 0
+            print(f"🎯 Auto-selecting most recent session (--yes mode)")
+        else:
+            while True:
+                try:
+                    choice = input("🎯 Select backup session (number, or 'q' to quit): ").strip().lower()
+
+                    if choice == 'q':
+                        print("\n⚠️ Restore cancelled.")
+                        return
+
+                    session_idx = int(choice) - 1
+                    if 0 <= session_idx < len(sessions):
+                        break
+                    print("❌ Invalid selection. Please try again.")
+                except ValueError:
+                    print("❌ Please enter a number or 'q' to quit.")
+                except KeyboardInterrupt:
+                    print("\n⚠️ Restore cancelled.")
+                    return
+
+        selected_session = sessions[session_idx]
+        units = selected_session['units']
+
+        # Select unit if multiple
+        if len(units) == 1:
+            sel = units[0]
+        elif self.non_interactive:
+            sel = units[0]
+            print(f"\n🎯 Auto-selecting first unit: {sel.unit_name} (--yes mode)")
+        else:
+            print("\n📦 Units in this backup session:\n")
+            for idx, u in enumerate(units, 1):
+                ts = u.timestamp.strftime('%H:%M:%S')
+                print(f"{idx}. {u.unit_name} ({len(u.volume_snapshots)} volumes) - {ts}")
+
+            while True:
+                try:
+                    choice = input("\n🎯 Select unit to restore (number, or 'q' to quit): ").strip().lower()
+
+                    if choice == 'q':
+                        print("\n⚠️ Restore cancelled.")
+                        return
+
+                    unit_idx = int(choice) - 1
+                    if 0 <= unit_idx < len(units):
+                        sel = units[unit_idx]
+                        break
+                    print("❌ Invalid selection. Please try again.")
+                except ValueError:
+                    print("❌ Please enter a number or 'q' to quit.")
+                except KeyboardInterrupt:
+                    print("\n⚠️ Restore cancelled.")
+                    return
+
+        logger.info(
+            f"Selected restore point: {sel.unit_name} from {sel.timestamp} (machine: {selected_machine.hostname})",
+            extra={"unit_name": sel.unit_name, "source_machine": selected_machine.hostname},
+        )
+
+        print(f"\n✅ Selected: {sel.unit_name} from {sel.timestamp}")
+        print(f"   Source machine: {selected_machine.hostname}")
+        print("\n📝 This will restore:")
+        print(f"  - Recipe/configuration files")
+        if sel.network_snapshots:
+            print(f"  - {len(sel.network_snapshots)} network(s)")
+        print(f"  - {len(sel.volume_snapshots)} volumes")
+
+        if not self.non_interactive:
+            confirm = input("\n⚠️ Proceed with restore? (yes/no/q): ").strip().lower()
+            if confirm not in ('yes', 'y'):
+                print("❌ Restore cancelled.")
+                return
+
+        self._restore_unit(sel)
+
+    def _find_restore_points_for_machine(self, hostname: str) -> List[RestorePoint]:
+        """Find restore points for a specific machine.
+
+        Args:
+            hostname: Hostname to filter by
+
+        Returns:
+            List of RestorePoint objects for that machine
+        """
+        out: List[RestorePoint] = []
+        try:
+            # Use list_all_snapshots to get snapshots from all machines
+            snaps = self.repo.list_all_snapshots()
+            groups = {}
+
+            for s in snaps:
+                # Filter by hostname
+                snap_host = s.get("host", "unknown")
+                if snap_host != hostname:
+                    continue
+
+                tags = s.get("tags", {})
+                unit = tags.get("unit")
+                backup_id = tags.get("backup_id")
+                ts_str = tags.get("timestamp")
+                snap_type = tags.get("type", "")
+
+                if not unit or not backup_id:
+                    continue
+
+                try:
+                    ts = datetime.fromisoformat(ts_str) if ts_str else datetime.now()
+                except ValueError:
+                    ts = datetime.now()
+
+                key = f"{unit}:{backup_id}"
+                if key not in groups:
+                    groups[key] = RestorePoint(
+                        unit_name=unit,
+                        timestamp=ts,
+                        backup_id=backup_id,
+                        recipe_snapshots=[],
+                        volume_snapshots=[],
+                        database_snapshots=[],
+                        network_snapshots=[],
+                    )
+
+                if snap_type == "recipe":
+                    groups[key].recipe_snapshots.append(s)
+                elif snap_type == "volume":
+                    groups[key].volume_snapshots.append(s)
+                elif snap_type == "networks":
+                    groups[key].network_snapshots.append(s)
+
+            out = list(groups.values())
+            out.sort(key=lambda x: x.timestamp, reverse=True)
+            logger.debug(f"Found {len(out)} restore points for machine {hostname}")
+        except Exception as e:
+            logger.error(f"Failed to find restore points for machine {hostname}: {e}")
+
+        return out
+
     def _find_restore_points(self) -> List[RestorePoint]:
         """Find available restore points grouped by unit + REQUIRED backup_id."""
         out: List[RestorePoint] = []

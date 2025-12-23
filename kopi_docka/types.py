@@ -77,6 +77,20 @@ class VolumeInfo:
 
 
 @dataclass
+class MachineInfo:
+    """Information about a backup source machine (for cross-machine restore).
+
+    Used by the advanced restore wizard to show all machines that have
+    backups in the repository.
+    """
+    hostname: str
+    last_backup: datetime
+    backup_count: int = 0
+    units: List[str] = field(default_factory=list)
+    total_size: int = 0
+
+
+@dataclass
 class BackupUnit:
     name: str
     type: str  # ← WICHTIG: "stack" oder "standalone"

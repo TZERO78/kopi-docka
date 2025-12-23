@@ -23,6 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Automatic format detection in restore workflow
   - `backup_format` tag added to all volume snapshots
   - `backup_format` field added to `BackupMetadata` dataclass
+- **Advanced Restore with Cross-Machine Support** (`--advanced`)
+  - New `kopi-docka restore --advanced` for cross-machine restore
+  - Machine discovery: shows all machines with backups in repository
+  - Cross-machine warning with conflict detection hints
+  - `MachineInfo` dataclass for machine metadata aggregation
+  - `list_all_snapshots()` method with `--all` flag for full repository scan
+  - `discover_machines()` method for machine enumeration
 - **Exclude Patterns for Direct Mode** - `exclude_patterns` config now works with direct snapshots
 - **Constants**: `BACKUP_FORMAT_TAR`, `BACKUP_FORMAT_DIRECT`, `BACKUP_FORMAT_DEFAULT`
 
