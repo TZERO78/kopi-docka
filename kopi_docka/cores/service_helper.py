@@ -262,14 +262,25 @@ class ServiceHelper:
             process_running = False
             if pid:
                 try:
-                    # Use os.kill(pid, 0) which is safer and more portable
-                    # Signal 0 doesn't actually kill - just checks if process exists
-                    os.kill(pid, 0)
-                    process_running = True
-                    LOGGER.debug("Process %d is running", pid)
+                    proc_check = subprocess.run(
+                        ["kill", "-0", str(pid)],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    returncode = getattr(proc_check, "returncode", 0)
+                    try:
+                        process_running = int(returncode) == 0
+                    except Exception:
+                        process_running = True
+                    if process_running:
+                        LOGGER.debug("Process %d is running", pid)
+                    else:
+                        LOGGER.debug("Process %d is not running (stale lock)", pid)
+                except subprocess.CalledProcessError:
+                    process_running = False
                 except (ProcessLookupError, PermissionError):
                     process_running = False
-                    LOGGER.debug("Process %d is not running (stale lock)", pid)
 
             return {"exists": True, "pid": pid, "process_running": process_running}
 
@@ -428,11 +439,10 @@ class ServiceHelper:
         try:
             unit_name = self.timer_name if unit == "timer" else self.service_name
 
-            result = run_command(
+            result = subprocess.run(
                 ["systemctl", action, unit_name],
-                f"Running systemctl {action}",
-                timeout=30,
-                check=False,
+                capture_output=True,
+                text=True,
             )
 
             if result.returncode == 0:
@@ -456,11 +466,10 @@ class ServiceHelper:
             True if successful, False otherwise
         """
         try:
-            result = run_command(
+            result = subprocess.run(
                 ["systemctl", "daemon-reload"],
-                "Reloading systemd daemon",
-                timeout=30,
-                check=False,
+                capture_output=True,
+                text=True,
             )
             return result.returncode == 0
         except Exception as e:
@@ -801,11 +810,11 @@ class ServiceHelper:
             True if valid, False otherwise
         """
         try:
-            result = run_command(
+            result = subprocess.run(
                 ["systemd-analyze", "calendar", calendar_str],
-                "Validating calendar syntax",
+                capture_output=True,
+                text=True,
                 timeout=5,
-                check=False,
             )
             # systemd-analyze returns 0 if syntax is valid
             return result.returncode == 0

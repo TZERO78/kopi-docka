@@ -140,7 +140,7 @@ def mock_backup_unit():
         type="standalone",
         containers=[container],
         volumes=[volume],
-        compose_file=None
+        compose_files=[]
     )
     
     return unit

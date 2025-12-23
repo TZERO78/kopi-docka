@@ -77,7 +77,10 @@ from .commands import (
     dry_run_commands,
     disaster_recovery_commands,
     doctor_commands,
+    dependency_commands,
+    repository_commands,
 )
+from .commands.service_commands import cmd_daemon
 
 # Import admin app from advanced module
 from .commands.advanced import admin_app
@@ -90,7 +93,7 @@ logger = get_logger(__name__)
 
 # Commands that can run without root privileges
 # Note: 'admin' is a group, so we check individual subcommands via ctx.invoked_subcommand
-SAFE_COMMANDS = {"version", "doctor", "admin"}
+SAFE_COMMANDS = {"version", "doctor", "admin", "check", "show-deps"}
 
 
 # -------------------------
@@ -124,7 +127,8 @@ def initialize_context(
         if os.geteuid() != 0:
             cmd = " ".join(sys.argv)
             err_console.print(Panel.fit(
-                "[red]Kopi-Docka requires root privileges[/red]\n\n"
+                "[red]Kopi-Docka requires root privileges[/red]\n"
+                "[red]Root-Rechte erforderlich (benötigt Root)[/red]\n\n"
                 "[bold]Run with sudo:[/bold]\n"
                 f"  [cyan]sudo {cmd}[/cyan]",
                 title="[bold red]Permission Denied[/bold red]",
@@ -165,6 +169,8 @@ backup_commands.register(app)          # 2. backup, 3. restore
 dry_run_commands.register(app)         # 4. dry-run
 disaster_recovery_commands.register(app)  # 5. disaster-recovery
 doctor_commands.register(app)          # 6. doctor
+dependency_commands.register(app)      # Dependency management (check/install/show)
+repository_commands.register(app)      # Repository management (init/status/etc.)
 
 
 # -------------------------
@@ -185,7 +191,30 @@ app.add_typer(
 @app.command("version")
 def cmd_version():
     """Show Kopi-Docka version."""
-    console.print(f"[bold cyan]Kopi-Docka[/bold cyan] [green]{VERSION}[/green]")
+    console.print(
+        f"[bold cyan]Kopi-Docka[/bold cyan] [green]{VERSION}[/green] "
+        "(compat 1.0.0)"
+    )
+
+
+@app.command("daemon")
+def cmd_daemon_alias(
+    interval_minutes: int = typer.Option(
+        60, "--interval-minutes", "-i", help="Run backups every N minutes"
+    ),
+    backup_cmd: Optional[str] = typer.Option(
+        None,
+        "--backup-cmd",
+        help="Custom backup command to run (default: 'kopi-docka backup')",
+    ),
+    log_level: str = typer.Option(
+        "INFO",
+        "--log-level",
+        help="Log level for daemon (DEBUG, INFO, WARNING, ERROR)",
+    ),
+):
+    """Run the systemd-friendly daemon (alias for admin service daemon)."""
+    cmd_daemon(interval_minutes, backup_cmd, log_level)
 
 
 # -------------------------
