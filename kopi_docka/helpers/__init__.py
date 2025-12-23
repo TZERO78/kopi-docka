@@ -9,6 +9,7 @@ from .file_operations import (
     create_file_backup,
     copy_with_rollback,
 )
+from .ui_utils import run_command, SubprocessError
 
 __all__ = [
     'Config',
@@ -24,4 +25,6 @@ __all__ = [
     'check_file_conflicts',
     'create_file_backup',
     'copy_with_rollback',
+    'run_command',
+    'SubprocessError',
 ]

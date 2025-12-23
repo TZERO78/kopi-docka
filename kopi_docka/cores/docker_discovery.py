@@ -33,6 +33,7 @@ from typing import List, Dict, Optional, Any
 from pathlib import Path
 
 from ..helpers.logging import get_logger
+from ..helpers.ui_utils import run_command, SubprocessError
 from ..types import BackupUnit, ContainerInfo, VolumeInfo
 from ..helpers.constants import (
     DOCKER_COMPOSE_PROJECT_LABEL,
@@ -63,16 +64,17 @@ class DockerDiscovery:
     def _validate_docker_access(self):
         """Validiert die Erreichbarkeit des Docker-Daemons."""
         try:
-            result = subprocess.run(
+            run_command(
                 ["docker", "version"],
-                capture_output=True,
-                text=True,
+                "Checking Docker access",
                 timeout=8,
+                check=True,
             )
-            if result.returncode != 0:
-                raise RuntimeError(
-                    f"Docker daemon not accessible: {result.stderr.strip()}"
-                )
+        except SubprocessError as e:
+            logger.error(
+                f"Failed to access Docker: {e}", extra={"operation": "discover"}
+            )
+            raise RuntimeError(f"Docker daemon not accessible: {e.stderr}")
         except Exception as e:
             logger.error(
                 f"Failed to access Docker: {e}", extra={"operation": "discover"}
@@ -83,15 +85,15 @@ class DockerDiscovery:
         """Führt einen Docker-Befehl aus und liefert stdout zurück."""
         cmd = ["docker"] + args
         try:
-            res = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            return res.stdout
-        except subprocess.CalledProcessError as e:
+            result = run_command(cmd, f"Running docker {args[0]}", timeout=30, check=True)
+            return result.stdout
+        except SubprocessError as e:
             logger.error(
                 "Docker command failed",
                 extra={
                     "operation": "discover",
                     "cmd": " ".join(cmd),
-                    "stderr": e.stderr.strip(),
+                    "stderr": e.stderr.strip() if e.stderr else "",
                 },
             )
             raise
@@ -246,11 +248,14 @@ class DockerDiscovery:
     def _estimate_volume_size(self, mountpoint: str) -> Optional[int]:
         """Schätzt die Größe via 'du -sb' (best effort)."""
         try:
-            r = subprocess.run(
-                ["du", "-sb", mountpoint], capture_output=True, text=True, timeout=30
+            result = run_command(
+                ["du", "-sb", mountpoint],
+                "Estimating volume size",
+                timeout=30,
+                check=False,
             )
-            if r.returncode == 0 and r.stdout:
-                return int(r.stdout.split("\t", 1)[0])
+            if result.returncode == 0 and result.stdout:
+                return int(result.stdout.split("\t", 1)[0])
         except Exception as e:
             logger.debug(
                 f"Could not estimate volume size: {e}", extra={"operation": "discover"}

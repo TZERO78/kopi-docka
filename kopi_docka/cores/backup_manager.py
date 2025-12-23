@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from ..helpers.logging import get_logger
+from ..helpers.ui_utils import run_command, SubprocessError
 from ..types import BackupUnit, ContainerInfo, VolumeInfo, BackupMetadata
 from ..helpers.config import Config
 from ..cores.repository_manager import KopiaRepository
@@ -273,17 +274,17 @@ class BackupManager:
         for c in containers:
             if c.is_running:
                 try:
-                    subprocess.run(
+                    run_command(
                         ["docker", "stop", "-t", str(self.stop_timeout), c.id],
-                        check=True,
-                        capture_output=True,
+                        f"Stopping {c.name}",
+                        timeout=self.stop_timeout + 10,  # Docker timeout + safety margin
                     )
                     logger.debug(
                         f"Stopped container: {c.name}", extra={"container": c.name}
                     )
-                except subprocess.CalledProcessError as e:
+                except SubprocessError as e:
                     logger.error(
-                        f"Failed to stop container {c.name}: {e.stderr.decode()}",
+                        f"Failed to stop container {c.name}: {e.stderr}",
                         extra={"container": c.name},
                     )
 
@@ -291,42 +292,45 @@ class BackupManager:
         """Start containers in original order and wait (healthcheck if present)."""
         for c in containers:
             try:
-                subprocess.run(
-                    ["docker", "start", c.id], check=True, capture_output=True
+                run_command(
+                    ["docker", "start", c.id],
+                    f"Starting {c.name}",
+                    timeout=30,
                 )
                 logger.debug(
                     f"Started container: {c.name}", extra={"container": c.name}
                 )
                 self._wait_container_healthy(c, timeout=self.start_timeout)
-            except subprocess.CalledProcessError as e:
+            except SubprocessError as e:
                 logger.error(
-                    f"Failed to start container {c.name}: {e.stderr.decode()}",
+                    f"Failed to start container {c.name}: {e.stderr}",
                     extra={"container": c.name},
                 )
 
     def _wait_container_healthy(self, container: ContainerInfo, timeout: int = 60):
         """If healthcheck exists, poll until healthy/unhealthy/timeout; else short sleep."""
         try:
-            insp = subprocess.check_output(
+            # Check if container has a healthcheck defined
+            result = run_command(
                 ["docker", "inspect", "-f", "{{json .State.Health}}", container.id],
-                text=True,
-            ).strip()
-            if insp in ("null", "{}", ""):
+                f"Checking health config for {container.name}",
+                timeout=10,
+                check=False,  # Don't fail if no healthcheck
+            )
+            insp = result.stdout.strip() if result.stdout else ""
+            if insp in ("null", "{}", "") or result.returncode != 0:
                 time.sleep(2)
                 return
 
             start = time.time()
             while time.time() - start < timeout:
-                status = subprocess.check_output(
-                    [
-                        "docker",
-                        "inspect",
-                        "-f",
-                        "{{.State.Health.Status}}",
-                        container.id,
-                    ],
-                    text=True,
-                ).strip()
+                result = run_command(
+                    ["docker", "inspect", "-f", "{{.State.Health.Status}}", container.id],
+                    f"Polling health status for {container.name}",
+                    timeout=10,
+                    check=False,
+                )
+                status = result.stdout.strip() if result.stdout else ""
                 if status == "healthy":
                     logger.debug(
                         f"Container {container.name} is healthy",
@@ -430,13 +434,12 @@ class BackupManager:
                     "AUTH",
                 )
                 for c in unit.containers:
-                    raw = subprocess.run(
+                    result = run_command(
                         ["docker", "inspect", c.id],
-                        capture_output=True,
-                        text=True,
-                        check=True,
-                    ).stdout
-                    data = _json.loads(raw)
+                        f"Inspecting {c.name}",
+                        timeout=10,
+                    )
+                    data = _json.loads(result.stdout)
                     if isinstance(data, list) and data:
                         cfg = data[0].get("Config", {})
                         if cfg and "Env" in cfg and isinstance(cfg["Env"], list):
@@ -511,16 +514,15 @@ class BackupManager:
             network_configs = []
             for net_name in networks_to_backup:
                 try:
-                    result = subprocess.run(
+                    result = run_command(
                         ["docker", "network", "inspect", net_name],
-                        capture_output=True,
-                        text=True,
-                        check=True
+                        f"Inspecting network {net_name}",
+                        timeout=10,
                     )
                     net_data = _json.loads(result.stdout)
                     if isinstance(net_data, list) and net_data:
                         network_configs.append(net_data[0])
-                except subprocess.CalledProcessError as e:
+                except SubprocessError as e:
                     logger.warning(
                         f"Failed to inspect network {net_name}: {e.stderr}",
                         extra={"unit_name": unit.name, "network": net_name}

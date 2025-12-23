@@ -21,6 +21,7 @@ from rich.markup import escape
 from .base import BackendBase, ConfigurationError, DependencyError
 from ..i18n import _
 from ..helpers.dependency_installer import DependencyInstaller
+from ..helpers.ui_utils import run_command, SubprocessError
 
 
 @dataclass
@@ -204,23 +205,23 @@ class TailscaleBackend(BackendBase):
             ssh_key = creds.get("ssh_key")
             
             # Test SSH connection
-            cmd = ["ssh", "-i", ssh_key, "-o", "StrictHostKeyChecking=no", 
+            cmd = ["ssh", "-i", ssh_key, "-o", "StrictHostKeyChecking=no",
                    f"{ssh_user}@{hostname}.tailnet", "echo", "test"]
-            
-            result = subprocess.run(
+
+            result = run_command(
                 cmd,
-                capture_output=True,
-                text=True,
-                timeout=10
+                "Testing SSH connection",
+                timeout=10,
+                check=False,
             )
-            
+
             if result.returncode == 0:
                 print(f"✓ {_('Connection successful')}")
                 return True
             else:
                 print(f"✗ {_('Connection failed')}: {result.stderr}")
                 return False
-                
+
         except subprocess.TimeoutExpired:
             print(f"✗ {_('Connection timeout')}")
             return False
@@ -319,7 +320,7 @@ class TailscaleBackend(BackendBase):
         if ssh_key and Path(ssh_key).exists():
             try:
                 # Test SSH connection and get disk space in one go
-                result = subprocess.run(
+                result = run_command(
                     ["ssh",
                      "-i", ssh_key,
                      "-o", "StrictHostKeyChecking=no",
@@ -327,9 +328,9 @@ class TailscaleBackend(BackendBase):
                      "-o", "BatchMode=yes",
                      f"{ssh_user}@{hostname}",
                      "df", "/", "--output=size,avail", "--block-size=G"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5
+                    "Checking disk space via SSH",
+                    timeout=5,
+                    check=False,
                 )
 
                 if result.returncode == 0:
@@ -347,44 +348,44 @@ class TailscaleBackend(BackendBase):
                 pass  # SSH connection failed
 
         return status
-    
+
     # Tailscale-specific helpers
-    
+
     def _is_running(self) -> bool:
         """Check if Tailscale is running"""
         try:
-            result = subprocess.run(
+            result = run_command(
                 ["tailscale", "status"],
-                capture_output=True,
-                text=True
+                "Checking Tailscale status",
+                timeout=10,
+                check=False,
             )
             return result.returncode == 0
         except FileNotFoundError:
             return False
-    
+
     def _start_tailscale(self) -> bool:
         """Start Tailscale"""
         from kopi_docka.helpers import ui_utils as utils
         from kopi_docka.i18n import t, get_current_language
-        
+
         lang = get_current_language()
-        
+
         try:
-            subprocess.run(["sudo", "tailscale", "up"], check=True)
+            run_command(["sudo", "tailscale", "up"], "Starting Tailscale", timeout=30)
             utils.print_success("Tailscale started")
             return True
-        except subprocess.CalledProcessError:
+        except SubprocessError:
             utils.print_error("Failed to start Tailscale")
             return False
-    
+
     def _list_peers(self) -> List[TailscalePeer]:
         """List peers in Tailnet with enriched info"""
         try:
-            result = subprocess.run(
+            result = run_command(
                 ["tailscale", "status", "--json"],
-                capture_output=True,
-                text=True,
-                check=True
+                "Getting peer list",
+                timeout=10,
             )
             data = json.loads(result.stdout)
             
@@ -421,11 +422,11 @@ class TailscaleBackend(BackendBase):
     def _ping_peer(self, hostname: str) -> Optional[int]:
         """Ping peer and return latency in ms"""
         try:
-            result = subprocess.run(
+            result = run_command(
                 ["tailscale", "ping", "-c", "1", hostname],
-                capture_output=True,
-                text=True,
-                timeout=5
+                f"Pinging {hostname}",
+                timeout=5,
+                check=False,
             )
             if result.returncode == 0:
                 # Parse ping output for latency
@@ -436,39 +437,42 @@ class TailscaleBackend(BackendBase):
         except Exception:
             pass
         return None
-    
+
     def _setup_ssh_key(self, hostname: str, key_path: Path) -> bool:
         """Setup SSH key for passwordless access"""
         from kopi_docka.helpers import ui_utils as utils
         from kopi_docka.i18n import t, get_current_language
-        
+
         lang = get_current_language()
-        
+
         try:
             utils.print_info(t("tailscale.generating_ssh_key", lang))
-            
+
             # Generate ED25519 key
-            subprocess.run(
-                ["ssh-keygen", "-t", "ed25519", "-f", str(key_path), 
+            run_command(
+                ["ssh-keygen", "-t", "ed25519", "-f", str(key_path),
                  "-N", "", "-C", "kopi-docka-backup"],
-                check=True
+                "Generating SSH key",
+                timeout=30,
             )
-            
+
             utils.print_success(t("tailscale.ssh_key_generated", lang))
-            
+
             # Copy to remote
             utils.print_info(f"{t('tailscale.copying_ssh_key', lang)} {hostname}...")
             utils.print_warning("You may need to enter the root password")
-            
-            subprocess.run(
+
+            run_command(
                 ["ssh-copy-id", "-i", str(key_path), f"root@{hostname}.tailnet"],
-                check=True
+                "Copying SSH key to remote",
+                timeout=60,
+                show_output=True,  # User may need to enter password
             )
-            
+
             utils.print_success(t("tailscale.ssh_key_copied", lang))
             return True
-            
-        except subprocess.CalledProcessError as e:
+
+        except SubprocessError as e:
             utils.print_error(f"{t('tailscale.ssh_key_failed', lang)}: {e}")
             return False
     

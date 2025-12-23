@@ -36,6 +36,7 @@ from typing import Callable, Dict, Optional, Tuple
 import psutil
 
 from .constants import RAM_WORKER_THRESHOLDS
+from .ui_utils import run_command
 
 logger = logging.getLogger(__name__)
 
@@ -403,11 +404,11 @@ class SystemUtils:
             Version tuple (major, minor, patch) or None
         """
         try:
-            result = subprocess.run(
+            result = run_command(
                 ["docker", "version", "--format", "{{.Server.Version}}"],
-                capture_output=True,
-                text=True,
+                "Getting Docker version",
                 timeout=5,
+                check=False,
             )
             if result.returncode == 0:
                 version_str = result.stdout.strip()
@@ -433,7 +434,7 @@ class SystemUtils:
         # Try common variants for compatibility across distributions
         for args in (["kopia", "--version"], ["kopia", "version"]):
             try:
-                result = subprocess.run(args, capture_output=True, text=True, timeout=5)
+                result = run_command(args, "Getting Kopia version", timeout=5, check=False)
                 if result.returncode == 0:
                     for line in (result.stdout or result.stderr).split("\n"):
                         if "version" in line.lower() or line.strip():
