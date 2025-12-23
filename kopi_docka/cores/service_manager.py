@@ -41,7 +41,6 @@ import sys
 import time
 import signal
 import fcntl
-import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -54,6 +53,7 @@ from ..helpers.ui_utils import (
     print_success,
     print_warning,
     print_error,
+    run_command,
 )
 
 LOGGER = get_logger("kopi_docka.service")
@@ -220,13 +220,11 @@ class KopiDockaService:
         LOGGER.info("Starting backup run…")
         sd_notify_status("Running backup")
         try:
-            res = subprocess.run(
-                self.cfg.backup_cmd,
-                shell=True,
+            res = run_command(
+                ["bash", "-c", self.cfg.backup_cmd],
+                "Running backup command",
                 check=False,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
+                show_output=False,
             )
             for line in (res.stdout or "").splitlines():
                 LOGGER.info("BACKUP | %s", line)
