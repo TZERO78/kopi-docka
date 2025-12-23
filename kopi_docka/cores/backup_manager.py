@@ -52,6 +52,9 @@ from ..helpers.constants import (
     BACKUP_SCOPE_MINIMAL,
     BACKUP_SCOPE_STANDARD,
     BACKUP_SCOPE_FULL,
+    BACKUP_FORMAT_TAR,
+    BACKUP_FORMAT_DIRECT,
+    BACKUP_FORMAT_DEFAULT,
 )
 
 logger = get_logger(__name__)
@@ -582,7 +585,113 @@ class BackupManager:
     def _backup_volume(
         self, volume: VolumeInfo, unit: BackupUnit, backup_id: str
     ) -> Optional[str]:
-        """Backup a single volume via tar stream → Kopia.
+        """Backup a single volume using the configured backup format.
+
+        Dispatcher that routes to the appropriate backup method based on
+        BACKUP_FORMAT_DEFAULT setting.
+
+        Args:
+            volume: Volume to backup
+            unit: Parent backup unit
+            backup_id: Unique ID for this backup run
+
+        Returns:
+            Snapshot ID if successful, None otherwise
+        """
+        backup_format = BACKUP_FORMAT_DEFAULT
+
+        if backup_format == BACKUP_FORMAT_DIRECT:
+            return self._backup_volume_direct(volume, unit, backup_id)
+        else:
+            return self._backup_volume_tar(volume, unit, backup_id)
+
+    def _backup_volume_direct(
+        self, volume: VolumeInfo, unit: BackupUnit, backup_id: str
+    ) -> Optional[str]:
+        """Backup a single volume via direct Kopia snapshot (v5.0+).
+
+        This method creates a direct Kopia snapshot of the volume directory,
+        enabling block-level deduplication. Only changed blocks are stored
+        in subsequent backups.
+
+        Args:
+            volume: Volume to backup
+            unit: Parent backup unit
+            backup_id: Unique ID for this backup run
+
+        Returns:
+            Snapshot ID if successful, None otherwise
+        """
+        try:
+            volume_path = Path(volume.mountpoint)
+
+            # Verify volume path exists and is accessible
+            if not volume_path.exists():
+                logger.error(
+                    f"Volume path does not exist: {volume_path}",
+                    extra={"unit_name": unit.name, "volume": volume.name},
+                )
+                return None
+
+            if not volume_path.is_dir():
+                logger.error(
+                    f"Volume path is not a directory: {volume_path}",
+                    extra={"unit_name": unit.name, "volume": volume.name},
+                )
+                return None
+
+            logger.debug(
+                f"Backing up volume (direct): {volume.name}",
+                extra={
+                    "unit_name": unit.name,
+                    "volume": volume.name,
+                    "path": str(volume_path),
+                    "size_bytes": getattr(volume, "size_bytes", 0),
+                    "backup_format": BACKUP_FORMAT_DIRECT,
+                },
+            )
+
+            # Create direct Kopia snapshot of volume directory
+            # Pass exclude patterns from config (same as TAR mode)
+            snap_id = self.repo.create_snapshot(
+                str(volume_path),
+                tags={
+                    "type": "volume",
+                    "unit": unit.name,
+                    "volume": volume.name,
+                    "backup_id": backup_id,
+                    "timestamp": datetime.now().isoformat(),
+                    "size_bytes": str(getattr(volume, "size_bytes", 0) or "0"),
+                    "backup_format": BACKUP_FORMAT_DIRECT,
+                },
+                exclude_patterns=self.exclude_patterns if self.exclude_patterns else None,
+            )
+
+            logger.debug(
+                f"Created direct snapshot for volume: {volume.name}",
+                extra={
+                    "unit_name": unit.name,
+                    "volume": volume.name,
+                    "snapshot_id": snap_id,
+                },
+            )
+
+            return snap_id
+
+        except Exception as e:
+            logger.error(
+                f"Failed to backup volume {volume.name} (direct): {e}",
+                extra={"unit_name": unit.name, "volume": volume.name},
+            )
+            return None
+
+    def _backup_volume_tar(
+        self, volume: VolumeInfo, unit: BackupUnit, backup_id: str
+    ) -> Optional[str]:
+        """Backup a single volume via tar stream → Kopia (legacy).
+
+        DEPRECATED: This method uses tar streams which prevent Kopia's
+        block-level deduplication. Use _backup_volume_direct() instead.
 
         Note: stderr is written to a temporary file instead of a pipe to prevent
         deadlock when tar produces large amounts of warnings (e.g., "file changed
@@ -593,11 +702,12 @@ class BackupManager:
 
         try:
             logger.debug(
-                f"Backing up volume: {volume.name}",
+                f"Backing up volume (tar): {volume.name}",
                 extra={
                     "unit_name": unit.name,
                     "volume": volume.name,
                     "size_bytes": getattr(volume, "size_bytes", 0),
+                    "backup_format": BACKUP_FORMAT_TAR,
                 },
             )
 
@@ -634,6 +744,7 @@ class BackupManager:
                         "backup_id": backup_id,
                         "timestamp": datetime.now().isoformat(),
                         "size_bytes": str(getattr(volume, "size_bytes", 0) or "0"),
+                        "backup_format": BACKUP_FORMAT_TAR,
                     },
                 )
 
@@ -657,7 +768,7 @@ class BackupManager:
             return snap_id
         except Exception as e:
             logger.error(
-                f"Failed to backup volume {volume.name}: {e}",
+                f"Failed to backup volume {volume.name} (tar): {e}",
                 extra={"unit_name": unit.name, "volume": volume.name},
             )
             return None

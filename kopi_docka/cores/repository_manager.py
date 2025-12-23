@@ -375,15 +375,30 @@ class KopiaRepository:
 
     # --------------- Snapshots ---------------
 
-    def create_snapshot(self, path: str, tags: Optional[Dict[str, str]] = None) -> str:
+    def create_snapshot(
+        self,
+        path: str,
+        tags: Optional[Dict[str, str]] = None,
+        exclude_patterns: Optional[List[str]] = None,
+    ) -> str:
         """
         Create a directory/file snapshot at 'path' with optional tags.
-        Returns snapshot ID.
+
+        Args:
+            path: Directory or file path to snapshot
+            tags: Optional dict of tags to add to the snapshot
+            exclude_patterns: Optional list of glob patterns to exclude (e.g., ["*.log", "cache/*"])
+
+        Returns:
+            Snapshot ID
         """
         args = ["kopia", "snapshot", "create", path, "--json"]
         if tags:
             for k, v in tags.items():
                 args += ["--tags", f"{k}:{v}"]
+        if exclude_patterns:
+            for pattern in exclude_patterns:
+                args += ["--ignore", pattern]
         proc = self._run(args, check=True)
         snap = self._parse_single_json_line(proc.stdout)
         snap_id = snap.get("snapshotID") or snap.get("id") or ""
@@ -392,15 +407,30 @@ class KopiaRepository:
         return snap_id
 
     def create_snapshot_from_stdin(
-        self, 
-        stdin: IO[bytes], 
+        self,
+        stdin: IO[bytes],
         dest_virtual_path: str,  # ← Parameter heißt "dest_virtual_path"
         tags: Optional[Dict[str, str]] = None
     ) -> str:
         """
         Create a snapshot from stdin (single virtual file).
+
+        DEPRECATED (v5.0.0): This method creates TAR-based backups that prevent
+        Kopia's block-level deduplication. Use create_snapshot() with a directory
+        path instead for efficient incremental backups.
+
+        Will be removed in v6.0.0.
+
         IMPORTANT: Use '--stdin-file <name>' **and** '-' as source to indicate stdin.
         """
+        import warnings
+        warnings.warn(
+            "create_snapshot_from_stdin() is deprecated since v5.0.0. "
+            "Use create_snapshot() with a directory path for block-level deduplication. "
+            "This method will be removed in v6.0.0.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         args = ["kopia", "snapshot", "create", "--stdin-file", dest_virtual_path, "-", "--json"]
         if tags:
             for k, v in tags.items():
