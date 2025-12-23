@@ -17,7 +17,6 @@
 
 import contextlib
 import json
-import subprocess
 import shutil
 import time
 import secrets
@@ -40,6 +39,7 @@ from ..helpers.ui_utils import (
     print_error_panel,
     print_success_panel,
     print_next_steps,
+    run_command,
 )
 import getpass
 from ..cores import KopiaRepository
@@ -139,7 +139,7 @@ def _print_kopia_native_status(repo: KopiaRepository) -> None:
     raw_out = raw_err = ""
 
     for cmd in (cmd_json_verbose, cmd_json, cmd_plain):
-        p = subprocess.run(cmd, env=env, text=True, capture_output=True)
+        p = run_command(cmd, "Kopia status (native)", check=False, env=env)
         used_cmd = cmd
         raw_out, raw_err = p.stdout or "", p.stderr or ""
         if p.returncode == 0:
@@ -442,7 +442,7 @@ def cmd_repo_init_path(
         "--description", f"Kopi-Docka Backup Repository ({profile or repo.profile_name})",
         "--config-file", cfg_file,
     ]
-    p = subprocess.run(cmd_create, env=env, text=True, capture_output=True)
+    p = run_command(cmd_create, "Creating repository", check=False, env=env)
     if p.returncode != 0 and "existing data in storage location" not in (p.stderr or ""):
         print_error("Create failed:")
         console.print(f"[dim]{p.stderr.strip() or p.stdout.strip()}[/dim]")
@@ -454,15 +454,25 @@ def cmd_repo_init_path(
         "--path", str(path),
         "--config-file", cfg_file,
     ]
-    pc = subprocess.run(cmd_connect, env=env, text=True, capture_output=True)
+    pc = run_command(cmd_connect, "Connecting repository", check=False, env=env)
     if pc.returncode != 0:
-        ps = subprocess.run(["kopia", "repository", "status", "--config-file", cfg_file], env=env, text=True, capture_output=True)
+        ps = run_command(
+            ["kopia", "repository", "status", "--config-file", cfg_file],
+            "Checking repository status",
+            check=False,
+            env=env,
+        )
         print_error("Connect failed:")
         console.print(f"[dim]{pc.stderr.strip() or pc.stdout.strip() or ps.stderr.strip() or ps.stdout.strip()}[/dim]")
         raise typer.Exit(code=1)
 
     # Verify
-    ps = subprocess.run(["kopia", "repository", "status", "--json", "--config-file", cfg_file], env=env, text=True, capture_output=True)
+    ps = run_command(
+        ["kopia", "repository", "status", "--json", "--config-file", cfg_file],
+        "Verifying repository connection",
+        check=False,
+        env=env,
+    )
     if ps.returncode != 0:
         print_error("Status failed after connect:")
         console.print(f"[dim]{ps.stderr.strip() or ps.stdout.strip()}[/dim]")

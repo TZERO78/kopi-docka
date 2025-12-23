@@ -216,12 +216,12 @@ class TestRepoInitPathCommand:
         
         assert result.exit_code == 13
     
-    @patch('kopi_docka.commands.repository_commands.subprocess.run')
+    @patch('kopi_docka.commands.repository_commands.run_command')
     @patch('kopi_docka.commands.repository_commands.KopiaRepository')
     def test_init_path_creates_repo(
         self,
         mock_repo_class,
-        mock_subprocess,
+        mock_run,
         cli_runner,
         mock_root,
         tmp_config,
@@ -236,7 +236,7 @@ class TestRepoInitPathCommand:
         mock_repo.profile_name = "test-profile"
         
         # Mock subprocess calls (create, connect, status)
-        mock_subprocess.return_value = Mock(returncode=0, stdout="", stderr="")
+        mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
         
         result = cli_runner.invoke(
             app,
