@@ -50,7 +50,7 @@ class TestValidation:
         assert helper.validate_time_format("") is False
         assert helper.validate_time_format("abc") is False
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_validate_oncalendar_valid(self, mock_run, helper):
         """Test OnCalendar validation with valid syntax."""
         mock_run.return_value = Mock(returncode=0)
@@ -60,12 +60,12 @@ class TestValidation:
         assert result is True
         mock_run.assert_called_once_with(
             ["systemd-analyze", "calendar", "*-*-* 02:00:00"],
-            capture_output=True,
-            text=True,
+            "Validating calendar syntax",
             timeout=5,
+            check=False,
         )
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_validate_oncalendar_invalid(self, mock_run, helper):
         """Test OnCalendar validation with invalid syntax."""
         mock_run.return_value = Mock(returncode=1)
@@ -74,7 +74,7 @@ class TestValidation:
 
         assert result is False
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_validate_oncalendar_timeout(self, mock_run, helper):
         """Test OnCalendar validation with timeout."""
         mock_run.side_effect = subprocess.TimeoutExpired("cmd", 5)
@@ -83,7 +83,7 @@ class TestValidation:
 
         assert result is False
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_validate_oncalendar_not_available(self, mock_run, helper):
         """Test OnCalendar validation when systemd-analyze is not available."""
         mock_run.side_effect = FileNotFoundError()
@@ -216,7 +216,7 @@ class TestLockStatus:
 class TestControlMethods:
     """Test service control methods."""
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_control_service_start(self, mock_run, helper):
         """Test starting service."""
         mock_run.return_value = Mock(returncode=0)
@@ -226,11 +226,12 @@ class TestControlMethods:
         assert result is True
         mock_run.assert_called_once_with(
             ["systemctl", "start", "kopi-docka.service"],
-            capture_output=True,
-            text=True,
+            "Running systemctl start",
+            timeout=30,
+            check=False,
         )
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_control_service_stop_timer(self, mock_run, helper):
         """Test stopping timer."""
         mock_run.return_value = Mock(returncode=0)
@@ -240,11 +241,12 @@ class TestControlMethods:
         assert result is True
         mock_run.assert_called_once_with(
             ["systemctl", "stop", "kopi-docka.timer"],
-            capture_output=True,
-            text=True,
+            "Running systemctl stop",
+            timeout=30,
+            check=False,
         )
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_control_service_invalid_action(self, mock_run, helper):
         """Test invalid action."""
         result = helper.control_service("invalid", "service")
@@ -252,7 +254,7 @@ class TestControlMethods:
         assert result is False
         mock_run.assert_not_called()
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_control_service_failure(self, mock_run, helper):
         """Test service control failure."""
         mock_run.return_value = Mock(returncode=1, stderr="Error")
@@ -261,7 +263,7 @@ class TestControlMethods:
 
         assert result is False
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_reload_daemon(self, mock_run, helper):
         """Test daemon reload."""
         mock_run.return_value = Mock(returncode=0)
@@ -271,8 +273,9 @@ class TestControlMethods:
         assert result is True
         mock_run.assert_called_once_with(
             ["systemctl", "daemon-reload"],
-            capture_output=True,
-            text=True,
+            "Reloading systemd daemon",
+            timeout=30,
+            check=False,
         )
 
 

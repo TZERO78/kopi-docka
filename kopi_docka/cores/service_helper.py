@@ -439,10 +439,11 @@ class ServiceHelper:
         try:
             unit_name = self.timer_name if unit == "timer" else self.service_name
 
-            result = subprocess.run(
+            result = run_command(
                 ["systemctl", action, unit_name],
-                capture_output=True,
-                text=True,
+                f"Running systemctl {action}",
+                timeout=30,
+                check=False,
             )
 
             if result.returncode == 0:
@@ -466,10 +467,11 @@ class ServiceHelper:
             True if successful, False otherwise
         """
         try:
-            result = subprocess.run(
+            result = run_command(
                 ["systemctl", "daemon-reload"],
-                capture_output=True,
-                text=True,
+                "Reloading systemd daemon",
+                timeout=30,
+                check=False,
             )
             return result.returncode == 0
         except Exception as e:
@@ -810,11 +812,11 @@ class ServiceHelper:
             True if valid, False otherwise
         """
         try:
-            result = subprocess.run(
+            result = run_command(
                 ["systemd-analyze", "calendar", calendar_str],
-                capture_output=True,
-                text=True,
+                "Validating calendar syntax",
                 timeout=5,
+                check=False,
             )
             # systemd-analyze returns 0 if syntax is valid
             return result.returncode == 0
