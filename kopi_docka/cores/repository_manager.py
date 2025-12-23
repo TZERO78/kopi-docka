@@ -32,7 +32,7 @@ import json
 import os
 import shutil
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, IO, List, Optional, Tuple, Union
 
@@ -595,7 +595,7 @@ class KopiaRepository:
             if host not in machines:
                 machines[host] = MachineInfo(
                     hostname=host,
-                    last_backup=datetime.min,
+                    last_backup=datetime.min.replace(tzinfo=timezone.utc),
                     backup_count=0,
                     units=[],
                     total_size=0
