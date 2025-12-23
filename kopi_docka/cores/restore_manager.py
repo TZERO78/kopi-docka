@@ -35,7 +35,7 @@ import subprocess
 import tempfile
 import shutil
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List
 from contextlib import contextmanager
@@ -552,9 +552,11 @@ class RestoreManager:
                     continue
 
                 try:
-                    ts = datetime.fromisoformat(ts_str) if ts_str else datetime.now()
+                    # Handle ISO format with timezone (Z suffix)
+                    ts_clean = ts_str.replace("Z", "+00:00") if ts_str else None
+                    ts = datetime.fromisoformat(ts_clean) if ts_clean else datetime.now(timezone.utc)
                 except ValueError:
-                    ts = datetime.now()
+                    ts = datetime.now(timezone.utc)
 
                 key = f"{unit}:{backup_id}"
                 if key not in groups:
@@ -601,9 +603,11 @@ class RestoreManager:
                     continue  # enforce backup_id
 
                 try:
-                    ts = datetime.fromisoformat(ts_str) if ts_str else datetime.now()
+                    # Handle ISO format with timezone (Z suffix)
+                    ts_clean = ts_str.replace("Z", "+00:00") if ts_str else None
+                    ts = datetime.fromisoformat(ts_clean) if ts_clean else datetime.now(timezone.utc)
                 except ValueError:
-                    ts = datetime.now()
+                    ts = datetime.now(timezone.utc)
 
                 key = f"{unit}:{backup_id}"
                 if key not in groups:
