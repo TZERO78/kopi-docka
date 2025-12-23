@@ -32,6 +32,7 @@ from typing import Dict, Optional, Tuple
 import typer
 
 from .base import BackendBase
+from ..helpers.ui_utils import run_command, SubprocessError
 
 
 def get_default_remote_path() -> str:
@@ -184,12 +185,7 @@ class RcloneBackend(BackendBase):
             cmd.extend(["--config", config_path])
 
         try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
+            result = run_command(cmd, "Checking remote connection", timeout=30, check=False)
             return (result.returncode == 0, result.stderr)
         except subprocess.TimeoutExpired:
             return (False, "Connection timed out after 30 seconds")
@@ -224,12 +220,7 @@ class RcloneBackend(BackendBase):
             cmd.extend(["--config", config_path])
 
         try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
+            result = run_command(cmd, "Checking path exists", timeout=30, check=False)
             # Check if the folder name appears in the output
             if result.returncode == 0:
                 # Parse lsd output - each line contains folder info
@@ -267,12 +258,7 @@ class RcloneBackend(BackendBase):
             cmd.extend(["--config", config_path])
 
         try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
+            result = run_command(cmd, "Creating remote directory", timeout=60, check=False)
             if result.returncode == 0:
                 return (True, "")
             else:
@@ -332,13 +318,13 @@ class RcloneBackend(BackendBase):
                 typer.echo("")
 
                 try:
-                    subprocess.run(["rclone", "config"], check=True)
+                    run_command(["rclone", "config"], "Running rclone config", show_output=True)
                     # Re-check for config after creation
                     rclone_config = self._detect_rclone_config_path()
                     if not rclone_config:
                         typer.secho("No config found after creation. Please try again.", fg=typer.colors.RED)
                         raise SystemExit(1)
-                except subprocess.CalledProcessError:
+                except SubprocessError:
                     typer.secho("rclone config failed!", fg=typer.colors.RED)
                     raise SystemExit(1)
             else:
@@ -354,7 +340,7 @@ class RcloneBackend(BackendBase):
             list_cmd.extend(["--config", rclone_config])
 
         try:
-            result = subprocess.run(list_cmd, capture_output=True, text=True)
+            result = run_command(list_cmd, "Listing rclone remotes", timeout=10, check=False)
             if result.returncode == 0 and result.stdout.strip():
                 for remote_line in result.stdout.strip().split('\n'):
                     typer.echo(f"  - {remote_line}")
