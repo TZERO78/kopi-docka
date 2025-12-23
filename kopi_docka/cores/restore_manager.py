@@ -48,7 +48,14 @@ from ..types import RestorePoint
 from ..helpers.config import Config
 from ..cores.repository_manager import KopiaRepository
 from ..cores.hooks_manager import HooksManager
-from ..helpers.constants import RECIPE_BACKUP_DIR, VOLUME_BACKUP_DIR, NETWORK_BACKUP_DIR, CONTAINER_START_TIMEOUT
+from ..helpers.constants import (
+    RECIPE_BACKUP_DIR,
+    VOLUME_BACKUP_DIR,
+    NETWORK_BACKUP_DIR,
+    CONTAINER_START_TIMEOUT,
+    BACKUP_FORMAT_TAR,
+    BACKUP_FORMAT_DIRECT,
+)
 from ..helpers import (
     check_file_conflicts,
     create_file_backup,
@@ -644,9 +651,9 @@ class RestoreManager:
                 # Python führt direkt aus - MIT UNIT!
                 print(f"\n   🚀 Restoring volume '{vol}'...")
                 print("   " + "=" * 50)
-                
+
                 try:
-                    success = self._execute_volume_restore(vol, unit, snap_id, config_file)  # ← UNIT übergeben!
+                    success = self._execute_volume_restore(vol, unit, snap_id, config_file, snapshot=snap)  # Pass snapshot for format detection
                     
                     if success:
                         print("   " + "=" * 50)
@@ -706,16 +713,76 @@ class RestoreManager:
             except Exception as e:
                 logger.warning(f"Could not clean temp dir {restore_dir}: {e}")
 
-    def _execute_volume_restore(self, vol: str, unit: str, snap_id: str, config_file: str) -> bool:  # ← UNIT Parameter!
-        """Execute volume restore directly via Python with guaranteed cleanup."""
-        import tempfile
-        import shutil
-        from contextlib import contextmanager
-        
+    def _detect_backup_format(self, snapshot: dict) -> str:
+        """Detect backup format from snapshot tags.
+
+        Args:
+            snapshot: Snapshot metadata dict
+
+        Returns:
+            "direct" for v5.0+ direct snapshots, "tar" for legacy TAR backups
+        """
+        tags = snapshot.get("tags", {})
+        backup_format = tags.get("backup_format")
+
+        if backup_format == BACKUP_FORMAT_DIRECT:
+            return BACKUP_FORMAT_DIRECT
+
+        # Legacy backups (before v5.0) don't have backup_format tag
+        return BACKUP_FORMAT_TAR
+
+    def _execute_volume_restore(self, vol: str, unit: str, snap_id: str, config_file: str, snapshot: dict = None) -> bool:
+        """Execute volume restore with automatic format detection.
+
+        Dispatcher that routes to the appropriate restore method based on
+        the backup format tag in the snapshot.
+
+        Args:
+            vol: Volume name
+            unit: Unit name
+            snap_id: Snapshot ID
+            config_file: Kopia config file path
+            snapshot: Snapshot metadata dict (optional, for format detection)
+
+        Returns:
+            True if restore successful, False otherwise
+        """
+        # Detect backup format
+        if snapshot:
+            backup_format = self._detect_backup_format(snapshot)
+        else:
+            # Fallback: assume TAR for backwards compatibility
+            backup_format = BACKUP_FORMAT_TAR
+
+        logger.info(
+            f"Restoring volume {vol} using {backup_format} format",
+            extra={"volume": vol, "backup_format": backup_format}
+        )
+
+        if backup_format == BACKUP_FORMAT_DIRECT:
+            return self._execute_volume_restore_direct(vol, unit, snap_id, config_file)
+        else:
+            return self._execute_volume_restore_tar(vol, unit, snap_id, config_file)
+
+    def _execute_volume_restore_direct(self, vol: str, unit: str, snap_id: str, config_file: str) -> bool:
+        """Execute volume restore for direct Kopia snapshots (v5.0+).
+
+        Direct snapshots contain the actual file structure, not a TAR archive.
+        We restore directly to a temp directory, then rsync to the volume.
+
+        Args:
+            vol: Volume name
+            unit: Unit name
+            snap_id: Snapshot ID
+            config_file: Kopia config file path
+
+        Returns:
+            True if restore successful, False otherwise
+        """
         @contextmanager
         def temp_restore_dir():
             """Context manager for guaranteed cleanup."""
-            restore_dir = Path(tempfile.mkdtemp(prefix="kopia-restore-"))
+            restore_dir = Path(tempfile.mkdtemp(prefix="kopia-restore-direct-"))
             try:
                 yield restore_dir
             finally:
@@ -724,7 +791,7 @@ class RestoreManager:
                     logger.debug(f"Cleaned up temp dir: {restore_dir}")
                 except Exception as e:
                     logger.warning(f"Could not clean temp dir {restore_dir}: {e}")
-        
+
         try:
             # 1. Stop containers
             print("   1️⃣ Stopping containers...")
@@ -733,17 +800,17 @@ class RestoreManager:
                 capture_output=True, text=True, check=True
             )
             stopped_ids = [s for s in result.stdout.strip().split() if s]
-            
+
             if stopped_ids:
                 subprocess.run(["docker", "stop"] + stopped_ids, check=True)
                 print(f"      ✓ Stopped {len(stopped_ids)} container(s)")
             else:
                 print("      ℹ No running containers using this volume")
-            
+
             # 2. Safety backup
             print("\n   2️⃣ Creating safety backup...")
             backup_name = f"{vol}-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.tar.gz"
-            
+
             result = subprocess.run([
                 "docker", "run", "--rm",
                 "-v", f"{vol}:/src",
@@ -751,50 +818,195 @@ class RestoreManager:
                 "alpine",
                 "sh", "-c", f"tar -czf /backup/{backup_name} -C /src . 2>/dev/null || true"
             ], capture_output=True, text=True)
-            
+
             backup_path = Path(f"/tmp/{backup_name}")
             if backup_path.exists():
                 print(f"      ✓ Backup: {backup_path}")
                 logger.info(f"Safety backup created: {backup_path}")
             else:
                 print("      ⚠ No backup created (volume might be empty)")
-            
-            # 3. Restore from Kopia
-            print("\n   3️⃣ Restoring from Kopia...")
+
+            # 3. Restore from Kopia (direct format)
+            print("\n   3️⃣ Restoring from Kopia (direct format)...")
             print("      (This may take a while...)")
-            
+
+            with temp_restore_dir() as restore_dir:
+                # Restore snapshot directly
+                subprocess.run([
+                    "kopia", "snapshot", "restore", snap_id,
+                    "--config-file", config_file,
+                    str(restore_dir)
+                ], check=True, capture_output=True, text=True)
+
+                # Count restored files
+                file_count = sum(1 for _ in restore_dir.rglob("*") if _.is_file())
+                print(f"      ✓ Restored {file_count} files")
+
+                # Get Docker volume mountpoint
+                result = subprocess.run(
+                    ["docker", "volume", "inspect", vol, "--format", "{{.Mountpoint}}"],
+                    capture_output=True, text=True, check=True
+                )
+                volume_mountpoint = result.stdout.strip()
+
+                if not volume_mountpoint:
+                    print(f"      ❌ Could not determine volume mountpoint")
+                    return False
+
+                # Clear existing volume content and copy new files
+                print("      ℹ Copying files to volume...")
+
+                # Use rsync for efficient copy with permissions preserved
+                rsync_result = subprocess.run([
+                    "rsync", "-a", "--delete",
+                    "--numeric-ids",
+                    f"{restore_dir}/",
+                    f"{volume_mountpoint}/"
+                ], capture_output=True, text=True)
+
+                if rsync_result.returncode != 0:
+                    # Fallback to cp if rsync not available
+                    logger.warning("rsync failed, falling back to cp")
+                    subprocess.run(
+                        f"rm -rf {volume_mountpoint}/* {volume_mountpoint}/.[!.]* {volume_mountpoint}/..?* 2>/dev/null || true",
+                        shell=True
+                    )
+                    subprocess.run([
+                        "cp", "-a",
+                        f"{restore_dir}/.",
+                        f"{volume_mountpoint}/"
+                    ], check=True)
+
+                print("      ✓ Volume restored (direct format)")
+
+            # 4. Restart containers
+            print("\n   4️⃣ Restarting containers...")
+            result = subprocess.run(
+                ["docker", "ps", "-a", "-q", "--filter", f"volume={vol}"],
+                capture_output=True, text=True, check=True
+            )
+            container_ids = [c for c in result.stdout.strip().split() if c]
+
+            if container_ids:
+                subprocess.run(["docker", "start"] + container_ids, check=True)
+                print(f"      ✓ Restarted {len(container_ids)} container(s)")
+            else:
+                print("      ℹ No containers to restart")
+
+            # 5. Cleanup old safety backups
+            self.cleanup_old_safety_backups(keep_last=3)
+
+            return True
+
+        except subprocess.CalledProcessError as e:
+            print(f"      ❌ Command failed: {e}")
+            return False
+        except KeyboardInterrupt:
+            print(f"\n      ⚠️ Restore interrupted by user")
+            logger.info("Restore interrupted", extra={"volume": vol})
+            return False
+        except Exception as e:
+            print(f"      ❌ Unexpected error: {e}")
+            logger.error(f"Restore error: {e}", extra={"volume": vol})
+            return False
+
+    def _execute_volume_restore_tar(self, vol: str, unit: str, snap_id: str, config_file: str) -> bool:
+        """Execute volume restore for TAR-based backups (legacy).
+
+        TAR backups contain a single TAR archive that needs to be extracted.
+
+        Args:
+            vol: Volume name
+            unit: Unit name
+            snap_id: Snapshot ID
+            config_file: Kopia config file path
+
+        Returns:
+            True if restore successful, False otherwise
+        """
+        @contextmanager
+        def temp_restore_dir():
+            """Context manager for guaranteed cleanup."""
+            restore_dir = Path(tempfile.mkdtemp(prefix="kopia-restore-tar-"))
+            try:
+                yield restore_dir
+            finally:
+                try:
+                    shutil.rmtree(restore_dir)
+                    logger.debug(f"Cleaned up temp dir: {restore_dir}")
+                except Exception as e:
+                    logger.warning(f"Could not clean temp dir {restore_dir}: {e}")
+
+        try:
+            # 1. Stop containers
+            print("   1️⃣ Stopping containers...")
+            result = subprocess.run(
+                ["docker", "ps", "-q", "--filter", f"volume={vol}"],
+                capture_output=True, text=True, check=True
+            )
+            stopped_ids = [s for s in result.stdout.strip().split() if s]
+
+            if stopped_ids:
+                subprocess.run(["docker", "stop"] + stopped_ids, check=True)
+                print(f"      ✓ Stopped {len(stopped_ids)} container(s)")
+            else:
+                print("      ℹ No running containers using this volume")
+
+            # 2. Safety backup
+            print("\n   2️⃣ Creating safety backup...")
+            backup_name = f"{vol}-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.tar.gz"
+
+            result = subprocess.run([
+                "docker", "run", "--rm",
+                "-v", f"{vol}:/src",
+                "-v", "/tmp:/backup",
+                "alpine",
+                "sh", "-c", f"tar -czf /backup/{backup_name} -C /src . 2>/dev/null || true"
+            ], capture_output=True, text=True)
+
+            backup_path = Path(f"/tmp/{backup_name}")
+            if backup_path.exists():
+                print(f"      ✓ Backup: {backup_path}")
+                logger.info(f"Safety backup created: {backup_path}")
+            else:
+                print("      ⚠ No backup created (volume might be empty)")
+
+            # 3. Restore from Kopia (TAR format)
+            print("\n   3️⃣ Restoring from Kopia (tar format)...")
+            print("      (This may take a while...)")
+
             with temp_restore_dir() as restore_dir:
                 # CREATE directory structure BEFORE restore!
                 volume_path = restore_dir / "volumes" / unit
-                volume_path.mkdir(parents=True, exist_ok=True)  # ← FIX!
-                
+                volume_path.mkdir(parents=True, exist_ok=True)
+
                 # Restore snapshot
                 subprocess.run([
                     "kopia", "snapshot", "restore", snap_id,
                     "--config-file", config_file,
                     str(restore_dir)
                 ], check=True, capture_output=True, text=True)
-                
+
                 # Find tar file
                 tar_file = restore_dir / "volumes" / unit / vol
-                
+
                 if not tar_file.exists():
                     print(f"      ❌ Volume tar file not found: {tar_file}")
                     return False
-                
+
                 # Verify it's a tar
                 file_check = subprocess.run(
                     ["file", str(tar_file)],
                     capture_output=True, text=True
                 )
-                
+
                 if "tar archive" not in file_check.stdout.lower():
                     print(f"      ❌ Restored file is not a tar archive")
                     return False
-                
+
                 size_mb = tar_file.stat().st_size / 1024 / 1024
                 print(f"      ✓ Found tar archive ({size_mb:.1f} MB)")
-                
+
                 # Extract tar into volume
                 print("      ℹ Extracting into volume...")
                 docker_proc = subprocess.run([
@@ -806,13 +1018,13 @@ class RestoreManager:
                     "rm -rf /target/* /target/..?* /target/.[!.]* 2>/dev/null || true; "
                     "tar -xpf /backup.tar --numeric-owner --xattrs --acls -C /target"
                 ], capture_output=True, text=True)
-                
+
                 if docker_proc.returncode != 0:
                     print(f"      ❌ Tar extract failed: {docker_proc.stderr}")
                     return False
-                
-                print("      ✓ Volume restored")
-            
+
+                print("      ✓ Volume restored (tar format)")
+
             # 4. Restart containers
             print("\n   4️⃣ Restarting containers...")
             result = subprocess.run(
@@ -820,7 +1032,7 @@ class RestoreManager:
                 capture_output=True, text=True, check=True
             )
             container_ids = [c for c in result.stdout.strip().split() if c]
-            
+
             if container_ids:
                 subprocess.run(["docker", "start"] + container_ids, check=True)
                 print(f"      ✓ Restarted {len(container_ids)} container(s)")

@@ -83,6 +83,13 @@ NETWORK_BACKUP_DIR = "networks"
 DOCKER_CONFIG_BACKUP_DIR = "docker-config"
 # DATABASE_BACKUP_DIR removed (no DB dumps in cold backups)
 
+# Backup Format (v5.0+)
+# - TAR: Legacy format, streams tar archive to Kopia (no deduplication)
+# - DIRECT: New format, direct Kopia snapshot of volume directory (block-level dedup)
+BACKUP_FORMAT_TAR = "tar"          # Legacy: tar stream → Kopia stdin
+BACKUP_FORMAT_DIRECT = "direct"    # New: direct Kopia snapshot of volume path
+BACKUP_FORMAT_DEFAULT = BACKUP_FORMAT_DIRECT  # Default for new backups
+
 # Backup hooks
 HOOK_PRE_BACKUP = "pre_backup"
 HOOK_POST_BACKUP = "post_backup"
