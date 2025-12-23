@@ -8,10 +8,11 @@ Supports: Debian 11-13 (including Trixie), Ubuntu 20-24, Arch, Fedora, etc.
 from __future__ import annotations
 
 import platform
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+from .ui_utils import run_command
 
 
 @dataclass
@@ -193,13 +194,14 @@ def get_package_manager() -> Optional[str]:
 def _command_exists(command: str) -> bool:
     """Check if a command exists in PATH"""
     try:
-        subprocess.run(
+        result = run_command(
             ["which", command],
-            capture_output=True,
-            check=True
+            f"Checking for {command}",
+            timeout=5,
+            check=False,
         )
-        return True
-    except subprocess.CalledProcessError:
+        return result.returncode == 0
+    except Exception:
         return False
 
 
