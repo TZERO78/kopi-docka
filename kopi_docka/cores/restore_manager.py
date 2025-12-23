@@ -44,7 +44,16 @@ from rich.console import Console
 from rich.prompt import Prompt
 
 from ..helpers.logging import get_logger
-from ..helpers.ui_utils import run_command, SubprocessError
+from ..helpers.ui_utils import (
+    run_command,
+    SubprocessError,
+    print_header,
+    print_success,
+    print_error,
+    print_warning,
+    print_info,
+    print_separator,
+)
 from ..types import RestorePoint
 from ..helpers.config import Config
 from ..cores.repository_manager import KopiaRepository
@@ -94,11 +103,7 @@ class RestoreManager:
 
     def interactive_restore(self):
         """Run interactive wizard."""
-        print("\n" + "=" * 60)
-        print("🔄 Kopi-Docka Restore Wizard")
-        if self.non_interactive:
-            print("   (Non-interactive mode: --yes)")
-        print("=" * 60)
+        print_header("Kopi-Docka Restore Wizard", "(Non-interactive: --yes)" if self.non_interactive else "")
 
         logger.info(
             "Starting restore wizard",
@@ -119,37 +124,35 @@ class RestoreManager:
             missing.append("Kopia")
         
         if missing:
-            print("\n❌ Missing required dependencies:")
+            print_error("Missing required dependencies:")
             for dep in missing:
-                print(f"   • {dep}")
-            print("\nPlease install missing dependencies:")
-            print("   kopi-docka install-deps")
-            print("\nOr check manually:")
+                print_info(f"• {dep}")
+            print_separator()
+            print_info("Install missing dependencies with: kopi-docka install-deps")
+            print_info("Or check manually:")
             if "Docker" in missing:
-                print("   docker --version")
-                print("   systemctl status docker")
+                print_info("docker --version")
+                print_info("systemctl status docker")
             if "tar" in missing:
-                print("   which tar")
+                print_info("which tar")
             if "Kopia" in missing:
-                print("   kopia --version")
+                print_info("kopia --version")
             logger.error(f"Restore aborted: missing dependencies {missing}")
             return
 
         # Check if Kopia repository is connected
         if not self.repo.is_connected():
-            print("\n❌ Not connected to Kopia repository")
-            print("\nPlease connect first:")
-            print("   kopi-docka init")
+            print_error("Not connected to Kopia repository")
+            print_info("Please connect first: kopi-docka init")
             logger.error("Restore aborted: repository not connected")
             return
 
-        print("\n✓ Dependencies OK")
-        print("✓ Repository connected")
-        print("")
+        print_success("Dependencies OK")
+        print_success("Repository connected")
 
         points = self._find_restore_points()
         if not points:
-            print("\n❌ No backups found to restore.")
+            print_error("No backups found to restore.")
             logger.warning("No restore points found")
             return
 
@@ -185,7 +188,7 @@ class RestoreManager:
         if current_session:
             sessions.append(current_session)
 
-        print("\n📋 Available backup sessions:\n")
+        print_info("\n📋 Available backup sessions:\n")
         for idx, session in enumerate(sessions, 1):
             ts = session['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
             units = session['units']
@@ -654,9 +657,8 @@ class RestoreManager:
 
     def _restore_unit(self, rp: RestorePoint):
         """Restore a selected backup unit."""
-        print("\n" + "-" * 60)
-        print("🚀 Starting restoration process...")
-        print("-" * 60)
+        print_separator()
+        print_header("Restore", f"Unit: {rp.unit_name}")
 
         logger.info(
             f"Starting restore for unit: {rp.unit_name}",
@@ -664,9 +666,9 @@ class RestoreManager:
         )
 
         # Pre-restore hook
-        print("\n🔧 Executing pre-restore hook...")
+        print_info("🔧 Executing pre-restore hook...")
         if not self.hooks_manager.execute_pre_restore(rp.unit_name):
-            print("❌ Pre-restore hook failed")
+            print_error("Pre-restore hook failed")
             logger.error(
                 "Pre-restore hook failed, aborting restore",
                 extra={"unit_name": rp.unit_name}
@@ -675,7 +677,7 @@ class RestoreManager:
 
         safe_unit = re.sub(r"[^A-Za-z0-9._-]+", "_", rp.unit_name)
         restore_dir = Path(tempfile.mkdtemp(prefix=f"kopia-docka-restore-{safe_unit}-"))
-        print(f"\n📂 Restore directory: {restore_dir}")
+        print_info(f"📂 Restore directory: {restore_dir}")
 
         try:
             # 1) Recipes
@@ -714,10 +716,9 @@ class RestoreManager:
                     extra={"unit_name": rp.unit_name}
                 )
 
-            print("\n" + "=" * 60)
-            print("✅ Restoration guide complete!")
-            print("📋 Follow the instructions above to restore your service.")
-            print("=" * 60)
+            print_separator()
+            print_success("Restoration guide complete!")
+            print_info("📋 Follow the instructions above to restore your service.")
 
             logger.info(
                 f"Restore guide completed for {rp.unit_name}",
