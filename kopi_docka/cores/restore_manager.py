@@ -37,7 +37,7 @@ import shutil
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Tuple
 from contextlib import contextmanager
 
 from rich.console import Console
@@ -56,6 +56,7 @@ from ..helpers.constants import (
     CONTAINER_START_TIMEOUT,
     BACKUP_FORMAT_TAR,
     BACKUP_FORMAT_DIRECT,
+    DOCKER_COMPOSE_PROJECT_LABEL,
 )
 from ..helpers import (
     check_file_conflicts,
@@ -69,7 +70,13 @@ logger = get_logger(__name__)
 class RestoreManager:
     """Interactive restore wizard for cold backups (recipes + volumes)."""
 
-    def __init__(self, config: Config, non_interactive: bool = False):
+    def __init__(
+        self,
+        config: Config,
+        non_interactive: bool = False,
+        force_recreate_networks: bool = False,
+        skip_network_recreation: bool = False,
+    ):
         self.config = config
         self.repo = KopiaRepository(config)
         self.hooks_manager = HooksManager(config)
@@ -77,6 +84,13 @@ class RestoreManager:
             "backup", "start_timeout", CONTAINER_START_TIMEOUT
         )
         self.non_interactive = non_interactive
+        self.force_recreate_networks = force_recreate_networks
+        self.skip_network_recreation = skip_network_recreation
+
+        if self.force_recreate_networks and self.skip_network_recreation:
+            raise ValueError(
+                "Cannot force and skip network recreation at the same time"
+            )
 
     def interactive_restore(self):
         """Run interactive wizard."""
@@ -805,23 +819,39 @@ class RestoreManager:
                     "Listing existing networks",
                     timeout=10,
                 )
-                existing_networks = set(result.stdout.strip().split("\n"))
+                existing_networks = {
+                    n for n in result.stdout.strip().split("\n") if n
+                }
 
                 # Restore each network
                 for net_config in network_configs:
                     net_name = net_config.get("Name")
                     if not net_name:
                         continue
+                    attached_containers: List[Tuple[str, str]] = []
+                    stopped_container_ids: List[str] = []
 
                     # Check for conflicts
                     if net_name in existing_networks:
                         print(f"   ⚠️ Network '{net_name}' already exists")
 
-                        if self.non_interactive:
-                            print(f"      ✓ Auto-recreating '{net_name}' (--yes mode)")
+                        if self.skip_network_recreation:
+                            print(
+                                f"      ↷ Skipping '{net_name}' (--no-recreate-networks)"
+                            )
+                            continue
+
+                        if self.force_recreate_networks:
+                            choice = "yes"
+                        elif self.non_interactive:
+                            print(
+                                f"      ✓ Auto-recreating '{net_name}' (--yes mode)"
+                            )
                             choice = 'yes'
                         else:
-                            choice = input(f"      Recreate network '{net_name}'? (yes/no/q): ").strip().lower()
+                            choice = input(
+                                f"      Recreate network '{net_name}'? (yes/no/q): "
+                            ).strip().lower()
 
                             if choice == 'q':
                                 print("\n   ⚠️ Network restore cancelled.")
@@ -830,6 +860,32 @@ class RestoreManager:
                         if choice not in ('yes', 'y'):
                             print(f"      ↷ Skipping '{net_name}'")
                             continue
+
+                        attached_containers = self._list_containers_on_network(
+                            net_name,
+                            include_stopped=True,
+                        )
+                        running_containers = self._list_containers_on_network(
+                            net_name,
+                            include_stopped=False,
+                        )
+                        stopped_container_ids = self._stop_containers(
+                            running_containers,
+                            net_name,
+                        )
+
+                        # Abort recreation if we couldn't stop running containers
+                        if running_containers and not stopped_container_ids:
+                            print(
+                                "      ↷ Could not stop running containers; "
+                                "keeping existing network"
+                            )
+                            continue
+
+                        disconnected = self._disconnect_containers_from_network(
+                            net_name,
+                            attached_containers,
+                        )
 
                         # Remove existing network
                         print(f"      🗑️  Removing existing network '{net_name}'...")
@@ -841,7 +897,15 @@ class RestoreManager:
                             )
                         except SubprocessError as e:
                             print(f"      ❌ Failed to remove network: {e.stderr}")
-                            print(f"         Network may be in use. Stop containers first.")
+                            print("         Network may still have attached containers.")
+                            if disconnected:
+                                self._reconnect_containers_to_network(
+                                    net_name, attached_containers
+                                )
+                            if stopped_container_ids:
+                                self._restart_containers(
+                                    stopped_container_ids, net_name
+                                )
                             continue
 
                     # Create network
@@ -889,6 +953,16 @@ class RestoreManager:
                         print(f"      ✅ Network '{net_name}' created")
                         restored_count += 1
 
+                        if attached_containers:
+                            self._reconnect_containers_to_network(
+                                net_name, attached_containers
+                            )
+
+                        if stopped_container_ids:
+                            self._restart_containers(
+                                stopped_container_ids, net_name
+                            )
+
                         logger.info(
                             f"Network {net_name} restored",
                             extra={"unit_name": rp.unit_name, "network": net_name}
@@ -909,6 +983,129 @@ class RestoreManager:
                 print(f"   ⚠️ Warning: Could not restore networks: {e}")
 
         return restored_count
+
+    def _list_containers_on_network(
+        self,
+        net_name: str,
+        include_stopped: bool = False,
+        compose_project: Optional[str] = None,
+    ) -> List[Tuple[str, str]]:
+        """Return (id, name) tuples for containers attached to a network."""
+        cmd = ["docker", "ps"]
+        if include_stopped:
+            cmd.append("-a")
+        cmd.extend(["--filter", f"network={net_name}"])
+        if compose_project:
+            cmd.extend(
+                ["--filter", f"label={DOCKER_COMPOSE_PROJECT_LABEL}={compose_project}"]
+            )
+        cmd.extend(["--format", "{{.ID}};{{.Names}}"])
+
+        result = run_command(
+            cmd,
+            f"Listing containers on network {net_name}",
+            timeout=10,
+            check=False,
+        )
+
+        containers: List[Tuple[str, str]] = []
+        for line in result.stdout.strip().splitlines():
+            parts = line.split(";", 1)
+            if len(parts) == 2 and parts[0]:
+                containers.append((parts[0], parts[1]))
+        return containers
+
+    def _stop_containers(
+        self, containers: List[Tuple[str, str]], net_name: str
+    ) -> List[str]:
+        """Stop running containers connected to a network."""
+        ids = [cid for cid, _ in containers]
+        if not ids:
+            return []
+
+        names = ", ".join(name for _, name in containers)
+        print(f"      ⏹️  Stopping containers on '{net_name}': {names}")
+
+        try:
+            run_command(
+                ["docker", "stop"] + ids,
+                f"Stopping {len(ids)} container(s)",
+                timeout=60,
+            )
+            return ids
+        except SubprocessError as e:
+            print(f"      ❌ Failed to stop containers: {e.stderr}")
+            return []
+
+    def _disconnect_containers_from_network(
+        self,
+        net_name: str,
+        containers: List[Tuple[str, str]],
+    ) -> List[str]:
+        """Disconnect containers from a network to allow removal."""
+        if not containers:
+            return []
+
+        print("      🔌 Disconnecting containers before recreation...")
+        disconnected: List[str] = []
+
+        for cid, name in containers:
+            result = run_command(
+                ["docker", "network", "disconnect", "-f", net_name, cid],
+                f"Disconnecting {name} from {net_name}",
+                timeout=15,
+                check=False,
+            )
+            if result.returncode == 0:
+                disconnected.append(cid)
+            else:
+                print(
+                    f"      ⚠️ Could not disconnect {name} "
+                    f"(exit {result.returncode})"
+                )
+
+        return disconnected
+
+    def _reconnect_containers_to_network(
+        self,
+        net_name: str,
+        containers: List[Tuple[str, str]],
+    ) -> None:
+        """Reconnect previously attached containers to a recreated network."""
+        if not containers:
+            return
+
+        print(f"      🔌 Re-attaching containers to '{net_name}'...")
+        for cid, name in containers:
+            result = run_command(
+                ["docker", "network", "connect", net_name, cid],
+                f"Re-attaching {name} to {net_name}",
+                timeout=20,
+                check=False,
+            )
+            if result.returncode != 0:
+                print(
+                    f"      ⚠️ Could not re-attach {name} "
+                    f"(exit {result.returncode})"
+                )
+
+    def _restart_containers(self, container_ids: List[str], net_name: str) -> None:
+        """Restart containers that were running before network recreation."""
+        if not container_ids:
+            return
+
+        try:
+            run_command(
+                ["docker", "start"] + container_ids,
+                f"Starting {len(container_ids)} container(s)",
+                timeout=60,
+            )
+            print(
+                f"      🔁 Restarted {len(container_ids)} "
+                f"container(s) on '{net_name}'"
+            )
+        except SubprocessError as e:
+            print(f"      ⚠️ Failed to restart containers: {e.stderr}")
 
     def _check_for_secrets(self, recipe_dir: Path):
         """Warn if redacted secrets are present in inspect JSONs."""
