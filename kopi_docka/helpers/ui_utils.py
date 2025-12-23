@@ -6,8 +6,11 @@ Provides consistent UI components across all commands.
 """
 
 import os
+import shlex
+import subprocess
 import sys
-from typing import Any, Callable, List, Optional, Tuple, TypeVar
+import time
+from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union
 
 import typer
 from rich import box
@@ -18,7 +21,10 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
+from .logging import get_logger
+
 console = Console()
+logger = get_logger(__name__)
 
 
 def require_sudo(command_name: str = "this command") -> None:
@@ -444,3 +450,198 @@ def get_menu_choice(prompt_text: str = "Select", valid_choices: List[str] = None
         if valid_choices is None or choice in valid_choices:
             return choice
         print_error(f"Invalid choice. Valid options: {', '.join(valid_choices)}")
+
+
+# =============================================================================
+# Subprocess Utilities (v5.2.0)
+# =============================================================================
+
+class SubprocessError(Exception):
+    """
+    Raised when a subprocess command fails.
+
+    Provides structured access to command details for error handling.
+
+    Attributes:
+        cmd: The command that failed (as list)
+        returncode: Exit code from the process
+        stderr: Captured stderr output
+    """
+
+    def __init__(self, cmd: List[str], returncode: int, stderr: str = ""):
+        self.cmd = cmd
+        self.returncode = returncode
+        self.stderr = stderr
+        cmd_str = shlex.join(cmd) if cmd else ""
+        super().__init__(f"Command failed: {cmd_str} (exit {returncode})")
+
+
+def run_command(
+    cmd: Union[str, List[str]],
+    description: str,
+    timeout: Optional[int] = None,
+    check: bool = True,
+    show_output: bool = False,
+    success_msg: Optional[str] = None,
+    error_msg: Optional[str] = None,
+    env: Optional[Dict[str, str]] = None,
+) -> subprocess.CompletedProcess:
+    """
+    Execute a subprocess command with visual feedback and logging.
+
+    Provides consistent UX across all subprocess calls:
+    - Spinner animation for background operations
+    - Live output streaming for long-running commands
+    - Rich error panels instead of raw stderr dumps
+    - Integrated logging with duration tracking
+
+    Args:
+        cmd: Command to execute. Can be a string ("docker ps") or list (["docker", "ps"]).
+             Strings are split using shlex.split() for safe parsing.
+        description: Human-readable description shown in spinner (e.g., "Checking Docker")
+        timeout: Maximum seconds to wait. None means no timeout.
+        check: If True, raise SubprocessError on non-zero exit. Default True.
+        show_output: If True, stream output live (no spinner). Use for long operations.
+        success_msg: Optional message to print on success. If None, no message shown.
+        error_msg: Optional custom error message. If None, uses stderr.
+        env: Optional environment variables to merge with current environment.
+
+    Returns:
+        subprocess.CompletedProcess with stdout/stderr captured.
+
+    Raises:
+        SubprocessError: If check=True and command returns non-zero exit code.
+        subprocess.TimeoutExpired: If timeout is exceeded.
+
+    Example:
+        # Simple command with spinner
+        result = run_command("docker ps", "Checking Docker", timeout=10)
+
+        # Long operation with live output
+        run_command(
+            ["kopia", "snapshot", "create", "/data"],
+            "Creating backup snapshot",
+            show_output=True
+        )
+
+        # Custom environment
+        run_command(
+            ["kopia", "repository", "status"],
+            "Checking repository",
+            env={"KOPIA_PASSWORD": "secret"}
+        )
+    """
+    # Convert string command to list
+    if isinstance(cmd, str):
+        cmd_list = shlex.split(cmd)
+    else:
+        cmd_list = list(cmd)
+
+    cmd_str = shlex.join(cmd_list)
+    logger.debug(f"Running command: {cmd_str}")
+
+    # Prepare environment
+    run_env = None
+    if env:
+        run_env = os.environ.copy()
+        run_env.update(env)
+
+    start_time = time.time()
+
+    try:
+        if show_output:
+            # Live output mode: no spinner, stream to console
+            console.print(f"[cyan]→[/cyan] {escape(description)}")
+            result = subprocess.run(
+                cmd_list,
+                env=run_env,
+                timeout=timeout,
+                text=True,
+                # Don't capture - let output flow to terminal
+            )
+        else:
+            # Spinner mode: capture output, show spinner
+            with console.status(f"[cyan]{description}...[/cyan]", spinner="dots"):
+                result = subprocess.run(
+                    cmd_list,
+                    env=run_env,
+                    timeout=timeout,
+                    capture_output=True,
+                    text=True,
+                )
+
+        duration = time.time() - start_time
+        logger.debug(f"Command completed in {duration:.2f}s (exit {result.returncode})")
+
+        # Handle success
+        if result.returncode == 0:
+            if success_msg:
+                print_success(success_msg)
+            return result
+
+        # Handle failure
+        if check:
+            stderr_text = result.stderr.strip() if result.stderr else ""
+            display_error = error_msg or stderr_text or f"Command exited with code {result.returncode}"
+
+            # Log the error
+            logger.error(
+                f"Command failed: {cmd_str}",
+                extra={
+                    "returncode": result.returncode,
+                    "stderr": stderr_text[:500] if stderr_text else None,
+                    "duration": duration,
+                }
+            )
+
+            # Show error panel to user
+            error_content = f"[bold]{description}[/bold]\n\n"
+            error_content += f"[dim]Command:[/dim] {escape(cmd_str)}\n"
+            error_content += f"[dim]Exit code:[/dim] {result.returncode}\n"
+            if stderr_text:
+                # Truncate very long error messages
+                stderr_display = stderr_text[:500]
+                if len(stderr_text) > 500:
+                    stderr_display += "\n... (truncated)"
+                error_content += f"\n[dim]Details:[/dim]\n{escape(stderr_display)}"
+
+            console.print()
+            console.print(Panel.fit(
+                error_content,
+                title="[bold red]Command Failed[/bold red]",
+                border_style="red"
+            ))
+
+            raise SubprocessError(cmd_list, result.returncode, stderr_text)
+
+        return result
+
+    except subprocess.TimeoutExpired as e:
+        duration = time.time() - start_time
+        logger.warning(
+            f"Command timed out after {timeout}s: {cmd_str}",
+            extra={"timeout": timeout, "duration": duration}
+        )
+
+        # Show timeout warning panel
+        timeout_content = f"[bold]{description}[/bold]\n\n"
+        timeout_content += f"[dim]Command:[/dim] {escape(cmd_str)}\n"
+        timeout_content += f"[dim]Timeout:[/dim] {timeout} seconds"
+
+        console.print()
+        console.print(Panel.fit(
+            timeout_content,
+            title="[bold yellow]Command Timed Out[/bold yellow]",
+            border_style="yellow"
+        ))
+
+        if check:
+            raise
+
+        # Return a fake CompletedProcess for non-check mode
+        return subprocess.CompletedProcess(
+            args=cmd_list,
+            returncode=-1,
+            stdout="",
+            stderr=f"Command timed out after {timeout} seconds"
+        )
