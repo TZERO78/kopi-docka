@@ -19,7 +19,7 @@ JSON
 
 for f in $FILES; do
   echo "Rendering $f -> ${f%.mmd}.svg"
-  npx -y @mermaid-js/mermaid-cli -i "$f" -o "${f%.mmd}.svg" --puppeteer-config puppeteer-config.json
+  npx -y @mermaid-js/mermaid-cli -i "$f" -o "${f%.mmd}.svg" --puppeteerConfigFile puppeteer-config.json
 done
 
 echo "Done. Generated SVGs can be found next to the .mmd files."
