@@ -1,0 +1,74 @@
+name: Render Mermaid diagrams to SVG
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install system libraries and Node.js
+        run: |
+          sudo apt-get update
+          # Ensure 'universe' repository is enabled so packages like libasound2 are available
+          sudo apt-get install -y --no-install-recommends software-properties-common || true
+          sudo add-apt-repository -y universe || true
+          sudo apt-get update
+          # Install common Chromium/Puppeteer dependencies (use stable package names)
+          sudo apt-get install -y --no-install-recommends \
+            libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libgtk-3-0 libx11-xcb1 libxss1 libasound2t64 fonts-liberation libgbm1 libpangocairo-1.0-0 libxrandr2 libxcomposite1 libxdamage1
+          if ! command -v node >/dev/null 2>&1; then
+            curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+            sudo apt-get install -y nodejs
+          fi
+          node --version
+          npm --version
+
+      - name: Render .mmd files to .svg
+        run: |
+          set -euo pipefail
+          # Create a small Puppeteer config to disable the Chromium sandbox in CI
+          cat > puppeteer-config.json <<'JSON'
+          { "args": ["--no-sandbox", "--disable-setuid-sandbox"] }
+          JSON
+
+          FILES=$(find docs/diagrams -name '*.mmd' -print || true)
+          if [ -z "$FILES" ]; then
+            echo "No .mmd files found in docs/diagrams"
+            exit 0
+          fi
+          for f in $FILES; do
+            echo "Rendering $f -> ${f%.mmd}.svg"
+            npx -y @mermaid-js/mermaid-cli -i "$f" -o "${f%.mmd}.svg" --puppeteerConfigFile puppeteer-config.json
+          done
+
+      - name: Commit generated SVGs (if any)
+        env:
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          git config user.name "$GIT_COMMITTER_NAME"
+          git config user.email "$GIT_COMMITTER_EMAIL"
+          git add docs/diagrams/*.svg || true
+          if git diff --staged --quiet; then
+            echo "No generated SVG changes to commit"
+            exit 0
+          fi
+          git commit -m "docs: render Mermaid diagrams to SVG"
+          # When this job runs for a pull_request the checkout is a detached HEAD (refs/pull/<id>/merge).
+          # Push the generated files back to the PR head branch using GITHUB_HEAD_REF.
+          if [ -n "${GITHUB_HEAD_REF:-}" ]; then
+            git push origin HEAD:"$GITHUB_HEAD_REF"
+          else
+            git push
+          fi
