@@ -132,6 +132,8 @@ sudo kopi-docka disaster-recovery
 4. docker compose up -d
 ```
 
+Note: The legacy TAR/stdin snapshot method is deprecated in favor of direct Kopia directory snapshots (see docs/PROBLEM_1_PLAN.md). Direct snapshots provide file-level deduplication and are the recommended default.
+
 ### 3. Tailscale Integration
 
 Automatic peer discovery for P2P backups over WireGuard mesh network:
@@ -168,6 +170,8 @@ Daemon implementation with:
 - **[Hooks](docs/HOOKS.md)** - Pre/post backup hooks, examples
 - **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues, FAQ
 - **[Development](docs/DEVELOPMENT.md)** - Project structure, contributing
+- **[Architecture](ARCHITECTURE.md)** - Code-driven architecture overview (authoritative)
+
 
 📁 **Examples:**
 
@@ -243,7 +247,7 @@ Kopi-Docka supports 8 different storage backends:
 - **OS:** Linux (Debian, Ubuntu, Arch, Fedora, RHEL/CentOS)
 - **Python:** 3.10 or newer
 - **Docker:** Docker Engine 20.10+
-- **Kopia:** 0.10+ (automatically checked)
+- **Kopia:** >= 0.13 (recommended; required for sparse-file support) (automatically checked)
 
 **[Detailed requirements →](docs/INSTALLATION.md#system-requirements)**
 
@@ -358,3 +362,4 @@ your environment details.
 - 📚 **Documentation:** [Complete docs](docs/)
 - 🐛 **Bug Reports:** [GitHub Issues](https://github.com/TZERO78/kopi-docka/issues)
 - 💬 **Discussions:** [GitHub Discussions](https://github.com/TZERO78/kopi-docka/discussions)
+- 🧑‍🤝‍🧑 **Code of Conduct:** [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)

@@ -12,7 +12,7 @@
 ### Required Software
 - **Docker Engine** (20.10+)
 - **Docker CLI**
-- **Kopia CLI** (0.10+) - automatically checked
+- **Kopia CLI** (>= 0.13 recommended; required for sparse-file support) - automatically checked
 - **tar**, **openssl** (usually pre-installed)
 
 **Quick check:**
@@ -81,7 +81,7 @@ pip install -e ".[dev]"
 
 ```bash
 # Automatic (Debian/Ubuntu/Arch/Fedora)
-sudo kopi-docka install-deps
+sudo kopi-docka admin system install-deps (alias: kopi-docka install-deps)
 
 # Show manual install guide
 kopi-docka show-deps
