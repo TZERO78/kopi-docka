@@ -1,0 +1,21 @@
+sequenceDiagram
+  participant CLI
+  participant Discovery
+  participant Backup
+  participant Hooks
+  participant Policy
+  participant Repo
+  participant Docker
+
+  CLI->>Discovery: discover_backup_units()
+  CLI->>Backup: backup_unit(unit)
+  Backup->>Policy: _ensure_policies(unit)
+  Backup->>Hooks: execute_pre_backup(unit)
+  Backup->>Docker: stop containers
+  Backup->>Backup: _backup_recipes() -> Repo.create_snapshot(tmpdir, tags)
+  Backup->>Backup: Start parallel _backup_volume() tasks
+  Backup->>Repo: create_snapshot/create_snapshot_from_stdin (per volume)
+  Backup->>Docker: start containers
+  Backup->>Hooks: execute_post_backup(unit)
+  Backup->>Repo: (optionally) update DR bundle via DisasterRecoveryManager
+  Backup-->>CLI: return BackupMetadata

@@ -1,0 +1,12 @@
+sequenceDiagram
+  participant Code
+  participant KopiaCLI
+
+  Code->>KopiaCLI: connect()/initialize()
+  KopiaCLI-->>Code: success / failure
+  Code->>KopiaCLI: snapshot create (path) --json
+  KopiaCLI-->>Code: JSON with snapshotID
+  Code->>KopiaCLI: snapshot list --json
+  KopiaCLI-->>Code: JSON array
+  Code->>KopiaCLI: snapshot restore <id> <target>
+  KopiaCLI-->>Code: exit 0 / error

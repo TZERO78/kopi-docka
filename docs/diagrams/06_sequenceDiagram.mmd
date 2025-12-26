@@ -1,0 +1,13 @@
+sequenceDiagram
+  participant Discovery
+  participant Docker
+
+  Discovery->>Docker: docker ps -q
+  Docker-->>Discovery: container ids
+  Discovery->>Docker: docker inspect <id> (per id)
+  Docker-->>Discovery: inspect JSON
+  Discovery->>Docker: docker volume ls --format ...
+  Docker-->>Discovery: volume list
+  Discovery->>Docker: docker volume inspect <name>
+  Docker-->>Discovery: volume JSON
+  Discovery->>Discovery: build BackupUnit objects, group stacks
