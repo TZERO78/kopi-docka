@@ -9,7 +9,7 @@
 # @repository:  https://github.com/TZERO78/kopi-docka
 # @version:     2.0.0
 #
-# ------------------------------------------------------------------------------ 
+# ------------------------------------------------------------------------------
 # MIT-Lizenz: siehe LICENSE oder https://opensource.org/licenses/MIT
 # ==============================================================================
 # Changelog v2.0.0:
@@ -54,7 +54,7 @@ class KopiaRepository:
 
     def __init__(self, config: Config):
         self.config = config
-        self.kopia_params = config.get('kopia', 'kopia_params', fallback='')
+        self.kopia_params = config.get("kopia", "kopia_params", fallback="")
         if not self.kopia_params:
             raise ValueError(
                 "Config missing 'kopia_params'. "
@@ -103,8 +103,10 @@ class KopiaRepository:
         metadata_size = max(50, cache_size // 5)
 
         return [
-            "--content-cache-size-mb", str(cache_size),
-            "--metadata-cache-size-mb", str(metadata_size),
+            "--content-cache-size-mb",
+            str(cache_size),
+            "--metadata-cache-size-mb",
+            str(metadata_size),
         ]
 
     def _run(self, args: List[str], check: bool = True) -> subprocess.CompletedProcess:
@@ -183,6 +185,7 @@ class KopiaRepository:
             return
 
         import shlex
+
         params = shlex.split(self.kopia_params)
         # Include cache size limits to prevent unbounded cache growth
         cmd = ["kopia", "repository", "connect"] + params + self._get_cache_params()
@@ -223,24 +226,27 @@ class KopiaRepository:
         if self.is_connected():
             logger.info("Already connected to repository")
             return
-        
+
         import shlex
+
         params = shlex.split(self.kopia_params)
-        
+
         # Für filesystem: Directory erstellen
         if len(params) >= 2 and params[0] == "filesystem" and params[1] == "--path":
             if len(params) >= 3:
                 Path(params[2]).expanduser().mkdir(parents=True, exist_ok=True)
-        
-        cmd_create = ["kopia", "repository", "create"] + params + [
-            "--description", f"Kopi-Docka Backup Repository ({self.profile_name})"
-        ]
+
+        cmd_create = (
+            ["kopia", "repository", "create"]
+            + params
+            + ["--description", f"Kopi-Docka Backup Repository ({self.profile_name})"]
+        )
         # Include cache size limits to prevent unbounded cache growth
         cmd_connect = ["kopia", "repository", "connect"] + params + self._get_cache_params()
 
         # Try to create (may fail if exists)
         proc = self._run(cmd_create, check=False)
-        
+
         # If create failed, check if it's because repo exists
         if proc.returncode != 0:
             err_msg = (proc.stderr or proc.stdout or "").lower()
@@ -266,6 +272,7 @@ class KopiaRepository:
         # Apply default policies (best-effort)
         try:
             from .kopia_policy_manager import KopiaPolicyManager
+
             KopiaPolicyManager(self).apply_global_defaults()
         except Exception as e:
             logger.debug("Skipping policy defaults (optional): %s", e)
@@ -296,17 +303,17 @@ class KopiaRepository:
     def set_repo_password(self, new_password: str) -> None:
         """
         Change the Kopia repository password.
-        
+
         This updates the password in the Kopia repository itself.
         You must also update the password in your config file separately
         using Config.set_password().
-        
+
         Args:
             new_password: The new password to set
-            
+
         Raises:
             RuntimeError: If password change fails
-            
+
         Example:
             >>> repo = KopiaRepository(config)
             >>> repo.set_repo_password("new-secure-password")
@@ -314,64 +321,52 @@ class KopiaRepository:
         """
         if not self.is_connected():
             raise RuntimeError(
-                "Not connected to repository. "
-                "Cannot change password without active connection."
+                "Not connected to repository. " "Cannot change password without active connection."
             )
-        
+
         logger.info("Changing repository password...")
-        
+
         # Build environment with NEW password
         env = self._get_env().copy()
         env["KOPIA_NEW_PASSWORD"] = new_password
-        
+
         # Call kopia repository change-password
-        cmd = [
-            "kopia", "repository", "change-password",
-            "--config-file", self._get_config_file()
-        ]
-        
-        proc = subprocess.run(
-            cmd,
-            env=env,
-            text=True,
-            capture_output=True
-        )
-        
+        cmd = ["kopia", "repository", "change-password", "--config-file", self._get_config_file()]
+
+        proc = subprocess.run(cmd, env=env, text=True, capture_output=True)
+
         if proc.returncode != 0:
             err_msg = (proc.stderr or proc.stdout or "").strip()
             raise RuntimeError(f"Failed to change repository password: {err_msg}")
-        
+
         logger.info("Repository password changed successfully")
-    
+
     def verify_password(self, password: str) -> bool:
         """
         Verify if a password works with the repository.
-        
+
         Args:
             password: Password to test
-            
+
         Returns:
             True if password is correct, False otherwise
         """
         # Temporarily override password in env
         env = os.environ.copy()
         env["KOPIA_PASSWORD"] = password
-        
+
         cache_dir = self.config.kopia_cache_directory
         if cache_dir:
             env["KOPIA_CACHE_DIRECTORY"] = str(cache_dir)
-        
+
         # Try a simple status check
         proc = subprocess.run(
-            [
-                "kopia", "repository", "status", "--json",
-                "--config-file", self._get_config_file()
-            ],
+            ["kopia", "repository", "status", "--json", "--config-file", self._get_config_file()],
             env=env,
             text=True,
-            capture_output=True
+            capture_output=True,
         )
-        
+
         return proc.returncode == 0
 
     # --------------- Snapshots ---------------
@@ -413,7 +408,7 @@ class KopiaRepository:
                 "tags": tags,
                 "exclude_patterns": exclude_patterns,
                 "full_command": " ".join(args[:10]) + ("..." if len(args) > 10 else ""),
-            }
+            },
         )
 
         proc = self._run(args, check=True)
@@ -426,7 +421,7 @@ class KopiaRepository:
             extra={
                 "snapshot_id": snap_id,
                 "raw_response_preview": proc.stdout[:500] if proc.stdout else "empty",
-            }
+            },
         )
 
         if not snap_id:
@@ -437,7 +432,7 @@ class KopiaRepository:
         self,
         stdin: IO[bytes],
         dest_virtual_path: str,  # ← Parameter heißt "dest_virtual_path"
-        tags: Optional[Dict[str, str]] = None
+        tags: Optional[Dict[str, str]] = None,
     ) -> str:
         """
         Create a snapshot from stdin (single virtual file).
@@ -451,18 +446,19 @@ class KopiaRepository:
         IMPORTANT: Use '--stdin-file <name>' **and** '-' as source to indicate stdin.
         """
         import warnings
+
         warnings.warn(
             "create_snapshot_from_stdin() is deprecated since v5.0.0. "
             "Use create_snapshot() with a directory path for block-level deduplication. "
             "This method will be removed in v6.0.0.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         args = ["kopia", "snapshot", "create", "--stdin-file", dest_virtual_path, "-", "--json"]
         if tags:
             for k, v in tags.items():
                 args += ["--tags", f"{k}:{v}"]
-        
+
         # Add config-file explicitly (can't use _run() because of stdin parameter)
         args.append("--config-file")
         args.append(self._get_config_file())
@@ -475,10 +471,18 @@ class KopiaRepository:
             capture_output=True,
         )
         if proc.returncode != 0:
-            err = proc.stderr.decode("utf-8", "replace") if isinstance(proc.stderr, (bytes, bytearray)) else proc.stderr
+            err = (
+                proc.stderr.decode("utf-8", "replace")
+                if isinstance(proc.stderr, (bytes, bytearray))
+                else proc.stderr
+            )
             raise RuntimeError(f"stdin snapshot failed: {err.strip()}")
 
-        out = proc.stdout.decode("utf-8", "replace") if isinstance(proc.stdout, (bytes, bytearray)) else proc.stdout
+        out = (
+            proc.stdout.decode("utf-8", "replace")
+            if isinstance(proc.stdout, (bytes, bytearray))
+            else proc.stdout
+        )
         snap = self._parse_single_json_line(out)
         snap_id = snap.get("snapshotID") or snap.get("id") or ""
         if not snap_id:
@@ -491,41 +495,45 @@ class KopiaRepository:
         Returns simplified dicts: id, path, timestamp, tags, size.
         """
         proc = self._run(["kopia", "snapshot", "list", "--json"], check=True)
-        
+
         # Parse as JSON array (not NDJSON!)
         try:
             raw_snaps = json.loads(proc.stdout or "[]")
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse snapshot list: {e}")
             return []
-        
+
         if not isinstance(raw_snaps, list):
             logger.warning("Unexpected snapshot list format (not an array)")
             return []
-        
+
         snaps: List[Dict[str, Any]] = []
         for obj in raw_snaps:
             # Remove "tag:" prefix from tags
             tags_raw = obj.get("tags") or {}
             tags = {k.replace("tag:", ""): v for k, v in tags_raw.items()}
-            
+
             # Apply tag filter if provided
             if tag_filter and any(tags.get(k) != v for k, v in tag_filter.items()):
                 continue
-            
+
             src = obj.get("source") or {}
             stats = obj.get("stats") or {}
-            snaps.append({
-                "id": obj.get("id", ""),
-                "path": src.get("path", ""),
-                "timestamp": obj.get("startTime") or obj.get("time") or "",
-                "tags": tags,  # Without "tag:" prefix!
-                "size": stats.get("totalSize") or 0,
-            })
-        
+            snaps.append(
+                {
+                    "id": obj.get("id", ""),
+                    "path": src.get("path", ""),
+                    "timestamp": obj.get("startTime") or obj.get("time") or "",
+                    "tags": tags,  # Without "tag:" prefix!
+                    "size": stats.get("totalSize") or 0,
+                }
+            )
+
         return snaps
 
-    def list_all_snapshots(self, tag_filter: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
+    def list_all_snapshots(
+        self, tag_filter: Optional[Dict[str, str]] = None
+    ) -> List[Dict[str, Any]]:
         """
         List ALL snapshots from ALL machines in repository.
 
@@ -562,15 +570,17 @@ class KopiaRepository:
 
             src = obj.get("source") or {}
             stats = obj.get("stats") or {}
-            snaps.append({
-                "id": obj.get("id", ""),
-                "path": src.get("path", ""),
-                "host": src.get("host", "unknown"),  # Include hostname!
-                "userName": src.get("userName", ""),
-                "timestamp": obj.get("startTime") or obj.get("time") or "",
-                "tags": tags,
-                "size": stats.get("totalSize") or 0,
-            })
+            snaps.append(
+                {
+                    "id": obj.get("id", ""),
+                    "path": src.get("path", ""),
+                    "host": src.get("host", "unknown"),  # Include hostname!
+                    "userName": src.get("userName", ""),
+                    "timestamp": obj.get("startTime") or obj.get("time") or "",
+                    "tags": tags,
+                    "size": stats.get("totalSize") or 0,
+                }
+            )
 
         return snaps
 
@@ -598,7 +608,7 @@ class KopiaRepository:
                     last_backup=datetime.min.replace(tzinfo=timezone.utc),
                     backup_count=0,
                     units=[],
-                    total_size=0
+                    total_size=0,
                 )
 
             m = machines[host]
@@ -630,7 +640,7 @@ class KopiaRepository:
 
         logger.debug(
             f"Discovered {len(result)} machines in repository",
-            extra={"machines": [m.hostname for m in result]}
+            extra={"machines": [m.hostname for m in result]},
         )
 
         return result
@@ -645,7 +655,13 @@ class KopiaRepository:
     def verify_snapshot(self, snapshot_id: str, verify_percent: int = 10) -> bool:
         """Run snapshot verification (downloads a random % of files)."""
         proc = self._run(
-            ["kopia", "snapshot", "verify", f"--verify-files-percent={verify_percent}", snapshot_id],
+            [
+                "kopia",
+                "snapshot",
+                "verify",
+                f"--verify-files-percent={verify_percent}",
+                snapshot_id,
+            ],
             check=False,
         )
         return proc.returncode == 0
@@ -710,10 +726,16 @@ class KopiaRepository:
 
         # 1) Create
         cmd_create = [
-            "kopia", "repository", "create", "filesystem",
-            "--path", str(repo_dir),
-            "--description", f"Kopi-Docka Backup Repository ({prof})",
-            "--config-file", cfg_file,
+            "kopia",
+            "repository",
+            "create",
+            "filesystem",
+            "--path",
+            str(repo_dir),
+            "--description",
+            f"Kopi-Docka Backup Repository ({prof})",
+            "--config-file",
+            cfg_file,
         ]
         p = subprocess.run(cmd_create, env=env, text=True, capture_output=True)
         if p.returncode != 0:
@@ -722,23 +744,32 @@ class KopiaRepository:
 
         # 2) Connect (idempotent)
         cmd_connect = [
-            "kopia", "repository", "connect", "filesystem",
-            "--path", str(repo_dir),
-            "--config-file", cfg_file,
+            "kopia",
+            "repository",
+            "connect",
+            "filesystem",
+            "--path",
+            str(repo_dir),
+            "--config-file",
+            cfg_file,
         ]
         pc = subprocess.run(cmd_connect, env=env, text=True, capture_output=True)
         if pc.returncode != 0:
             # final status attempt for clearer error
             ps = subprocess.run(
                 ["kopia", "repository", "status", "--config-file", cfg_file],
-                env=env, text=True, capture_output=True
+                env=env,
+                text=True,
+                capture_output=True,
             )
             raise RuntimeError((pc.stderr or pc.stdout or ps.stderr or ps.stdout or "").strip())
 
         # 3) Verify with status (must be connected)
         ps = subprocess.run(
             ["kopia", "repository", "status", "--json", "--config-file", cfg_file],
-            env=env, text=True, capture_output=True
+            env=env,
+            text=True,
+            capture_output=True,
         )
         if ps.returncode != 0:
             raise RuntimeError((ps.stderr or ps.stdout or "").strip())
@@ -754,6 +785,7 @@ class KopiaRepository:
                     dst.symlink_to(src)
                 except Exception:
                     from shutil import copy2
+
                     copy2(src, dst)
             except Exception as e:
                 logger.warning("Could not set default kopia config: %s", e)

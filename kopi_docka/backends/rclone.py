@@ -44,8 +44,8 @@ def get_default_remote_path() -> str:
     """
     hostname = socket.gethostname()
     # Sanitize hostname: remove special chars, replace . and - with _, uppercase
-    clean_hostname = re.sub(r'[^a-zA-Z0-9_]', '_', hostname.replace('.', '_').replace('-', '_'))
-    clean_hostname = re.sub(r'_+', '_', clean_hostname).strip('_').upper()
+    clean_hostname = re.sub(r"[^a-zA-Z0-9_]", "_", hostname.replace(".", "_").replace("-", "_"))
+    clean_hostname = re.sub(r"_+", "_", clean_hostname).strip("_").upper()
     # Fallback if hostname is empty after sanitization
     if not clean_hostname:
         clean_hostname = "DEFAULT"
@@ -55,7 +55,7 @@ def get_default_remote_path() -> str:
 class RcloneBackend(BackendBase):
     """
     Rclone backend implementation.
-    
+
     Leverages Kopia's native rclone support to connect to any
     cloud storage provider supported by rclone.
     """
@@ -83,7 +83,7 @@ class RcloneBackend(BackendBase):
             - sudo_user_name: Name of the SUDO_USER (or None)
         """
         root_config = Path("/root/.config/rclone/rclone.conf")
-        sudo_user = os.environ.get('SUDO_USER')
+        sudo_user = os.environ.get("SUDO_USER")
         user_config = Path(f"/home/{sudo_user}/.config/rclone/rclone.conf") if sudo_user else None
 
         # Check root config with PermissionError handling
@@ -125,13 +125,16 @@ class RcloneBackend(BackendBase):
             SystemExit: If no config found
         """
         # If running with sudo, prefer original user's config
-        sudo_user = os.environ.get('SUDO_USER')
-        if sudo_user and sudo_user != 'root':
+        sudo_user = os.environ.get("SUDO_USER")
+        if sudo_user and sudo_user != "root":
             user_config = Path(f"/home/{sudo_user}/.config/rclone/rclone.conf")
             try:
                 if user_config.exists():
                     typer.secho(f"✓ Using rclone config: {user_config}", fg=typer.colors.GREEN)
-                    typer.secho("  (Preserves root_folder_id and other settings)", fg=typer.colors.BRIGHT_BLACK)
+                    typer.secho(
+                        "  (Preserves root_folder_id and other settings)",
+                        fg=typer.colors.BRIGHT_BLACK,
+                    )
                     typer.echo("")
                     return str(user_config)
             except PermissionError:
@@ -153,22 +156,24 @@ class RcloneBackend(BackendBase):
     def _find_rclone_config(self) -> Optional[str]:
         """
         Find rclone config file with sudo-awareness (legacy method).
-        
+
         Uses _get_config_candidates() internally. Kept for backward compatibility.
 
         Returns:
             Path to config file if found, None otherwise
         """
         root_config, user_config, _ = self._get_config_candidates()
-        
+
         if root_config:
             return str(root_config)
         if user_config:
             return str(user_config)
-        
+
         return None
 
-    def _test_rclone_connection(self, remote: str, path: str, config_path: Optional[str] = None) -> tuple:
+    def _test_rclone_connection(
+        self, remote: str, path: str, config_path: Optional[str] = None
+    ) -> tuple:
         """
         Test rclone connection by listing directories.
 
@@ -208,11 +213,11 @@ class RcloneBackend(BackendBase):
         """
         # For root-level folder, we need to check if it exists in the remote root
         # Use lsd to list directories at the parent level
-        if '/' in path:
-            parent = '/'.join(path.split('/')[:-1])
-            folder_name = path.split('/')[-1]
+        if "/" in path:
+            parent = "/".join(path.split("/")[:-1])
+            folder_name = path.split("/")[-1]
         else:
-            parent = ''
+            parent = ""
             folder_name = path
 
         cmd = ["rclone", "lsd", f"{remote}:{parent}"]
@@ -224,7 +229,7 @@ class RcloneBackend(BackendBase):
             # Check if the folder name appears in the output
             if result.returncode == 0:
                 # Parse lsd output - each line contains folder info
-                for line in result.stdout.strip().split('\n'):
+                for line in result.stdout.strip().split("\n"):
                     if line.strip() and folder_name in line:
                         # lsd format: "          -1 2024-01-01 00:00:00        -1 foldername"
                         # The folder name is at the end
@@ -301,18 +306,20 @@ class RcloneBackend(BackendBase):
 
         # If no config found, offer to create one
         if not rclone_config:
-            sudo_user = os.environ.get('SUDO_USER')
+            sudo_user = os.environ.get("SUDO_USER")
             typer.secho("No rclone configuration found!", fg=typer.colors.YELLOW)
             typer.echo("")
             typer.echo("Checked locations:")
-            if sudo_user and sudo_user != 'root':
+            if sudo_user and sudo_user != "root":
                 typer.echo(f"  - /home/{sudo_user}/.config/rclone/rclone.conf")
             typer.echo("  - /root/.config/rclone/rclone.conf")
             typer.echo("")
             typer.echo("Please run 'rclone config' as your regular user to create a remote.")
             typer.echo("")
 
-            if typer.confirm("Run 'rclone config' now to create a new configuration?", default=True):
+            if typer.confirm(
+                "Run 'rclone config' now to create a new configuration?", default=True
+            ):
                 typer.echo("")
                 typer.echo("Starting rclone configuration wizard...")
                 typer.echo("")
@@ -322,7 +329,9 @@ class RcloneBackend(BackendBase):
                     # Re-check for config after creation
                     rclone_config = self._detect_rclone_config_path()
                     if not rclone_config:
-                        typer.secho("No config found after creation. Please try again.", fg=typer.colors.RED)
+                        typer.secho(
+                            "No config found after creation. Please try again.", fg=typer.colors.RED
+                        )
                         raise SystemExit(1)
                 except SubprocessError:
                     typer.secho("rclone config failed!", fg=typer.colors.RED)
@@ -342,7 +351,7 @@ class RcloneBackend(BackendBase):
         try:
             result = run_command(list_cmd, "Listing rclone remotes", timeout=10, check=False)
             if result.returncode == 0 and result.stdout.strip():
-                for remote_line in result.stdout.strip().split('\n'):
+                for remote_line in result.stdout.strip().split("\n"):
                     typer.echo(f"  - {remote_line}")
             else:
                 typer.secho("  (No remotes configured)", fg=typer.colors.YELLOW)
@@ -350,10 +359,9 @@ class RcloneBackend(BackendBase):
             pass
 
         typer.echo("")
-        remote = typer.prompt(
-            "Rclone remote name",
-            type=str
-        ).strip().rstrip(':')  # Remove trailing colon if user added it
+        remote = (
+            typer.prompt("Rclone remote name", type=str).strip().rstrip(":")
+        )  # Remove trailing colon if user added it
 
         if not remote:
             typer.secho("Remote name cannot be empty!", fg=typer.colors.RED)
@@ -361,11 +369,11 @@ class RcloneBackend(BackendBase):
 
         # Get remote path with hostname-based default
         default_remote_path = get_default_remote_path()
-        remote_path = typer.prompt(
-            "Remote path (folder for backups)",
-            default=default_remote_path,
-            type=str
-        ).strip().lstrip('/')  # Remove leading slash if present
+        remote_path = (
+            typer.prompt("Remote path (folder for backups)", default=default_remote_path, type=str)
+            .strip()
+            .lstrip("/")
+        )  # Remove leading slash if present
 
         # Use default if user provides empty string
         if not remote_path:
@@ -387,19 +395,27 @@ class RcloneBackend(BackendBase):
 
             if typer.confirm("  Create it now?", default=True):
                 typer.echo("  Creating folder...")
-                create_success, create_error = self._rclone_mkdir(remote, remote_path, rclone_config)
+                create_success, create_error = self._rclone_mkdir(
+                    remote, remote_path, rclone_config
+                )
 
                 if create_success:
                     typer.secho(f"✓ Created: {full_remote_path}", fg=typer.colors.GREEN)
                 else:
                     typer.secho(f"✗ Failed to create folder: {create_error}", fg=typer.colors.RED)
                     typer.echo("")
-                    if not typer.confirm("Continue anyway? (You may need to create the folder manually)", default=False):
+                    if not typer.confirm(
+                        "Continue anyway? (You may need to create the folder manually)",
+                        default=False,
+                    ):
                         typer.secho("Configuration cancelled.", fg=typer.colors.YELLOW)
                         raise SystemExit(1)
                     typer.secho("Proceeding without folder creation", fg=typer.colors.YELLOW)
             else:
-                typer.secho("⚠ Folder not created. You may need to create it manually.", fg=typer.colors.YELLOW)
+                typer.secho(
+                    "⚠ Folder not created. You may need to create it manually.",
+                    fg=typer.colors.YELLOW,
+                )
                 if not typer.confirm("Continue anyway?", default=False):
                     typer.secho("Configuration cancelled.", fg=typer.colors.YELLOW)
                     raise SystemExit(1)
@@ -418,14 +434,17 @@ class RcloneBackend(BackendBase):
             if stderr:
                 typer.echo("")
                 typer.echo("Error details:")
-                for line in stderr.strip().split('\n'):
+                for line in stderr.strip().split("\n"):
                     typer.secho(f"  {line}", fg=typer.colors.RED)
             typer.echo("")
 
             if not typer.confirm("Proceed anyway despite the connection error?", default=False):
                 typer.secho("Configuration cancelled.", fg=typer.colors.YELLOW)
                 raise SystemExit(1)
-            typer.secho("Proceeding with configuration (connection issues may need to be resolved later)", fg=typer.colors.YELLOW)
+            typer.secho(
+                "Proceeding with configuration (connection issues may need to be resolved later)",
+                fg=typer.colors.YELLOW,
+            )
 
         typer.echo("")
 
@@ -477,42 +496,41 @@ Documentation:
         typer.secho("✓ Configuration complete!", fg=typer.colors.GREEN)
         typer.echo("")
 
-        return {
-            'kopia_params': kopia_params,
-            'instructions': instructions
-        }
-    
+        return {"kopia_params": kopia_params, "instructions": instructions}
+
     # Abstract method implementations (required by BackendBase)
     # These are stubs since the new architecture uses configure() instead
-    
+
     def check_dependencies(self) -> list:
         """Check if rclone is installed."""
         import shutil
+
         missing = []
         if not shutil.which("rclone"):
             missing.append("rclone")
         return missing
-    
+
     def install_dependencies(self) -> bool:
         """Rclone must be installed manually."""
         return False
-    
+
     def setup_interactive(self) -> dict:
         """Use configure() instead."""
         return self.configure()
-    
+
     def validate_config(self) -> tuple:
         """Validate configuration."""
         return (True, [])
-    
+
     def test_connection(self) -> bool:
         """Test connection (not implemented)."""
         return True
-    
+
     def get_kopia_args(self) -> list:
         """Get Kopia arguments from kopia_params."""
         import shlex
-        kopia_params = self.config.get('kopia_params', '')
+
+        kopia_params = self.config.get("kopia_params", "")
         return shlex.split(kopia_params) if kopia_params else []
 
     def get_status(self) -> dict:
@@ -528,10 +546,10 @@ Documentation:
                 "remote_path": None,
                 "remote_name": None,
                 "config_file": None,
-            }
+            },
         }
 
-        kopia_params = self.config.get('kopia_params', '')
+        kopia_params = self.config.get("kopia_params", "")
         if not kopia_params:
             return status
 
@@ -540,20 +558,20 @@ Documentation:
 
             # Parse --remote-path
             for part in parts:
-                if part.startswith('--remote-path='):
-                    remote_path = part.split('=', 1)[1]
+                if part.startswith("--remote-path="):
+                    remote_path = part.split("=", 1)[1]
                     status["details"]["remote_path"] = remote_path
                     # Extract remote name (before the colon)
-                    if ':' in remote_path:
-                        status["details"]["remote_name"] = remote_path.split(':')[0]
+                    if ":" in remote_path:
+                        status["details"]["remote_name"] = remote_path.split(":")[0]
 
             # Parse --rclone-args for config file
             for part in parts:
-                if part.startswith('--rclone-args='):
-                    rclone_args = part.split('=', 1)[1].strip("'\"")
+                if part.startswith("--rclone-args="):
+                    rclone_args = part.split("=", 1)[1].strip("'\"")
                     # Extract --config from rclone args
-                    if '--config=' in rclone_args:
-                        config_file = rclone_args.split('--config=', 1)[1].strip()
+                    if "--config=" in rclone_args:
+                        config_file = rclone_args.split("--config=", 1)[1].strip()
                         status["details"]["config_file"] = config_file
 
             if status["details"]["remote_path"]:

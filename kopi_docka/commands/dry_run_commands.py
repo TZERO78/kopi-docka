@@ -49,8 +49,7 @@ def ensure_config(ctx: typer.Context) -> Config:
     cfg = get_config(ctx)
     if not cfg:
         print_error_panel(
-            "No configuration found\n\n"
-            "[dim]Run:[/dim] [cyan]kopi-docka admin config new[/cyan]"
+            "No configuration found\n\n" "[dim]Run:[/dim] [cyan]kopi-docka admin config new[/cyan]"
         )
         raise typer.Exit(code=1)
     return cfg
@@ -59,6 +58,7 @@ def ensure_config(ctx: typer.Context) -> Config:
 # -------------------------
 # Commands
 # -------------------------
+
 
 def cmd_dry_run(
     ctx: typer.Context,
@@ -94,16 +94,18 @@ def cmd_dry_run(
         raise typer.Exit(code=1)
 
     if not units:
-        console.print(Panel.fit(
-            "[yellow]No backup units found[/yellow]\n\n"
-            "[bold]This means:[/bold]\n"
-            "  • No running Docker containers detected\n"
-            "  • Or Docker socket is not accessible\n\n"
-            "[dim]Start some containers first:[/dim]\n"
-            "  [cyan]docker run -d --name test nginx[/cyan]",
-            title="[bold yellow]Warning[/bold yellow]",
-            border_style="yellow"
-        ))
+        console.print(
+            Panel.fit(
+                "[yellow]No backup units found[/yellow]\n\n"
+                "[bold]This means:[/bold]\n"
+                "  • No running Docker containers detected\n"
+                "  • Or Docker socket is not accessible\n\n"
+                "[dim]Start some containers first:[/dim]\n"
+                "  [cyan]docker run -d --name test nginx[/cyan]",
+                title="[bold yellow]Warning[/bold yellow]",
+                border_style="yellow",
+            )
+        )
         raise typer.Exit(code=0)
 
     # Filter to specific unit if requested
@@ -115,8 +117,7 @@ def cmd_dry_run(
             console.print("[bold]Available units:[/bold]")
             discovery = DockerDiscovery()
             all_units = discovery.create_backup_units(
-                discovery.discover_containers(),
-                discovery.discover_volumes()
+                discovery.discover_containers(), discovery.discover_volumes()
             )
             for u in all_units:
                 console.print(f"  [cyan]•[/cyan] {u.name} [dim]({u.type})[/dim]")
@@ -160,12 +161,13 @@ def cmd_list_units(ctx: typer.Context):
         raise typer.Exit(code=1)
 
     if not units:
-        console.print(Panel.fit(
-            "[yellow]No backup units found[/yellow]\n\n"
-            "Start some Docker containers first.",
-            title="[bold yellow]Warning[/bold yellow]",
-            border_style="yellow"
-        ))
+        console.print(
+            Panel.fit(
+                "[yellow]No backup units found[/yellow]\n\n" "Start some Docker containers first.",
+                title="[bold yellow]Warning[/bold yellow]",
+                border_style="yellow",
+            )
+        )
         raise typer.Exit(code=0)
 
     # Separate stacks and standalone
@@ -178,7 +180,7 @@ def cmd_list_units(ctx: typer.Context):
             title="Docker Compose Stacks",
             box=box.ROUNDED,
             border_style="cyan",
-            title_style="bold cyan"
+            title_style="bold cyan",
         )
         stack_table.add_column("Status", style="bold", width=8)
         stack_table.add_column("Name", style="cyan")
@@ -198,11 +200,7 @@ def cmd_list_units(ctx: typer.Context):
 
             compose = str(unit.compose_file) if unit.compose_file else "-"
             stack_table.add_row(
-                status,
-                unit.name,
-                f"{running}/{total}",
-                str(len(unit.volumes)),
-                compose
+                status, unit.name, f"{running}/{total}", str(len(unit.volumes)), compose
             )
 
         console.print(stack_table)
@@ -214,7 +212,7 @@ def cmd_list_units(ctx: typer.Context):
             title="Standalone Containers",
             box=box.ROUNDED,
             border_style="cyan",
-            title_style="bold cyan"
+            title_style="bold cyan",
         )
         standalone_table.add_column("Status", style="bold", width=8)
         standalone_table.add_column("Name", style="cyan")
@@ -225,27 +223,26 @@ def cmd_list_units(ctx: typer.Context):
             container = unit.containers[0]
             status = "[green]Running[/green]" if container.is_running else "[red]Stopped[/red]"
 
-            standalone_table.add_row(
-                status,
-                unit.name,
-                container.image,
-                str(len(unit.volumes))
-            )
+            standalone_table.add_row(status, unit.name, container.image, str(len(unit.volumes)))
 
         console.print(standalone_table)
         console.print()
 
     # Summary
-    console.print(Panel.fit(
-        f"[bold]Total:[/bold] {len(stacks)} stacks, {len(standalone)} standalone containers",
-        border_style="dim"
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold]Total:[/bold] {len(stacks)} stacks, {len(standalone)} standalone containers",
+            border_style="dim",
+        )
+    )
 
-    print_next_steps([
-        "Dry run all: [cyan]kopi-docka dry-run[/cyan]",
-        "Dry run one: [cyan]kopi-docka dry-run --unit <name>[/cyan]",
-        "Real backup: [cyan]kopi-docka backup[/cyan]",
-    ])
+    print_next_steps(
+        [
+            "Dry run all: [cyan]kopi-docka dry-run[/cyan]",
+            "Dry run one: [cyan]kopi-docka dry-run --unit <name>[/cyan]",
+            "Real backup: [cyan]kopi-docka backup[/cyan]",
+        ]
+    )
 
 
 def cmd_estimate_size(ctx: typer.Context):
@@ -274,14 +271,12 @@ def cmd_estimate_size(ctx: typer.Context):
         raise typer.Exit(code=0)
 
     from ..helpers.system_utils import SystemUtils
+
     utils = SystemUtils()
 
     # Create table for size estimates
     size_table = Table(
-        title="Backup Size Estimates",
-        box=box.ROUNDED,
-        border_style="cyan",
-        title_style="bold cyan"
+        title="Backup Size Estimates", box=box.ROUNDED, border_style="cyan", title_style="bold cyan"
     )
     size_table.add_column("Unit", style="cyan")
     size_table.add_column("Volumes", justify="center")
@@ -299,7 +294,7 @@ def cmd_estimate_size(ctx: typer.Context):
                 unit.name,
                 str(len(unit.volumes)),
                 utils.format_bytes(unit_size),
-                utils.format_bytes(int(unit_size * 0.5))
+                utils.format_bytes(int(unit_size * 0.5)),
             )
 
     console.print(size_table)
@@ -312,7 +307,7 @@ def cmd_estimate_size(ctx: typer.Context):
     ]
 
     # Check available space for filesystem repositories
-    kopia_params = cfg.get('kopia', 'kopia_params', fallback='')
+    kopia_params = cfg.get("kopia", "kopia_params", fallback="")
 
     try:
         repo_path_str = extract_filesystem_path(kopia_params)
@@ -320,7 +315,9 @@ def cmd_estimate_size(ctx: typer.Context):
             space_gb = utils.get_available_disk_space(str(Path(repo_path_str).parent))
             space_bytes = int(space_gb * (1024**3))
 
-            summary_lines.append(f"\n[bold]Available Space:[/bold] {utils.format_bytes(space_bytes)}")
+            summary_lines.append(
+                f"\n[bold]Available Space:[/bold] {utils.format_bytes(space_bytes)}"
+            )
 
             required = int(total_size * 0.5)
             if space_bytes < required:
@@ -332,30 +329,33 @@ def cmd_estimate_size(ctx: typer.Context):
                 )
             else:
                 remaining = space_bytes - required
-                summary_lines.append(f"[green]Sufficient space[/green] (remaining: {utils.format_bytes(remaining)})")
+                summary_lines.append(
+                    f"[green]Sufficient space[/green] (remaining: {utils.format_bytes(remaining)})"
+                )
     except Exception as e:
         logger.debug(f"Could not check disk space: {e}")
 
-    console.print(Panel.fit(
-        "\n".join(summary_lines),
-        title="[bold]Summary[/bold]",
-        border_style="cyan"
-    ))
+    console.print(
+        Panel.fit("\n".join(summary_lines), title="[bold]Summary[/bold]", border_style="cyan")
+    )
 
     # Note about estimates
     console.print()
-    console.print(Panel.fit(
-        "[bold]Note:[/bold] These are estimates. Actual size depends on:\n"
-        "  [dim]•[/dim] Compression efficiency\n"
-        "  [dim]•[/dim] Kopia deduplication\n"
-        "  [dim]•[/dim] File types (text compresses well, media files don't)",
-        border_style="dim"
-    ))
+    console.print(
+        Panel.fit(
+            "[bold]Note:[/bold] These are estimates. Actual size depends on:\n"
+            "  [dim]•[/dim] Compression efficiency\n"
+            "  [dim]•[/dim] Kopia deduplication\n"
+            "  [dim]•[/dim] File types (text compresses well, media files don't)",
+            border_style="dim",
+        )
+    )
 
 
 # -------------------------
 # Registration
 # -------------------------
+
 
 def register(app: typer.Typer):
     """Register dry-run command (top-level).
@@ -366,8 +366,12 @@ def register(app: typer.Typer):
     @app.command("dry-run")
     def _dry_run_cmd(
         ctx: typer.Context,
-        unit: Optional[str] = typer.Option(None, "--unit", "-u", help="Run dry-run for specific unit only"),
-        update_recovery: bool = typer.Option(False, "--update-recovery", help="Include recovery bundle update in simulation"),
+        unit: Optional[str] = typer.Option(
+            None, "--unit", "-u", help="Run dry-run for specific unit only"
+        ),
+        update_recovery: bool = typer.Option(
+            False, "--update-recovery", help="Include recovery bundle update in simulation"
+        ),
     ):
         """Simulate backup without making changes (preview what will happen)."""
         cmd_dry_run(ctx, unit, update_recovery)

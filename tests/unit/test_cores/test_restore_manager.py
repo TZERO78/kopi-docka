@@ -7,10 +7,13 @@ Tests the restore orchestration business logic with mocked external dependencies
 import subprocess
 import pytest
 from datetime import datetime, timezone, timedelta
-from unittest.mock import Mock, patch
+from pathlib import Path
+from unittest.mock import Mock, patch, MagicMock, call
+from contextlib import contextmanager
 
 import kopi_docka.cores.restore_manager as restore_manager
 from kopi_docka.types import RestorePoint
+from kopi_docka.helpers.constants import BACKUP_FORMAT_DIRECT, BACKUP_FORMAT_TAR
 
 
 def make_manager() -> restore_manager.RestoreManager:
@@ -433,3 +436,788 @@ class TestTimestampParsing:
         assert len(points) == 1
         # Should have a valid timestamp (current time as fallback)
         assert points[0].timestamp is not None
+
+
+# =============================================================================
+# Backup Format Detection Tests
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestBackupFormatDetection:
+    """Tests for _detect_backup_format method."""
+
+    def test_detect_direct_format_from_tag(self):
+        """Should detect DIRECT format from backup_format tag."""
+        rm = make_manager()
+
+        snapshot = {
+            "id": "snap123",
+            "tags": {"backup_format": BACKUP_FORMAT_DIRECT},
+        }
+
+        format = rm._detect_backup_format(snapshot)
+
+        assert format == BACKUP_FORMAT_DIRECT
+
+    def test_detect_tar_format_from_tag(self):
+        """Should detect TAR format from backup_format tag."""
+        rm = make_manager()
+
+        snapshot = {
+            "id": "snap123",
+            "tags": {"backup_format": BACKUP_FORMAT_TAR},
+        }
+
+        format = rm._detect_backup_format(snapshot)
+
+        assert format == BACKUP_FORMAT_TAR
+
+    def test_legacy_snapshot_without_tag_defaults_to_tar(self):
+        """Legacy snapshots without backup_format tag should default to TAR."""
+        rm = make_manager()
+
+        snapshot = {
+            "id": "snap123",
+            "tags": {"unit": "mystack", "type": "volume"},
+            # No backup_format tag
+        }
+
+        format = rm._detect_backup_format(snapshot)
+
+        assert format == BACKUP_FORMAT_TAR
+
+    def test_empty_tags_defaults_to_tar(self):
+        """Snapshot with empty tags should default to TAR."""
+        rm = make_manager()
+
+        snapshot = {"id": "snap123", "tags": {}}
+
+        format = rm._detect_backup_format(snapshot)
+
+        assert format == BACKUP_FORMAT_TAR
+
+
+# =============================================================================
+# Volume Restore Dispatcher Tests
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestVolumeRestoreDispatcher:
+    """Tests for _execute_volume_restore dispatcher method."""
+
+    def test_routes_to_direct_restore_for_direct_format(self, monkeypatch):
+        """Should route to _execute_volume_restore_direct for DIRECT format."""
+        rm = make_manager()
+
+        snapshot = {"id": "snap123", "tags": {"backup_format": BACKUP_FORMAT_DIRECT}}
+
+        direct_called = False
+
+        def mock_direct(*args):
+            nonlocal direct_called
+            direct_called = True
+            return True
+
+        monkeypatch.setattr(rm, "_execute_volume_restore_direct", mock_direct)
+        monkeypatch.setattr(rm, "_execute_volume_restore_tar", Mock(return_value=True))
+
+        result = rm._execute_volume_restore("vol1", "unit1", "snap123", "/config", snapshot)
+
+        assert result is True
+        assert direct_called is True
+
+    def test_routes_to_tar_restore_for_tar_format(self, monkeypatch):
+        """Should route to _execute_volume_restore_tar for TAR format."""
+        rm = make_manager()
+
+        snapshot = {"id": "snap123", "tags": {"backup_format": BACKUP_FORMAT_TAR}}
+
+        tar_called = False
+
+        def mock_tar(*args):
+            nonlocal tar_called
+            tar_called = True
+            return True
+
+        monkeypatch.setattr(rm, "_execute_volume_restore_tar", mock_tar)
+        monkeypatch.setattr(rm, "_execute_volume_restore_direct", Mock(return_value=True))
+
+        result = rm._execute_volume_restore("vol1", "unit1", "snap123", "/config", snapshot)
+
+        assert result is True
+        assert tar_called is True
+
+    def test_defaults_to_tar_when_no_snapshot_provided(self, monkeypatch):
+        """Should default to TAR format when snapshot is None."""
+        rm = make_manager()
+
+        tar_called = False
+
+        def mock_tar(*args):
+            nonlocal tar_called
+            tar_called = True
+            return True
+
+        monkeypatch.setattr(rm, "_execute_volume_restore_tar", mock_tar)
+
+        result = rm._execute_volume_restore("vol1", "unit1", "snap123", "/config", snapshot=None)
+
+        assert tar_called is True
+
+
+# =============================================================================
+# Volume Restore DIRECT Format Tests
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestVolumeRestoreDirect:
+    """Tests for _execute_volume_restore_direct method (DIRECT format only)."""
+
+    def test_restore_direct_success(self, monkeypatch, tmp_path):
+        """Direct format restore succeeds with all steps."""
+        rm = make_manager()
+
+        # Track commands executed
+        commands = []
+
+        def fake_run(cmd, description, timeout=None, check=True, show_output=False, **kwargs):
+            commands.append(cmd)
+            if cmd[0] == "docker" and "ps" in cmd:
+                # Return container IDs
+                return subprocess.CompletedProcess(cmd, 0, stdout="container1\n", stderr="")
+            elif cmd[0] == "docker" and "inspect" in cmd:
+                # Return volume mountpoint
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout="/var/lib/docker/volumes/vol1/_data\n", stderr=""
+                )
+            elif cmd[0] == "rsync":
+                # rsync success
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            else:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(restore_manager, "run_command", fake_run)
+
+        # Mock cleanup_old_safety_backups
+        monkeypatch.setattr(rm, "cleanup_old_safety_backups", Mock())
+
+        result = rm._execute_volume_restore_direct("vol1", "unit1", "snap123", "/config")
+
+        assert result is True
+
+        # Verify steps were executed
+        assert any("docker" in cmd and "stop" in cmd for cmd in commands)  # Stop containers
+        assert any("docker" in cmd and "run" in cmd and "alpine" in cmd for cmd in commands)  # Safety backup
+        assert any("kopia" in cmd and "restore" in cmd for cmd in commands)  # Kopia restore
+        assert any("rsync" in cmd for cmd in commands)  # Rsync to volume
+        assert any("docker" in cmd and "start" in cmd for cmd in commands)  # Start containers
+
+    def test_stop_containers_before_restore(self, monkeypatch):
+        """Containers using the volume should be stopped."""
+        rm = make_manager()
+
+        stop_called = False
+        stopped_ids = []
+
+        def fake_run(cmd, description, timeout=None, check=True, show_output=False, **kwargs):
+            nonlocal stop_called, stopped_ids
+            if cmd[0] == "docker" and "ps" in cmd and "volume=" in str(cmd):
+                return subprocess.CompletedProcess(cmd, 0, stdout="c1\nc2\n", stderr="")
+            elif cmd[0] == "docker" and "stop" in cmd:
+                stop_called = True
+                stopped_ids = cmd[2:]
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            elif cmd[0] == "docker" and "inspect" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="/tmp/vol\n", stderr="")
+            elif cmd[0] == "rsync":
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            else:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(restore_manager, "run_command", fake_run)
+        monkeypatch.setattr(rm, "cleanup_old_safety_backups", Mock())
+
+        rm._execute_volume_restore_direct("vol1", "unit1", "snap123", "/config")
+
+        assert stop_called is True
+        assert "c1" in stopped_ids
+        assert "c2" in stopped_ids
+
+    def test_safety_backup_created(self, monkeypatch):
+        """Safety backup of existing volume should be created."""
+        rm = make_manager()
+
+        safety_backup_created = False
+
+        def fake_run(cmd, description, timeout=None, check=True, show_output=False, **kwargs):
+            nonlocal safety_backup_created
+            if cmd[0] == "docker" and "run" in cmd and "alpine" in cmd:
+                safety_backup_created = True
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            elif cmd[0] == "docker" and "ps" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            elif cmd[0] == "docker" and "inspect" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="/tmp/vol\n", stderr="")
+            elif cmd[0] == "rsync":
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            else:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(restore_manager, "run_command", fake_run)
+        monkeypatch.setattr(rm, "cleanup_old_safety_backups", Mock())
+
+        rm._execute_volume_restore_direct("vol1", "unit1", "snap123", "/config")
+
+        assert safety_backup_created is True
+
+    def test_restart_containers_after_restore(self, monkeypatch):
+        """Containers should be restarted after restore completes."""
+        rm = make_manager()
+
+        start_called = False
+        started_ids = []
+
+        def fake_run(cmd, description, timeout=None, check=True, show_output=False, **kwargs):
+            nonlocal start_called, started_ids
+            if cmd[0] == "docker" and "ps" in cmd:
+                # Return containers
+                return subprocess.CompletedProcess(cmd, 0, stdout="c1\nc2\n", stderr="")
+            elif cmd[0] == "docker" and "start" in cmd:
+                start_called = True
+                started_ids = cmd[2:]
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            elif cmd[0] == "docker" and "inspect" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="/tmp/vol\n", stderr="")
+            elif cmd[0] == "rsync":
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            else:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(restore_manager, "run_command", fake_run)
+        monkeypatch.setattr(rm, "cleanup_old_safety_backups", Mock())
+
+        rm._execute_volume_restore_direct("vol1", "unit1", "snap123", "/config")
+
+        assert start_called is True
+        assert "c1" in started_ids
+        assert "c2" in started_ids
+
+    def test_rsync_fallback_to_cp_on_failure(self, monkeypatch):
+        """Should fallback to cp if rsync fails."""
+        rm = make_manager()
+
+        cp_used = False
+
+        def fake_run(cmd, description, timeout=None, check=True, show_output=False, **kwargs):
+            nonlocal cp_used
+            if cmd[0] == "rsync":
+                # rsync fails
+                return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="rsync error")
+            elif cmd[0] == "cp":
+                cp_used = True
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            elif cmd[0] == "docker" and "ps" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            elif cmd[0] == "docker" and "inspect" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="/tmp/vol\n", stderr="")
+            else:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(restore_manager, "run_command", fake_run)
+        monkeypatch.setattr(restore_manager.subprocess, "run", Mock())
+        monkeypatch.setattr(rm, "cleanup_old_safety_backups", Mock())
+
+        rm._execute_volume_restore_direct("vol1", "unit1", "snap123", "/config")
+
+        assert cp_used is True
+
+    def test_handles_subprocess_error(self, monkeypatch):
+        """Should return False on SubprocessError."""
+        rm = make_manager()
+
+        def fake_run(cmd, description, timeout=None, check=True, show_output=False, **kwargs):
+            raise restore_manager.SubprocessError(cmd, 1, "Command failed")
+
+        monkeypatch.setattr(restore_manager, "run_command", fake_run)
+
+        result = rm._execute_volume_restore_direct("vol1", "unit1", "snap123", "/config")
+
+        assert result is False
+
+    def test_handles_empty_volume_mountpoint(self, monkeypatch):
+        """Should return False if volume mountpoint cannot be determined."""
+        rm = make_manager()
+
+        def fake_run(cmd, description, timeout=None, check=True, show_output=False, **kwargs):
+            if cmd[0] == "docker" and "inspect" in cmd:
+                # Empty mountpoint
+                return subprocess.CompletedProcess(cmd, 0, stdout="\n", stderr="")
+            elif cmd[0] == "docker" and "ps" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            else:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(restore_manager, "run_command", fake_run)
+
+        result = rm._execute_volume_restore_direct("vol1", "unit1", "snap123", "/config")
+
+        assert result is False
+
+    def test_cleanup_old_backups_called(self, monkeypatch):
+        """cleanup_old_safety_backups should be called after restore."""
+        rm = make_manager()
+
+        cleanup_called = False
+
+        def mock_cleanup(keep_last=3):
+            nonlocal cleanup_called
+            cleanup_called = True
+
+        def fake_run(cmd, description, timeout=None, check=True, show_output=False, **kwargs):
+            if cmd[0] == "docker" and "ps" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            elif cmd[0] == "docker" and "inspect" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="/tmp/vol\n", stderr="")
+            elif cmd[0] == "rsync":
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            else:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(restore_manager, "run_command", fake_run)
+        monkeypatch.setattr(rm, "cleanup_old_safety_backups", mock_cleanup)
+
+        rm._execute_volume_restore_direct("vol1", "unit1", "snap123", "/config")
+
+        assert cleanup_called is True
+
+    def test_handles_no_containers_using_volume(self, monkeypatch):
+        """Should handle case where no containers are using the volume."""
+        rm = make_manager()
+
+        def fake_run(cmd, description, timeout=None, check=True, show_output=False, **kwargs):
+            if cmd[0] == "docker" and "ps" in cmd:
+                # No containers
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            elif cmd[0] == "docker" and "inspect" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="/tmp/vol\n", stderr="")
+            elif cmd[0] == "rsync":
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            else:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(restore_manager, "run_command", fake_run)
+        monkeypatch.setattr(rm, "cleanup_old_safety_backups", Mock())
+
+        result = rm._execute_volume_restore_direct("vol1", "unit1", "snap123", "/config")
+
+        assert result is True
+
+# =============================================================================
+# Network Recreation Conflict Tests
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestNetworkRecreationConflicts:
+    """Tests for network recreation conflict handling during restore."""
+
+    def test_skip_existing_network_when_flag_set(self, monkeypatch, tmp_path):
+        """Should skip network recreation when skip_network_recreation flag is set."""
+        rm = make_manager()
+        rm.skip_network_recreation = True
+
+        # Mock restore point with network snapshot
+        rp = RestorePoint(
+            unit_name="teststack",
+            backup_id="uuid-123",
+            timestamp=datetime.now(timezone.utc),
+            recipe_snapshots=[],
+            volume_snapshots=[],
+            network_snapshots=[{"id": "netsnap123", "tags": {}}],
+        )
+
+        networks_dir = tmp_path / "networks"
+        networks_dir.mkdir()
+
+        # Create networks.json
+        networks_json = networks_dir / "networks.json"
+        networks_json.write_text('[{"Name": "mynetwork", "Driver": "bridge"}]')
+
+        network_removed = False
+
+        def fake_run(cmd, description, timeout=None, **kwargs):
+            nonlocal network_removed
+            if "network" in cmd and "ls" in cmd:
+                # Network already exists
+                return subprocess.CompletedProcess(cmd, 0, stdout="mynetwork\n", stderr="")
+            elif "network" in cmd and "rm" in cmd:
+                network_removed = True
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(restore_manager, "run_command", fake_run)
+        monkeypatch.setattr(rm.repo, "restore_snapshot", Mock())
+
+        count = rm._restore_networks(rp, tmp_path)
+
+        # Network should not be removed/recreated
+        assert network_removed is False
+        assert count == 0
+
+    def test_force_recreate_network_with_flag(self, monkeypatch, tmp_path):
+        """Should force recreate network when force_recreate_networks flag is set."""
+        rm = make_manager()
+        rm.force_recreate_networks = True
+        rm.non_interactive = False
+
+        rp = RestorePoint(
+            unit_name="teststack",
+            backup_id="uuid-123",
+            timestamp=datetime.now(timezone.utc),
+            recipe_snapshots=[],
+            volume_snapshots=[],
+            network_snapshots=[{"id": "netsnap123", "tags": {}}],
+        )
+
+        networks_dir = tmp_path / "networks"
+        networks_dir.mkdir()
+        networks_json = networks_dir / "networks.json"
+        networks_json.write_text('[{"Name": "mynetwork", "Driver": "bridge"}]')
+
+        network_removed = False
+        network_created = False
+
+        def fake_run(cmd, description, timeout=None, **kwargs):
+            nonlocal network_removed, network_created
+            if "network" in cmd and "ls" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="mynetwork\n", stderr="")
+            elif "network" in cmd and "rm" in cmd:
+                network_removed = True
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            elif "network" in cmd and "create" in cmd:
+                network_created = True
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            elif "ps" in cmd:
+                # No containers attached
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(restore_manager, "run_command", fake_run)
+        monkeypatch.setattr(rm.repo, "restore_snapshot", Mock())
+        monkeypatch.setattr(rm, "_list_containers_on_network", Mock(return_value=[]))
+
+        count = rm._restore_networks(rp, tmp_path)
+
+        # Network should be removed and recreated
+        assert network_removed is True
+        assert network_created is True
+        assert count == 1
+
+    def test_recreate_with_attached_containers(self, monkeypatch, tmp_path):
+        """Should stop containers, recreate network, and restart containers."""
+        rm = make_manager()
+        rm.force_recreate_networks = True
+
+        rp = RestorePoint(
+            unit_name="teststack",
+            backup_id="uuid-123",
+            timestamp=datetime.now(timezone.utc),
+            recipe_snapshots=[],
+            volume_snapshots=[],
+            network_snapshots=[{"id": "netsnap123", "tags": {}}],
+        )
+
+        networks_dir = tmp_path / "networks"
+        networks_dir.mkdir()
+        networks_json = networks_dir / "networks.json"
+        networks_json.write_text('[{"Name": "mynetwork", "Driver": "bridge"}]')
+
+        containers_stopped = False
+        containers_restarted = False
+
+        def mock_list_containers(net_name, include_stopped=False):
+            return [("c1", "web"), ("c2", "db")]
+
+        def mock_stop_containers(containers, net_name):
+            nonlocal containers_stopped
+            containers_stopped = True
+            return ["c1", "c2"]
+
+        def mock_restart_containers(ids, net_name):
+            nonlocal containers_restarted
+            containers_restarted = True
+
+        def fake_run(cmd, description, timeout=None, **kwargs):
+            if "network" in cmd and "ls" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="mynetwork\n", stderr="")
+            elif "network" in cmd and "rm" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            elif "network" in cmd and "create" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(restore_manager, "run_command", fake_run)
+        monkeypatch.setattr(rm.repo, "restore_snapshot", Mock())
+        monkeypatch.setattr(rm, "_list_containers_on_network", mock_list_containers)
+        monkeypatch.setattr(rm, "_stop_containers", mock_stop_containers)
+        monkeypatch.setattr(rm, "_restart_containers", mock_restart_containers)
+        monkeypatch.setattr(rm, "_disconnect_containers_from_network", Mock(return_value=True))
+        monkeypatch.setattr(rm, "_reconnect_containers_to_network", Mock())
+
+        count = rm._restore_networks(rp, tmp_path)
+
+        # Containers should be stopped and restarted
+        assert containers_stopped is True
+        assert containers_restarted is True
+        assert count == 1
+
+    def test_rollback_on_network_removal_failure(self, monkeypatch, tmp_path):
+        """Should rollback (reconnect containers) if network removal fails."""
+        rm = make_manager()
+        rm.force_recreate_networks = True
+
+        rp = RestorePoint(
+            unit_name="teststack",
+            backup_id="uuid-123",
+            timestamp=datetime.now(timezone.utc),
+            recipe_snapshots=[],
+            volume_snapshots=[],
+            network_snapshots=[{"id": "netsnap123", "tags": {}}],
+        )
+
+        networks_dir = tmp_path / "networks"
+        networks_dir.mkdir()
+        networks_json = networks_dir / "networks.json"
+        networks_json.write_text('[{"Name": "mynetwork", "Driver": "bridge"}]')
+
+        containers_reconnected = False
+        containers_restarted = False
+
+        def mock_reconnect(net_name, containers):
+            nonlocal containers_reconnected
+            containers_reconnected = True
+
+        def mock_restart(ids, net_name):
+            nonlocal containers_restarted
+            containers_restarted = True
+
+        def fake_run(cmd, description, timeout=None, **kwargs):
+            if "network" in cmd and "ls" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="mynetwork\n", stderr="")
+            elif "network" in cmd and "rm" in cmd:
+                # Removal fails
+                raise restore_manager.SubprocessError(
+                    cmd, 1, "network has active endpoints"
+                )
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(restore_manager, "run_command", fake_run)
+        monkeypatch.setattr(rm.repo, "restore_snapshot", Mock())
+        monkeypatch.setattr(
+            rm, "_list_containers_on_network", Mock(return_value=[("c1", "web")])
+        )
+        monkeypatch.setattr(rm, "_stop_containers", Mock(return_value=["c1"]))
+        monkeypatch.setattr(rm, "_disconnect_containers_from_network", Mock(return_value=True))
+        monkeypatch.setattr(rm, "_reconnect_containers_to_network", mock_reconnect)
+        monkeypatch.setattr(rm, "_restart_containers", mock_restart)
+
+        count = rm._restore_networks(rp, tmp_path)
+
+        # Should rollback: reconnect containers and restart them
+        assert containers_reconnected is True
+        assert containers_restarted is True
+        assert count == 0  # No networks successfully restored
+
+    def test_abort_if_cannot_stop_running_containers(self, monkeypatch, tmp_path):
+        """Should abort recreation if running containers cannot be stopped."""
+        rm = make_manager()
+        rm.force_recreate_networks = True
+
+        rp = RestorePoint(
+            unit_name="teststack",
+            backup_id="uuid-123",
+            timestamp=datetime.now(timezone.utc),
+            recipe_snapshots=[],
+            volume_snapshots=[],
+            network_snapshots=[{"id": "netsnap123", "tags": {}}],
+        )
+
+        networks_dir = tmp_path / "networks"
+        networks_dir.mkdir()
+        networks_json = networks_dir / "networks.json"
+        networks_json.write_text('[{"Name": "mynetwork", "Driver": "bridge"}]')
+
+        network_removed = False
+
+        def fake_run(cmd, description, timeout=None, **kwargs):
+            nonlocal network_removed
+            if "network" in cmd and "ls" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="mynetwork\n", stderr="")
+            elif "network" in cmd and "rm" in cmd:
+                network_removed = True
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(restore_manager, "run_command", fake_run)
+        monkeypatch.setattr(rm.repo, "restore_snapshot", Mock())
+        monkeypatch.setattr(
+            rm, "_list_containers_on_network", Mock(return_value=[("c1", "web")])
+        )
+        # Stop fails - returns empty list
+        monkeypatch.setattr(rm, "_stop_containers", Mock(return_value=[]))
+
+        count = rm._restore_networks(rp, tmp_path)
+
+        # Network should NOT be removed (aborted)
+        assert network_removed is False
+        assert count == 0
+
+    def test_non_interactive_auto_recreates_network(self, monkeypatch, tmp_path):
+        """Should auto-recreate network in non-interactive mode."""
+        rm = make_manager()
+        rm.non_interactive = True
+        rm.force_recreate_networks = False  # Not forced, but non-interactive
+
+        rp = RestorePoint(
+            unit_name="teststack",
+            backup_id="uuid-123",
+            timestamp=datetime.now(timezone.utc),
+            recipe_snapshots=[],
+            volume_snapshots=[],
+            network_snapshots=[{"id": "netsnap123", "tags": {}}],
+        )
+
+        networks_dir = tmp_path / "networks"
+        networks_dir.mkdir()
+        networks_json = networks_dir / "networks.json"
+        networks_json.write_text('[{"Name": "mynetwork", "Driver": "bridge"}]')
+
+        network_created = False
+
+        def fake_run(cmd, description, timeout=None, **kwargs):
+            nonlocal network_created
+            if "network" in cmd and "ls" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="mynetwork\n", stderr="")
+            elif "network" in cmd and "rm" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            elif "network" in cmd and "create" in cmd:
+                network_created = True
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            elif "ps" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(restore_manager, "run_command", fake_run)
+        monkeypatch.setattr(rm.repo, "restore_snapshot", Mock())
+        monkeypatch.setattr(rm, "_list_containers_on_network", Mock(return_value=[]))
+
+        count = rm._restore_networks(rp, tmp_path)
+
+        # Network should be auto-recreated
+        assert network_created is True
+        assert count == 1
+
+    def test_network_creation_with_ipam_config(self, monkeypatch, tmp_path):
+        """Should create network with IPAM configuration from snapshot."""
+        rm = make_manager()
+        rm.force_recreate_networks = True
+
+        rp = RestorePoint(
+            unit_name="teststack",
+            backup_id="uuid-123",
+            timestamp=datetime.now(timezone.utc),
+            recipe_snapshots=[],
+            volume_snapshots=[],
+            network_snapshots=[{"id": "netsnap123", "tags": {}}],
+        )
+
+        networks_dir = tmp_path / "networks"
+        networks_dir.mkdir()
+        networks_json = networks_dir / "networks.json"
+        networks_json.write_text(
+            """[{
+            "Name": "mynetwork",
+            "Driver": "bridge",
+            "IPAM": {
+                "Config": [{
+                    "Subnet": "172.20.0.0/16",
+                    "Gateway": "172.20.0.1",
+                    "IPRange": "172.20.10.0/24"
+                }]
+            }
+        }]"""
+        )
+
+        create_cmd = []
+
+        def fake_run(cmd, description, timeout=None, **kwargs):
+            nonlocal create_cmd
+            if "network" in cmd and "ls" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="mynetwork\n", stderr="")
+            elif "network" in cmd and "rm" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            elif "network" in cmd and "create" in cmd:
+                create_cmd = cmd
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            elif "ps" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(restore_manager, "run_command", fake_run)
+        monkeypatch.setattr(rm.repo, "restore_snapshot", Mock())
+        monkeypatch.setattr(rm, "_list_containers_on_network", Mock(return_value=[]))
+
+        count = rm._restore_networks(rp, tmp_path)
+
+        # Verify IPAM config was included
+        assert "--subnet" in create_cmd
+        assert "172.20.0.0/16" in create_cmd
+        assert "--gateway" in create_cmd
+        assert "172.20.0.1" in create_cmd
+        assert "--ip-range" in create_cmd
+        assert "172.20.10.0/24" in create_cmd
+        assert count == 1
+
+    def test_handles_missing_networks_json(self, monkeypatch, tmp_path):
+        """Should handle missing networks.json gracefully."""
+        rm = make_manager()
+
+        rp = RestorePoint(
+            unit_name="teststack",
+            backup_id="uuid-123",
+            timestamp=datetime.now(timezone.utc),
+            recipe_snapshots=[],
+            volume_snapshots=[],
+            network_snapshots=[{"id": "netsnap123", "tags": {}}],
+        )
+
+        networks_dir = tmp_path / "networks"
+        networks_dir.mkdir()
+        # No networks.json file created
+
+        monkeypatch.setattr(rm.repo, "restore_snapshot", Mock())
+
+        count = rm._restore_networks(rp, tmp_path)
+
+        # Should handle gracefully
+        assert count == 0
+
+    def test_handles_no_network_snapshots(self, monkeypatch, tmp_path):
+        """Should return 0 when no network snapshots exist."""
+        rm = make_manager()
+
+        rp = RestorePoint(
+            unit_name="teststack",
+            backup_id="uuid-123",
+            timestamp=datetime.now(timezone.utc),
+            recipe_snapshots=[],
+            volume_snapshots=[],
+            network_snapshots=[],  # No network snapshots
+        )
+
+        count = rm._restore_networks(rp, tmp_path)
+
+        assert count == 0

@@ -36,11 +36,11 @@ import typer
 
 # Import from legacy config_commands - Single Source of Truth
 from ..config_commands import (
-    cmd_config,           # show
-    cmd_new_config,       # new (FIXED: detect_repository_type, terminology)
-    cmd_edit_config,      # edit
-    cmd_reset_config,     # reset
-    cmd_status,           # status (FIXED: dead code removed)
+    cmd_config,  # show
+    cmd_new_config,  # new (FIXED: detect_repository_type, terminology)
+    cmd_edit_config,  # edit
+    cmd_reset_config,  # reset
+    cmd_status,  # status (FIXED: dead code removed)
     cmd_change_password,  # change-password
 )
 
@@ -56,6 +56,7 @@ config_app = typer.Typer(
 # Registration
 # -------------------------
 
+
 def register(app: typer.Typer):
     """Register configuration commands under 'admin config'."""
 
@@ -66,7 +67,9 @@ def register(app: typer.Typer):
 
     @config_app.command("new")
     def _config_new_cmd(
-        force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing config (with warnings)"),
+        force: bool = typer.Option(
+            False, "--force", "-f", help="Overwrite existing config (with warnings)"
+        ),
         edit: bool = typer.Option(True, "--edit/--no-edit", help="Open in editor after creation"),
         path: Optional[Path] = typer.Option(None, "--path", help="Custom config path"),
     ):

@@ -60,12 +60,7 @@ class HooksManager:
         self.config = config
         self.executed_hooks: List[str] = []
 
-    def execute_hook(
-        self,
-        hook_type: str,
-        unit_name: str = None,
-        timeout: int = 300
-    ) -> bool:
+    def execute_hook(self, hook_type: str, unit_name: str = None, timeout: int = 300) -> bool:
         """
         Execute a hook script if configured.
 
@@ -82,10 +77,7 @@ class HooksManager:
         hook_script = self.config.get("backup.hooks", hook_type, fallback=None)
 
         if not hook_script:
-            logger.debug(
-                f"No {hook_type} hook configured",
-                extra={"hook_type": hook_type}
-            )
+            logger.debug(f"No {hook_type} hook configured", extra={"hook_type": hook_type})
             return True  # No hook = success
 
         hook_path = Path(hook_script).expanduser()
@@ -93,21 +85,21 @@ class HooksManager:
         if not hook_path.exists():
             logger.warning(
                 f"Hook script not found: {hook_path}",
-                extra={"hook_type": hook_type, "path": str(hook_path)}
+                extra={"hook_type": hook_type, "path": str(hook_path)},
             )
             return False
 
         if not hook_path.is_file() or not os.access(hook_path, os.X_OK):
             logger.warning(
                 f"Hook script not executable: {hook_path}",
-                extra={"hook_type": hook_type, "path": str(hook_path)}
+                extra={"hook_type": hook_type, "path": str(hook_path)},
             )
             return False
 
         # Execute hook
         logger.info(
             f"Executing {hook_type} hook: {hook_path}",
-            extra={"hook_type": hook_type, "unit_name": unit_name}
+            extra={"hook_type": hook_type, "unit_name": unit_name},
         )
 
         try:
@@ -120,11 +112,7 @@ class HooksManager:
                 env["KOPI_DOCKA_UNIT_NAME"] = unit_name
 
             result = subprocess.run(
-                [str(hook_path)],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                env=env
+                [str(hook_path)], capture_output=True, text=True, timeout=timeout, env=env
             )
 
             duration = time.time() - start_time
@@ -135,8 +123,8 @@ class HooksManager:
                     extra={
                         "hook_type": hook_type,
                         "duration": duration,
-                        "stdout": result.stdout[:500] if result.stdout else ""
-                    }
+                        "stdout": result.stdout[:500] if result.stdout else "",
+                    },
                 )
                 self.executed_hooks.append(f"{hook_type}:{hook_path.name}")
                 return True
@@ -147,21 +135,21 @@ class HooksManager:
                         "hook_type": hook_type,
                         "exit_code": result.returncode,
                         "stderr": result.stderr[:500] if result.stderr else "",
-                        "stdout": result.stdout[:500] if result.stdout else ""
-                    }
+                        "stdout": result.stdout[:500] if result.stdout else "",
+                    },
                 )
                 return False
 
         except subprocess.TimeoutExpired:
             logger.error(
                 f"Hook {hook_type} timed out after {timeout}s",
-                extra={"hook_type": hook_type, "timeout": timeout}
+                extra={"hook_type": hook_type, "timeout": timeout},
             )
             return False
         except Exception as e:
             logger.error(
                 f"Hook {hook_type} execution failed: {e}",
-                extra={"hook_type": hook_type, "error": str(e)}
+                extra={"hook_type": hook_type, "error": str(e)},
             )
             return False
 

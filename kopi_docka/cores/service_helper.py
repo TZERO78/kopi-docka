@@ -149,9 +149,7 @@ class ServiceHelper:
             # Get next run time
             next_run, left = self._parse_timer_info()
 
-            return TimerStatus(
-                active=active, enabled=enabled, next_run=next_run, left=left
-            )
+            return TimerStatus(active=active, enabled=enabled, next_run=next_run, left=left)
 
         except Exception as e:
             LOGGER.error(f"Failed to get timer status: {e}")
@@ -193,7 +191,7 @@ class ServiceHelper:
 
                         if left_index and left_index >= 2:
                             # Next run is everything before LEFT
-                            next_run = " ".join(parts[0:left_index - 1])
+                            next_run = " ".join(parts[0 : left_index - 1])
                             # Time left is everything up to and including "left"
                             left = " ".join(parts[left_index - 1 : left_index + 1])
                             return next_run, left
@@ -307,8 +305,7 @@ class ServiceHelper:
 
         if lock_status["process_running"]:
             LOGGER.warning(
-                "Lock file belongs to running process (PID: %s), not removing",
-                lock_status["pid"]
+                "Lock file belongs to running process (PID: %s), not removing", lock_status["pid"]
             )
             return False
 
@@ -326,9 +323,7 @@ class ServiceHelper:
     # Log Methods
     # -------------------------------------------------------------------------
 
-    def get_logs(
-        self, mode: str = "last", lines: int = 20, unit: str = "service"
-    ) -> List[str]:
+    def get_logs(self, mode: str = "last", lines: int = 20, unit: str = "service") -> List[str]:
         """
         Get backup logs via journalctl.
 
@@ -341,9 +336,7 @@ class ServiceHelper:
             List of log lines
         """
         try:
-            unit_name = (
-                self.service_name if unit == "service" else self.backup_service_name
-            )
+            unit_name = self.service_name if unit == "service" else self.backup_service_name
             cmd = ["journalctl", "-u", unit_name, "--no-pager"]
 
             if mode == "last":
@@ -387,9 +380,7 @@ class ServiceHelper:
 
             # Patterns to match
             start_pattern = re.compile(r"Starting backup|Backup started")
-            success_pattern = re.compile(
-                r"Backup (finished successfully|completed|success)"
-            )
+            success_pattern = re.compile(r"Backup (finished successfully|completed|success)")
             failed_pattern = re.compile(r"Backup (failed|error)")
 
             for line in reversed(logs):  # Start from most recent
@@ -450,9 +441,7 @@ class ServiceHelper:
                 LOGGER.info(f"Successfully executed: systemctl {action} {unit_name}")
                 return True
             else:
-                LOGGER.error(
-                    f"Failed to {action} {unit_name}: {result.stderr or result.stdout}"
-                )
+                LOGGER.error(f"Failed to {action} {unit_name}: {result.stderr or result.stdout}")
                 return False
 
         except Exception as e:
@@ -753,9 +742,7 @@ class ServiceHelper:
             replaced = False
 
             for line in content.splitlines():
-                if line.strip().startswith("OnCalendar=") and not line.strip().startswith(
-                    "#"
-                ):
+                if line.strip().startswith("OnCalendar=") and not line.strip().startswith("#"):
                     new_lines.append(f"OnCalendar={new_schedule}")
                     replaced = True
                 else:

@@ -211,10 +211,7 @@ class KopiDockaService:
 
     def _maybe_run_backup(self) -> None:
         now = datetime.now()
-        if (
-            self._last_run is not None
-            and (now - self._last_run) < self.cfg.min_interval
-        ):
+        if self._last_run is not None and (now - self._last_run) < self.cfg.min_interval:
             return
 
         LOGGER.info("Starting backup run…")
@@ -229,9 +226,7 @@ class KopiDockaService:
             for line in (res.stdout or "").splitlines():
                 LOGGER.info("BACKUP | %s", line)
             if res.returncode != 0:
-                LOGGER.error(
-                    "Backup finished with non-zero exit code: %s", res.returncode
-                )
+                LOGGER.error("Backup finished with non-zero exit code: %s", res.returncode)
             else:
                 LOGGER.info("Backup finished successfully")
         except Exception as e:  # robust gegen Unerwartetes
@@ -254,18 +249,15 @@ class KopiDockaService:
 
         while self.running:
             # Watchdog-Heartbeat
-            if (
-                self._watchdog_interval is not None
-                and time.monotonic() >= next_watchdog
-            ):
+            if self._watchdog_interval is not None and time.monotonic() >= next_watchdog:
                 sd_notify_watchdog()
                 next_watchdog = time.monotonic() + self._watchdog_interval
 
             # Interner Zeitplan
             if interval:
-                if self._last_run is None or (
-                    datetime.now() - self._last_run
-                ) >= timedelta(minutes=interval):
+                if self._last_run is None or (datetime.now() - self._last_run) >= timedelta(
+                    minutes=interval
+                ):
                     self._maybe_run_backup()
 
             time.sleep(1.0)

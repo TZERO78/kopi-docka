@@ -57,8 +57,7 @@ def ensure_config(ctx: typer.Context) -> Config:
     cfg = get_config(ctx)
     if not cfg:
         print_error_panel(
-            "No configuration found\n\n"
-            "[dim]Run:[/dim] [cyan]kopi-docka admin config new[/cyan]"
+            "No configuration found\n\n" "[dim]Run:[/dim] [cyan]kopi-docka admin config new[/cyan]"
         )
         raise typer.Exit(code=1)
     return cfg
@@ -124,6 +123,7 @@ def _filter_units(all_units, names: Optional[List[str]]):
 # -------------------------
 # Commands
 # -------------------------
+
 
 def cmd_list(
     ctx: typer.Context,
@@ -197,12 +197,14 @@ def cmd_backup(
     # Display scope information
     scope_info = BACKUP_SCOPES[scope]
     console.print()
-    console.print(Panel.fit(
-        f"[bold cyan]Backup Scope: {scope_info['name']}[/bold cyan]\n\n"
-        f"{scope_info['description']}\n\n"
-        f"[dim]Includes:[/dim] {', '.join(scope_info['includes'])}",
-        border_style="cyan"
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold cyan]Backup Scope: {scope_info['name']}[/bold cyan]\n\n"
+            f"{scope_info['description']}\n\n"
+            f"[dim]Includes:[/dim] {', '.join(scope_info['includes'])}",
+            border_style="cyan",
+        )
+    )
     console.print()
 
     try:
@@ -223,11 +225,11 @@ def cmd_backup(
         overall_ok = True
 
         for u in selected:
-            console.print(f"[bold cyan]==>[/bold cyan] Backing up unit: [bold]{u.name}[/bold] ({scope})")
+            console.print(
+                f"[bold cyan]==>[/bold cyan] Backing up unit: [bold]{u.name}[/bold] ({scope})"
+            )
             meta = bm.backup_unit(
-                u,
-                backup_scope=scope,
-                update_recovery_bundle=update_recovery_bundle
+                u, backup_scope=scope, update_recovery_bundle=update_recovery_bundle
             )
             if meta.success:
                 print_success(f"{u.name} completed in {int(meta.duration_seconds)}s")
@@ -304,6 +306,7 @@ def cmd_restore(
 # Registration
 # -------------------------
 
+
 def register(app: typer.Typer):
     """Register backup and restore commands (top-level).
 
@@ -348,7 +351,7 @@ def register(app: typer.Typer):
         scope: str = typer.Option(
             BACKUP_SCOPE_STANDARD,
             "--scope",
-            help=f"Backup scope: {BACKUP_SCOPE_MINIMAL} (volumes only), {BACKUP_SCOPE_STANDARD} (volumes+recipes+networks), {BACKUP_SCOPE_FULL} (everything)"
+            help=f"Backup scope: {BACKUP_SCOPE_MINIMAL} (volumes only), {BACKUP_SCOPE_STANDARD} (volumes+recipes+networks), {BACKUP_SCOPE_FULL} (everything)",
         ),
     ):
         """Run a cold backup for selected units (or all)."""
@@ -359,13 +362,14 @@ def register(app: typer.Typer):
         ctx: typer.Context,
         yes: bool = typer.Option(
             False,
-            "--yes", "-y",
-            help="Non-interactive mode: auto-confirm all prompts (for CI/CD and scripts)"
+            "--yes",
+            "-y",
+            help="Non-interactive mode: auto-confirm all prompts (for CI/CD and scripts)",
         ),
         advanced: bool = typer.Option(
             False,
             "--advanced",
-            help="Cross-machine restore: show backups from ALL machines in repository"
+            help="Cross-machine restore: show backups from ALL machines in repository",
         ),
         force_recreate_networks: bool = typer.Option(
             False,

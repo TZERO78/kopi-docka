@@ -56,6 +56,7 @@ def _override_config(ctx: typer.Context, config: Optional[Path]):
 # Commands
 # -------------------------
 
+
 def cmd_check(
     ctx: typer.Context,
     verbose: bool = False,
@@ -114,10 +115,14 @@ def cmd_install_deps(force: bool = False, dry_run: bool = False):
         print_success("All required dependencies already installed")
 
     # Hint about config
-    if not Path.home().joinpath(".config/kopi-docka/config.json").exists() and \
-       not Path("/etc/kopi-docka.json").exists():
+    if (
+        not Path.home().joinpath(".config/kopi-docka/config.json").exists()
+        and not Path("/etc/kopi-docka.json").exists()
+    ):
         console.print()
-        console.print("[dim]Tip:[/dim] Create config with: [cyan]kopi-docka admin config new[/cyan]")
+        console.print(
+            "[dim]Tip:[/dim] Create config with: [cyan]kopi-docka admin config new[/cyan]"
+        )
 
 
 def cmd_deps():
@@ -130,9 +135,10 @@ def cmd_deps():
 # Registration
 # -------------------------
 
+
 def register(app: typer.Typer):
     """Register all dependency commands."""
-    
+
     @app.command("check")
     def _check_cmd(
         ctx: typer.Context,
@@ -145,7 +151,7 @@ def register(app: typer.Typer):
     ):
         """Check system requirements and dependencies."""
         cmd_check(ctx, verbose, config)
-    
+
     @app.command("install-deps")
     def _install_deps_cmd(
         force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt"),
@@ -153,7 +159,7 @@ def register(app: typer.Typer):
     ):
         """Install missing system dependencies."""
         cmd_install_deps(force, dry_run)
-    
+
     @app.command("show-deps")
     def _deps_cmd():
         """Show dependency installation guide."""

@@ -52,7 +52,7 @@ def cmd_disaster_recovery(
 ):
     """
     Create disaster recovery bundle.
-    
+
     Creates an encrypted bundle containing:
     - Kopia repository configuration
     - Repository password
@@ -60,57 +60,64 @@ def cmd_disaster_recovery(
     - Recovery script (recover.sh)
     - Human-readable instructions
     - Recent backup status
-    
+
     The bundle is encrypted with AES-256-CBC and a random password.
     """
     cfg = ensure_config(ctx)
-    
+
     console.print()
-    console.print(Panel.fit(
-        "[bold cyan]Disaster Recovery Bundle Creation[/bold cyan]\n\n"
-        "This will create an encrypted bundle containing everything\n"
-        "needed to reconnect to your Kopia repository on a new system.",
-        border_style="cyan"
-    ))
+    console.print(
+        Panel.fit(
+            "[bold cyan]Disaster Recovery Bundle Creation[/bold cyan]\n\n"
+            "This will create an encrypted bundle containing everything\n"
+            "needed to reconnect to your Kopia repository on a new system.",
+            border_style="cyan",
+        )
+    )
     console.print()
-    
+
     try:
         manager = DisasterRecoveryManager(cfg)
-        
+
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             console=console,
         ) as progress:
             task = progress.add_task("Creating recovery bundle...", total=None)
-            
+
             bundle_path = manager.create_recovery_bundle(
-                output_dir=output,
-                write_password_file=not no_password_file
+                output_dir=output, write_password_file=not no_password_file
             )
-            
+
             progress.update(task, completed=True)
-        
+
         console.print()
-        console.print(Panel.fit(
-            f"[green]✓ Recovery bundle created successfully![/green]\n\n"
-            f"[bold]Bundle:[/bold] {bundle_path}\n"
-            f"[bold]README:[/bold] {bundle_path}.README\n"
-            + (f"[bold]Password:[/bold] {bundle_path}.PASSWORD\n" if not no_password_file else "") +
-            "\n[yellow]⚠️  IMPORTANT:[/yellow]\n"
-            "  • Store the password in a secure location\n"
-            "  • Test recovery procedure regularly\n"
-            "  • Keep bundle separate from production system\n\n"
-            "[bold]To decrypt:[/bold]\n"
-            f"  openssl enc -aes-256-cbc -salt -pbkdf2 -d \\\n"
-            f"    -in {bundle_path.name} \\\n"
-            f"    -out {bundle_path.stem} \\\n"
-            "    -pass pass:'<PASSWORD>'",
-            title="[bold green]Bundle Created[/bold green]",
-            border_style="green"
-        ))
+        console.print(
+            Panel.fit(
+                f"[green]✓ Recovery bundle created successfully![/green]\n\n"
+                f"[bold]Bundle:[/bold] {bundle_path}\n"
+                f"[bold]README:[/bold] {bundle_path}.README\n"
+                + (
+                    f"[bold]Password:[/bold] {bundle_path}.PASSWORD\n"
+                    if not no_password_file
+                    else ""
+                )
+                + "\n[yellow]⚠️  IMPORTANT:[/yellow]\n"
+                "  • Store the password in a secure location\n"
+                "  • Test recovery procedure regularly\n"
+                "  • Keep bundle separate from production system\n\n"
+                "[bold]To decrypt:[/bold]\n"
+                f"  openssl enc -aes-256-cbc -salt -pbkdf2 -d \\\n"
+                f"    -in {bundle_path.name} \\\n"
+                f"    -out {bundle_path.stem} \\\n"
+                "    -pass pass:'<PASSWORD>'",
+                title="[bold green]Bundle Created[/bold green]",
+                border_style="green",
+            )
+        )
         console.print()
-        
+
     except Exception as e:
         console.print(f"[red]✗ Failed to create recovery bundle: {e}[/red]")
         logger.error(f"Recovery bundle creation failed: {e}", exc_info=True)
@@ -119,7 +126,7 @@ def cmd_disaster_recovery(
 
 def register(app: typer.Typer):
     """Register disaster recovery commands."""
-    
+
     @app.command("disaster-recovery")
     def _disaster_recovery_cmd(
         ctx: typer.Context,
@@ -127,12 +134,12 @@ def register(app: typer.Typer):
             None,
             "--output",
             "-o",
-            help="Output directory for the bundle. Defaults to config recovery_bundle_path."
+            help="Output directory for the bundle. Defaults to config recovery_bundle_path.",
         ),
         no_password_file: bool = typer.Option(
             False,
             "--no-password-file",
-            help="Don't write password to sidecar file (more secure, but you must save it manually)."
+            help="Don't write password to sidecar file (more secure, but you must save it manually).",
         ),
     ):
         """Create disaster recovery bundle."""

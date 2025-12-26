@@ -59,6 +59,7 @@ repo_app = typer.Typer(
 # Registration (wrappers)
 # -------------------------
 
+
 def register(app: typer.Typer):
     """Register repository commands under 'admin repo'."""
 
@@ -110,8 +111,12 @@ def register(app: typer.Typer):
     @repo_app.command("change-password")
     def _change_password_cmd(
         ctx: typer.Context,
-        new_password: Optional[str] = typer.Option(None, "--new-password", help="New password (will prompt if not provided)"),
-        use_file: bool = typer.Option(True, "--file/--inline", help="Store in external file (default) or inline in config"),
+        new_password: Optional[str] = typer.Option(
+            None, "--new-password", help="New password (will prompt if not provided)"
+        ),
+        use_file: bool = typer.Option(
+            True, "--file/--inline", help="Store in external file (default) or inline in config"
+        ),
     ):
         """Change Kopia repository password."""
         cmd_change_password(ctx, new_password, use_file)

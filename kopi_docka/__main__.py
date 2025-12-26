@@ -53,6 +53,7 @@ from rich.panel import Panel
 # This must be done before any typer commands are defined
 try:
     import rich_click as click
+
     click.rich_click.USE_RICH_MARKUP = True
     click.rich_click.USE_MARKDOWN = True
     click.rich_click.SHOW_ARGUMENTS = True
@@ -86,8 +87,7 @@ from .commands.service_commands import cmd_daemon
 from .commands.advanced import admin_app
 
 app = typer.Typer(
-    add_completion=False,
-    help="Kopi-Docka – Backup & Restore for Docker using Kopia."
+    add_completion=False, help="Kopi-Docka – Backup & Restore for Docker using Kopia."
 )
 logger = get_logger(__name__)
 
@@ -99,6 +99,7 @@ SAFE_COMMANDS = {"version", "doctor", "admin", "check", "show-deps"}
 # -------------------------
 # Application Context Setup
 # -------------------------
+
 
 @app.callback()
 def initialize_context(
@@ -126,14 +127,16 @@ def initialize_context(
     if ctx.invoked_subcommand not in SAFE_COMMANDS:
         if os.geteuid() != 0:
             cmd = " ".join(sys.argv)
-            err_console.print(Panel.fit(
-                "[red]Kopi-Docka requires root privileges[/red]\n"
-                "[red]Root-Rechte erforderlich (benötigt Root)[/red]\n\n"
-                "[bold]Run with sudo:[/bold]\n"
-                f"  [cyan]sudo {cmd}[/cyan]",
-                title="[bold red]Permission Denied[/bold red]",
-                border_style="red"
-            ))
+            err_console.print(
+                Panel.fit(
+                    "[red]Kopi-Docka requires root privileges[/red]\n"
+                    "[red]Root-Rechte erforderlich (benötigt Root)[/red]\n\n"
+                    "[bold]Run with sudo:[/bold]\n"
+                    f"  [cyan]sudo {cmd}[/cyan]",
+                    title="[bold red]Permission Denied[/bold red]",
+                    border_style="red",
+                )
+            )
             raise typer.Exit(code=13)  # EACCES
 
     # Set up logging
@@ -141,6 +144,7 @@ def initialize_context(
         log_manager.setup(level=log_level.upper())
     except Exception:
         import logging
+
         logging.basicConfig(level=log_level.upper())
 
     # Initialize context
@@ -164,37 +168,31 @@ def initialize_context(
 # -------------------------
 
 # "The Big 6" - Most commonly used commands
-setup_commands.register(app)           # 1. setup
-backup_commands.register(app)          # 2. backup, 3. restore
-dry_run_commands.register(app)         # 4. dry-run
+setup_commands.register(app)  # 1. setup
+backup_commands.register(app)  # 2. backup, 3. restore
+dry_run_commands.register(app)  # 4. dry-run
 disaster_recovery_commands.register(app)  # 5. disaster-recovery
-doctor_commands.register(app)          # 6. doctor
-dependency_commands.register(app)      # Dependency management (check/install/show)
-repository_commands.register(app)      # Repository management (init/status/etc.)
+doctor_commands.register(app)  # 6. doctor
+dependency_commands.register(app)  # Dependency management (check/install/show)
+repository_commands.register(app)  # Repository management (init/status/etc.)
 
 
 # -------------------------
 # Mount Admin Subcommand
 # -------------------------
 
-app.add_typer(
-    admin_app,
-    name="admin",
-    help="Advanced administration tools for power users."
-)
+app.add_typer(admin_app, name="admin", help="Advanced administration tools for power users.")
 
 
 # -------------------------
 # Version Command
 # -------------------------
 
+
 @app.command("version")
 def cmd_version():
     """Show Kopi-Docka version."""
-    console.print(
-        f"[bold cyan]Kopi-Docka[/bold cyan] [green]{VERSION}[/green] "
-        "(compat 1.0.0)"
-    )
+    console.print(f"[bold cyan]Kopi-Docka[/bold cyan] [green]{VERSION}[/green] " "(compat 1.0.0)")
 
 
 @app.command("daemon")
@@ -221,6 +219,7 @@ def cmd_daemon_alias(
 # Entrypoint
 # -------------------------
 
+
 def main():
     """
     Main entry point for the application.
@@ -242,12 +241,14 @@ def main():
     except Exception as e:
         # Unexpected error - show and exit
         logger.error(f"Unexpected error: {e}", exc_info=True)
-        err_console.print(Panel.fit(
-            f"[red]Unexpected error:[/red]\n{e}\n\n"
-            "[dim]For details, run with --log-level=DEBUG[/dim]",
-            title="[bold red]Error[/bold red]",
-            border_style="red"
-        ))
+        err_console.print(
+            Panel.fit(
+                f"[red]Unexpected error:[/red]\n{e}\n\n"
+                "[dim]For details, run with --log-level=DEBUG[/dim]",
+                title="[bold red]Error[/bold red]",
+                border_style="red",
+            )
+        )
         sys.exit(1)
 
 

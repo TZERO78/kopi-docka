@@ -31,16 +31,16 @@ from .service_helper import ServiceHelper
 from .kopia_policy_manager import KopiaPolicyManager
 
 __all__ = [
-    'BackupManager',
-    'RestoreManager',
-    'DockerDiscovery',
-    'KopiaRepository',
-    'DependencyManager',
-    'DryRunReport',
-    'DisasterRecoveryManager',
-    'KopiDockaService',
-    'ServiceConfig',
-    'write_systemd_units',  # ← Diese Zeile hinzufügen
-    'ServiceHelper',
-    'KopiaPolicyManager',
+    "BackupManager",
+    "RestoreManager",
+    "DockerDiscovery",
+    "KopiaRepository",
+    "DependencyManager",
+    "DryRunReport",
+    "DisasterRecoveryManager",
+    "KopiDockaService",
+    "ServiceConfig",
+    "write_systemd_units",  # ← Diese Zeile hinzufügen
+    "ServiceHelper",
+    "KopiaPolicyManager",
 ]

@@ -168,9 +168,7 @@ class StructuredFormatter(logging.Formatter):
         if hasattr(record, "metrics"):
             # Metrics als JSON für structured logging
             try:
-                fields.append(
-                    "METRICS=" + json.dumps(record.metrics, separators=(",", ":"))
-                )
+                fields.append("METRICS=" + json.dumps(record.metrics, separators=(",", ":")))
             except Exception:
                 pass
 
@@ -199,9 +197,7 @@ class StructuredFormatter(logging.Formatter):
 
         # Add module/function for DEBUG
         if record.levelname == "DEBUG":
-            parts.append(
-                f"{Colors.GRAY}[{record.module}.{record.funcName}]{Colors.RESET}"
-            )
+            parts.append(f"{Colors.GRAY}[{record.module}.{record.funcName}]{Colors.RESET}")
 
         # Message
         msg = record.getMessage()
@@ -328,9 +324,7 @@ class LogManager:
                     encoding="utf-8",
                 )
                 # Plain format für Files (keine Farben)
-                file_handler.setFormatter(
-                    StructuredFormatter(use_colors=False, use_systemd=False)
-                )
+                file_handler.setFormatter(StructuredFormatter(use_colors=False, use_systemd=False))
                 self.logger.addHandler(file_handler)
 
             except Exception as e:
@@ -420,9 +414,7 @@ class LogManager:
             extra={"metrics": metrics},
         )
 
-    def log_summary(
-        self, total_units: int, successful: int, failed: int, duration: float
-    ):
+    def log_summary(self, total_units: int, successful: int, failed: int, duration: float):
         """
         Log backup summary.
 

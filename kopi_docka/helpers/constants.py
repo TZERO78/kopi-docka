@@ -35,9 +35,9 @@ from pathlib import Path
 VERSION = "5.2.1"
 
 # Backup Scope Levels
-BACKUP_SCOPE_MINIMAL = "minimal"      # Only volumes
-BACKUP_SCOPE_STANDARD = "standard"    # Volumes + recipes + networks (default)
-BACKUP_SCOPE_FULL = "full"           # Everything including daemon config
+BACKUP_SCOPE_MINIMAL = "minimal"  # Only volumes
+BACKUP_SCOPE_STANDARD = "standard"  # Volumes + recipes + networks (default)
+BACKUP_SCOPE_FULL = "full"  # Everything including daemon config
 
 BACKUP_SCOPES = {
     BACKUP_SCOPE_MINIMAL: {
@@ -45,22 +45,22 @@ BACKUP_SCOPES = {
         "description": "Only container data (volumes)",
         "includes": ["volumes"],
         "fast": True,
-        "size": "small"
+        "size": "small",
     },
     BACKUP_SCOPE_STANDARD: {
         "name": "Standard",
         "description": "Container data + configuration (recommended)",
         "includes": ["volumes", "recipes", "networks"],
         "fast": False,
-        "size": "medium"
+        "size": "medium",
     },
     BACKUP_SCOPE_FULL: {
         "name": "Full System",
         "description": "Complete system (DR-ready)",
         "includes": ["volumes", "recipes", "networks", "docker_config"],
         "fast": False,
-        "size": "large"
-    }
+        "size": "large",
+    },
 }
 
 # Default config paths
@@ -86,8 +86,8 @@ DOCKER_CONFIG_BACKUP_DIR = "docker-config"
 # Backup Format (v5.0+)
 # - TAR: Legacy format, streams tar archive to Kopia (no deduplication)
 # - DIRECT: New format, direct Kopia snapshot of volume directory (block-level dedup)
-BACKUP_FORMAT_TAR = "tar"          # Legacy: tar stream → Kopia stdin
-BACKUP_FORMAT_DIRECT = "direct"    # New: direct Kopia snapshot of volume path
+BACKUP_FORMAT_TAR = "tar"  # Legacy: tar stream → Kopia stdin
+BACKUP_FORMAT_DIRECT = "direct"  # New: direct Kopia snapshot of volume path
 BACKUP_FORMAT_DEFAULT = BACKUP_FORMAT_DIRECT  # Default for new backups
 
 # Backup hooks

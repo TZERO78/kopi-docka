@@ -71,19 +71,16 @@ class BackupManager:
         self.hooks_manager = HooksManager(config)
         self.max_workers = config.parallel_workers
 
-        self.stop_timeout = self.config.getint(
-            "backup", "stop_timeout", CONTAINER_STOP_TIMEOUT
-        )
-        self.start_timeout = self.config.getint(
-            "backup", "start_timeout", CONTAINER_START_TIMEOUT
-        )
+        self.stop_timeout = self.config.getint("backup", "stop_timeout", CONTAINER_STOP_TIMEOUT)
+        self.start_timeout = self.config.getint("backup", "start_timeout", CONTAINER_START_TIMEOUT)
 
         self.exclude_patterns = self.config.getlist("backup", "exclude_patterns", [])
 
     def backup_unit(
-        self, unit: BackupUnit,
+        self,
+        unit: BackupUnit,
         backup_scope: str = BACKUP_SCOPE_STANDARD,
-        update_recovery_bundle: bool = None
+        update_recovery_bundle: bool = None,
     ) -> BackupMetadata:
         """
         Perform full cold backup of a unit.
@@ -93,7 +90,7 @@ class BackupManager:
         """
         logger.info(
             f"Starting backup of unit: {unit.name} (scope: {backup_scope})",
-            extra={"unit_name": unit.name, "backup_scope": backup_scope}
+            extra={"unit_name": unit.name, "backup_scope": backup_scope},
         )
         start_time = time.time()
 
@@ -116,8 +113,7 @@ class BackupManager:
             logger.info("Executing pre-backup hook...", extra={"unit_name": unit.name})
             if not self.hooks_manager.execute_pre_backup(unit.name):
                 logger.warning(
-                    "Pre-backup hook failed, aborting backup",
-                    extra={"unit_name": unit.name}
+                    "Pre-backup hook failed, aborting backup", extra={"unit_name": unit.name}
                 )
                 metadata.errors.append("Pre-backup hook failed")
                 metadata.success = False
@@ -138,8 +134,7 @@ class BackupManager:
                     metadata.kopia_snapshot_ids.append(recipe_snapshot)
             else:
                 logger.info(
-                    "Skipping recipes backup (minimal scope)",
-                    extra={"unit_name": unit.name}
+                    "Skipping recipes backup (minimal scope)", extra={"unit_name": unit.name}
                 )
 
             # 2.5) Networks (standard and full scopes)
@@ -152,7 +147,7 @@ class BackupManager:
             else:
                 logger.debug(
                     f"Skipping networks backup (scope: {backup_scope})",
-                    extra={"unit_name": unit.name}
+                    extra={"unit_name": unit.name},
                 )
 
             # 3) Volumes (parallel)
@@ -162,9 +157,7 @@ class BackupManager:
                     futures.append(
                         (
                             volume.name,
-                            executor.submit(
-                                self._backup_volume, volume, unit, backup_id
-                            ),
+                            executor.submit(self._backup_volume, volume, unit, backup_id),
                         )
                     )
 
@@ -180,17 +173,13 @@ class BackupManager:
                                 extra={"unit_name": unit.name, "volume": vol_name},
                             )
                         else:
-                            metadata.errors.append(
-                                f"Failed to backup volume: {vol_name}"
-                            )
+                            metadata.errors.append(f"Failed to backup volume: {vol_name}")
                             logger.warning(
                                 f"No snapshot created for volume: {vol_name}",
                                 extra={"unit_name": unit.name},
                             )
                     except Exception as e:
-                        metadata.errors.append(
-                            f"Error backing up volume {vol_name}: {str(e)}"
-                        )
+                        metadata.errors.append(f"Error backing up volume {vol_name}: {str(e)}")
                         logger.error(
                             f"Exception during volume backup {vol_name}: {e}",
                             extra={"unit_name": unit.name},
@@ -198,9 +187,7 @@ class BackupManager:
 
         except Exception as e:
             metadata.errors.append(f"Backup failed: {str(e)}")
-            logger.error(
-                f"Critical error during backup: {e}", extra={"unit_name": unit.name}
-            )
+            logger.error(f"Critical error during backup: {e}", extra={"unit_name": unit.name})
 
         finally:
             # 4) Always try to restart containers
@@ -213,10 +200,7 @@ class BackupManager:
             # 5) Post-backup hook
             logger.info("Executing post-backup hook...", extra={"unit_name": unit.name})
             if not self.hooks_manager.execute_post_backup(unit.name):
-                logger.warning(
-                    "Post-backup hook failed",
-                    extra={"unit_name": unit.name}
-                )
+                logger.warning("Post-backup hook failed", extra={"unit_name": unit.name})
                 metadata.errors.append("Post-backup hook failed")
 
         # Track executed hooks
@@ -232,14 +216,10 @@ class BackupManager:
         # 5) Optional DR bundle
         should_update_bundle = update_recovery_bundle
         if should_update_bundle is None:
-            should_update_bundle = self.config.getboolean(
-                "backup", "update_recovery_bundle", False
-            )
+            should_update_bundle = self.config.getboolean("backup", "update_recovery_bundle", False)
 
         if should_update_bundle and metadata.success:
-            logger.info(
-                "Updating disaster recovery bundle...", extra={"operation": "dr_bundle"}
-            )
+            logger.info("Updating disaster recovery bundle...", extra={"operation": "dr_bundle"})
             try:
                 from ..cores.disaster_recovery_manager import DisasterRecoveryManager
 
@@ -279,9 +259,7 @@ class BackupManager:
                         f"Stopping {c.name}",
                         timeout=self.stop_timeout + 10,  # Docker timeout + safety margin
                     )
-                    logger.debug(
-                        f"Stopped container: {c.name}", extra={"container": c.name}
-                    )
+                    logger.debug(f"Stopped container: {c.name}", extra={"container": c.name})
                 except SubprocessError as e:
                     logger.error(
                         f"Failed to stop container {c.name}: {e.stderr}",
@@ -297,9 +275,7 @@ class BackupManager:
                     f"Starting {c.name}",
                     timeout=30,
                 )
-                logger.debug(
-                    f"Started container: {c.name}", extra={"container": c.name}
-                )
+                logger.debug(f"Started container: {c.name}", extra={"container": c.name})
                 self._wait_container_healthy(c, timeout=self.start_timeout)
             except SubprocessError as e:
                 logger.error(
@@ -380,12 +356,13 @@ class BackupManager:
                 # Save compose order for restore (critical for override precedence)
                 if compose_files_saved:
                     import json as _json
+
                     (tmpdir / "compose_order.json").write_text(
                         _json.dumps(compose_files_saved, indent=2)
                     )
                     logger.info(
                         f"Backed up {len(compose_files_saved)} compose file(s): {', '.join(compose_files_saved)}",
-                        extra={"unit_name": unit.name}
+                        extra={"unit_name": unit.name},
                     )
 
                 # Save related project files from ALL compose directories
@@ -393,9 +370,10 @@ class BackupManager:
                 project_files_dir.mkdir(exist_ok=True)
 
                 config_patterns = [
-                    ".env*",            # Environment files (critical!)
-                    "*.conf", "*.config",  # Config files
-                    "*.toml",           # TOML configs
+                    ".env*",  # Environment files (critical!)
+                    "*.conf",
+                    "*.config",  # Config files
+                    "*.toml",  # TOML configs
                 ]
 
                 backed_up_files = []
@@ -403,7 +381,10 @@ class BackupManager:
                     for pattern in config_patterns:
                         for config_file in compose_dir.glob(pattern):
                             # Skip compose files (already saved above)
-                            if config_file.is_file() and config_file.name not in compose_files_saved:
+                            if (
+                                config_file.is_file()
+                                and config_file.name not in compose_files_saved
+                            ):
                                 try:
                                     dest = project_files_dir / config_file.name
                                     if not dest.exists():  # Avoid duplicates
@@ -412,13 +393,13 @@ class BackupManager:
                                 except Exception as e:
                                     logger.warning(
                                         f"Could not backup config file {config_file.name}: {e}",
-                                        extra={"unit_name": unit.name}
+                                        extra={"unit_name": unit.name},
                                     )
 
                 if backed_up_files:
                     logger.info(
                         f"Backed up {len(backed_up_files)} project files: {', '.join(backed_up_files[:5])}{'...' if len(backed_up_files) > 5 else ''}",
-                        extra={"unit_name": unit.name}
+                        extra={"unit_name": unit.name},
                     )
 
                 # Inspect (redact env secrets)
@@ -451,9 +432,7 @@ class BackupManager:
                                 else:
                                     red.append(e)
                             data[0]["Config"]["Env"] = red
-                    (tmpdir / f"{c.name}_inspect.json").write_text(
-                        _json.dumps(data, indent=2)
-                    )
+                    (tmpdir / f"{c.name}_inspect.json").write_text(_json.dumps(data, indent=2))
 
                 # Snapshot
                 return self.repo.create_snapshot(
@@ -485,14 +464,14 @@ class BackupManager:
 
             # Collect all networks from unit's containers
             networks_to_backup = set()
-            default_networks = {'bridge', 'host', 'none'}
+            default_networks = {"bridge", "host", "none"}
 
             for container in unit.containers:
                 inspect_data = container.inspect_data
                 if not inspect_data:
                     continue
 
-                container_networks = inspect_data.get('NetworkSettings', {}).get('Networks', {})
+                container_networks = inspect_data.get("NetworkSettings", {}).get("Networks", {})
 
                 for net_name in container_networks.keys():
                     if net_name not in default_networks:
@@ -500,14 +479,13 @@ class BackupManager:
 
             if not networks_to_backup:
                 logger.debug(
-                    f"No custom networks found for unit {unit.name}",
-                    extra={"unit_name": unit.name}
+                    f"No custom networks found for unit {unit.name}", extra={"unit_name": unit.name}
                 )
                 return None, 0
 
             logger.info(
                 f"Backing up {len(networks_to_backup)} custom networks: {', '.join(sorted(networks_to_backup))}",
-                extra={"unit_name": unit.name}
+                extra={"unit_name": unit.name},
             )
 
             # Export network configurations
@@ -525,18 +503,18 @@ class BackupManager:
                 except SubprocessError as e:
                     logger.warning(
                         f"Failed to inspect network {net_name}: {e.stderr}",
-                        extra={"unit_name": unit.name, "network": net_name}
+                        extra={"unit_name": unit.name, "network": net_name},
                     )
                 except Exception as e:
                     logger.warning(
                         f"Error inspecting network {net_name}: {e}",
-                        extra={"unit_name": unit.name, "network": net_name}
+                        extra={"unit_name": unit.name, "network": net_name},
                     )
 
             if not network_configs:
                 logger.warning(
                     f"Could not retrieve any network configurations for unit {unit.name}",
-                    extra={"unit_name": unit.name}
+                    extra={"unit_name": unit.name},
                 )
                 return None, 0
 
@@ -554,7 +532,7 @@ class BackupManager:
                     "unit_name": unit.name,
                     "backup_timestamp": datetime.now().isoformat(),
                     "network_count": len(network_configs),
-                    "network_names": [nc.get('Name') for nc in network_configs],
+                    "network_names": [nc.get("Name") for nc in network_configs],
                 }
                 metadata_file.write_text(_json.dumps(metadata, indent=2))
 
@@ -567,26 +545,23 @@ class BackupManager:
                         "backup_id": backup_id,
                         "timestamp": datetime.now().isoformat(),
                         "network_count": str(len(network_configs)),
-                    }
+                    },
                 )
 
                 logger.info(
                     f"Successfully backed up {len(network_configs)} networks for {unit.name}",
-                    extra={"unit_name": unit.name, "network_count": len(network_configs)}
+                    extra={"unit_name": unit.name, "network_count": len(network_configs)},
                 )
 
                 return snapshot_id, len(network_configs)
 
         except Exception as e:
             logger.error(
-                f"Failed to backup networks for {unit.name}: {e}",
-                extra={"unit_name": unit.name}
+                f"Failed to backup networks for {unit.name}: {e}", extra={"unit_name": unit.name}
             )
             return None, 0
 
-    def _backup_volume(
-        self, volume: VolumeInfo, unit: BackupUnit, backup_id: str
-    ) -> Optional[str]:
+    def _backup_volume(self, volume: VolumeInfo, unit: BackupUnit, backup_id: str) -> Optional[str]:
         """Backup a single volume using the configured backup format.
 
         Dispatcher that routes to the appropriate backup method based on
@@ -731,10 +706,8 @@ class BackupManager:
 
             # Use a temporary file for stderr to avoid deadlock.
             # If tar produces >64KB of warnings, a pipe would fill up and block.
-            with tempfile.TemporaryFile(mode='w+b') as stderr_file:
-                tar_process = subprocess.Popen(
-                    tar_cmd, stdout=subprocess.PIPE, stderr=stderr_file
-                )
+            with tempfile.TemporaryFile(mode="w+b") as stderr_file:
+                tar_process = subprocess.Popen(tar_cmd, stdout=subprocess.PIPE, stderr=stderr_file)
 
                 snap_id = self.repo.create_snapshot_from_stdin(
                     tar_process.stdout,
@@ -757,7 +730,7 @@ class BackupManager:
                 if tar_process.returncode != 0:
                     # Read stderr from temp file (seek to beginning first)
                     stderr_file.seek(0)
-                    stderr_content = stderr_file.read().decode(errors='replace')
+                    stderr_content = stderr_file.read().decode(errors="replace")
                     # Truncate very long error output for logging
                     if len(stderr_content) > 4096:
                         stderr_content = stderr_content[:4096] + "\n... (truncated)"
@@ -779,9 +752,7 @@ class BackupManager:
         """Persist backup metadata JSON."""
         metadata_dir = self.config.backup_base_path / "metadata"
         metadata_dir.mkdir(parents=True, exist_ok=True)
-        filename = (
-            f"{metadata.unit_name}_{metadata.timestamp.strftime('%Y%m%d_%H%M%S')}.json"
-        )
+        filename = f"{metadata.unit_name}_{metadata.timestamp.strftime('%Y%m%d_%H%M%S')}.json"
         with open(metadata_dir / filename, "w") as f:
             json.dump(metadata.to_dict(), f, indent=2)
         logger.debug(

@@ -23,15 +23,15 @@ _translate: Optional[Callable[[str], str]] = None
 def setup_i18n(lang: Optional[str] = None) -> Callable[[str], str]:
     """
     Setup internationalization system.
-    
+
     Args:
         lang: Language code ('en' or 'de'). If None, auto-detect from environment.
-    
+
     Returns:
         Translation function
     """
     global _translate
-    
+
     # Auto-detect language from environment
     if lang is None:
         # Check LANGUAGE, LANG, LC_ALL environment variables
@@ -41,42 +41,39 @@ def setup_i18n(lang: Optional[str] = None) -> Callable[[str], str]:
                 # Extract language code (e.g., 'de_DE.UTF-8' -> 'de')
                 lang = env_value.split("_")[0].split(".")[0].lower()
                 break
-        
+
         # Fallback to default
         if not lang or lang not in SUPPORTED_LANGUAGES:
             lang = DEFAULT_LANG
-    
+
     # Validate language
     if lang not in SUPPORTED_LANGUAGES:
         lang = DEFAULT_LANG
-    
+
     try:
         # Load translation catalog
         translation = gettext.translation(
-            "kopi_docka",
-            localedir=LOCALE_DIR,
-            languages=[lang, DEFAULT_LANG],
-            fallback=True
+            "kopi_docka", localedir=LOCALE_DIR, languages=[lang, DEFAULT_LANG], fallback=True
         )
         _translate = translation.gettext
     except (FileNotFoundError, OSError):
         # Fallback: no translation (return original string)
         _translate = lambda x: x
-    
+
     return _translate
 
 
-def _( msg: str) -> str:
+def _(msg: str) -> str:
     """
     Translation function (underscore convention).
-    
+
     Usage:
         from kopi_docka.i18n import _
         print(_("Welcome to Kopi-Docka!"))
-    
+
     Args:
         msg: Message to translate
-    
+
     Returns:
         Translated message
     """
@@ -101,7 +98,7 @@ def get_current_language() -> str:
 def set_language(lang: str) -> None:
     """
     Manually set language.
-    
+
     Args:
         lang: Language code ('en' or 'de')
     """
@@ -119,20 +116,17 @@ _TRANSLATIONS = {
         "welcome.system_info": "System Information",
         "welcome.requirements": "System Requirements",
         "welcome.button_next": "Next",
-        
         # Repository Storage Selection
         "backend_selection.title": "Select Repository Storage",
         "backend_selection.subtitle": "Choose where to store your backups",
         "backend_selection.recommendation": "Recommendation",
         "backend_selection.button_next": "Next",
-
         # Setup
         "setup.title": "Kopi-Docka Setup Wizard",
         "setup.subtitle": "Configure your repository storage",
         "setup.select_backend": "Select repository storage",
         "setup.success": "Configuration saved successfully!",
         "setup.cancelled": "Setup cancelled",
-
         # Tailscale
         "tailscale.title": "Tailscale Repository Configuration",
         "tailscale.checking": "Checking Tailscale connection...",
@@ -159,11 +153,9 @@ _TRANSLATIONS = {
         "tailscale.connection_successful": "Connection successful",
         "tailscale.connection_failed": "Connection failed",
         "tailscale.connection_timeout": "Connection timeout",
-        
         # Dependency Check
         "dependency_check.title": "Dependency Check",
         "dependency_check.button_next": "Next",
-        
         # Common
         "common.button_back": "Back",
         "common.button_quit": "Quit",
@@ -180,20 +172,17 @@ _TRANSLATIONS = {
         "welcome.system_info": "Systeminformationen",
         "welcome.requirements": "Systemanforderungen",
         "welcome.button_next": "Weiter",
-        
         # Repository-Speicher Auswahl
         "backend_selection.title": "Repository-Speicher auswählen",
         "backend_selection.subtitle": "Wählen Sie, wo Ihre Backups gespeichert werden sollen",
         "backend_selection.recommendation": "Empfehlung",
         "backend_selection.button_next": "Weiter",
-
         # Setup
         "setup.title": "Kopi-Docka Setup-Assistent",
         "setup.subtitle": "Konfigurieren Sie Ihren Repository-Speicher",
         "setup.select_backend": "Repository-Speicher auswählen",
         "setup.success": "Konfiguration erfolgreich gespeichert!",
         "setup.cancelled": "Setup abgebrochen",
-
         # Tailscale
         "tailscale.title": "Tailscale Repository-Konfiguration",
         "tailscale.checking": "Überprüfe Tailscale-Verbindung...",
@@ -220,11 +209,9 @@ _TRANSLATIONS = {
         "tailscale.connection_successful": "Verbindung erfolgreich",
         "tailscale.connection_failed": "Verbindung fehlgeschlagen",
         "tailscale.connection_timeout": "Verbindungs-Timeout",
-        
         # Dependency Check
         "dependency_check.title": "Abhängigkeitsprüfung",
         "dependency_check.button_next": "Weiter",
-        
         # Common
         "common.button_back": "Zurück",
         "common.button_quit": "Beenden",
@@ -233,36 +220,36 @@ _TRANSLATIONS = {
         "common.no": "Nein",
         "common.cancel": "Abbrechen",
         "common.continue": "Weiter",
-    }
+    },
 }
 
 
 def t(key: str, lang: Optional[str] = None) -> str:
     """
     Translation function with dot-notation keys.
-    
+
     Usage:
         from kopi_docka.i18n import t
         print(t("welcome.title", "de"))
-    
+
     Args:
         key: Translation key (e.g., "welcome.title")
         lang: Language code. If None, uses current language.
-    
+
     Returns:
         Translated string or key if not found
     """
     if lang is None:
         lang = get_current_language()
-    
+
     # Try fallback dictionary first
     if lang in _TRANSLATIONS and key in _TRANSLATIONS[lang]:
         return _TRANSLATIONS[lang][key]
-    
+
     # Fallback to English
     if "en" in _TRANSLATIONS and key in _TRANSLATIONS["en"]:
         return _TRANSLATIONS["en"][key]
-    
+
     # Last resort: return key itself
     return key
 

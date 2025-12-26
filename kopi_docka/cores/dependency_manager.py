@@ -173,6 +173,7 @@ class DependencyManager:
         """Check if python-systemd module is installed."""
         try:
             import systemd.journal
+
             return True
         except ImportError:
             return False
@@ -185,9 +186,7 @@ class DependencyManager:
         try:
             result = subprocess.run(["docker", "info"], capture_output=True, timeout=5)
             if result.returncode != 0:
-                logger.debug(
-                    "Docker installed but not accessible (user not in docker group?)"
-                )
+                logger.debug("Docker installed but not accessible (user not in docker group?)")
                 return False
             return True
         except (subprocess.TimeoutExpired, subprocess.SubprocessError) as e:
@@ -373,19 +372,14 @@ class DependencyManager:
                         [
                             # Sicherstellen, dass gnupg installiert ist
                             "command -v gpg >/dev/null 2>&1 || apt-get install -y gnupg",
-                            
                             # Keyring-Verzeichnis erstellen (falls nicht vorhanden)
                             "install -d -m 0755 /etc/apt/keyrings",
-                            
                             # Key herunterladen & im Keyring speichern
                             "curl -fsSL https://kopia.io/signing-key | gpg --dearmor -o /etc/apt/keyrings/kopia.gpg",
-                            
                             # Berechtigungen setzen
                             "chmod 0644 /etc/apt/keyrings/kopia.gpg",
-                            
                             # APT-Source mit signed-by eintragen (https statt http!)
                             'echo "deb [signed-by=/etc/apt/keyrings/kopia.gpg] https://packages.kopia.io/apt/ stable main" > /etc/apt/sources.list.d/kopia.list',
-                            
                             "apt update",
                             "apt install -y kopia",
                         ]
@@ -672,9 +666,7 @@ EOF""",
         for dep in required_deps:
             status = "✓" if dep["installed"] else "✗"
             version = (
-                f" (v{dep.get('version', 'unknown')})"
-                if verbose and dep.get("version")
-                else ""
+                f" (v{dep.get('version', 'unknown')})" if verbose and dep.get("version") else ""
             )
             print(f"{status} {dep['name']:<15} : {dep['description']}{version}")
 
@@ -688,9 +680,7 @@ EOF""",
         for dep in optional_deps:
             status = "✓" if dep["installed"] else "○"
             version = (
-                f" (v{dep.get('version', 'unknown')})"
-                if verbose and dep.get("version")
-                else ""
+                f" (v{dep.get('version', 'unknown')})" if verbose and dep.get("version") else ""
             )
             print(f"{status} {dep['name']:<15} : {dep['description']}{version}")
 

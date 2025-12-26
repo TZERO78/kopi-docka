@@ -76,19 +76,16 @@ __all__ = [
     "VERSION",
     "__version__",
     "__author__",
-    
     # Types
     "BackupUnit",
     "ContainerInfo",
     "VolumeInfo",
     "BackupMetadata",
     "RestorePoint",
-    
     # Configuration
     "Config",
     "create_default_config",
     "generate_secure_password",
-     
     # Core Managers
     "BackupManager",
     "RestoreManager",
@@ -98,11 +95,9 @@ __all__ = [
     "DryRunReport",
     "DisasterRecoveryManager",
     "KopiaPolicyManager",
-    
     # Service
     "KopiDockaService",
     "ServiceConfig",
-    
     # Logging
     "get_logger",
     "log_manager",
