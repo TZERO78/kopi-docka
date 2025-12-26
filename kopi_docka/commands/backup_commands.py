@@ -100,6 +100,19 @@ def ensure_repository(ctx: typer.Context) -> KopiaRepository:
     return repo
 
 
+def _override_config(ctx: typer.Context, config_path: Optional[Path]):
+    """Override config in context when command-level --config is used."""
+    if not config_path:
+        return
+    try:
+        cfg = Config(config_path)
+        ctx.obj["config"] = cfg
+        ctx.obj["config_path"] = config_path
+    except Exception as e:
+        print_error_panel(f"Failed to load config: {e}")
+        raise typer.Exit(code=1)
+
+
 def _filter_units(all_units, names: Optional[List[str]]):
     """Filter backup units by name."""
     if not names:
@@ -116,8 +129,10 @@ def cmd_list(
     ctx: typer.Context,
     units: bool = True,
     snapshots: bool = False,
+    config_path: Optional[Path] = None,
 ):
     """List backup units or repository snapshots."""
+    _override_config(ctx, config_path)
     cfg = ensure_config(ctx)
 
     if not (units or snapshots):
@@ -164,8 +179,10 @@ def cmd_backup(
     dry_run: bool = False,
     update_recovery_bundle: Optional[bool] = None,
     scope: str = BACKUP_SCOPE_STANDARD,
+    config_path: Optional[Path] = None,
 ):
     """Run a cold backup for selected units (or all)."""
+    _override_config(ctx, config_path)
     cfg = ensure_config(ctx)
     repo = ensure_repository(ctx)
 
@@ -214,9 +231,16 @@ def cmd_backup(
             )
             if meta.success:
                 print_success(f"{u.name} completed in {int(meta.duration_seconds)}s")
-                console.print(f"   [dim]Volumes:[/dim] {meta.volumes_backed_up}")
-                if meta.networks_backed_up > 0:
-                    console.print(f"   [dim]Networks:[/dim] {meta.networks_backed_up}")
+                volumes_backed_up = getattr(meta, "volumes_backed_up", 0)
+                console.print(f"   [dim]Volumes:[/dim] {volumes_backed_up}")
+
+                try:
+                    networks_backed_up = int(getattr(meta, "networks_backed_up", 0) or 0)
+                except Exception:
+                    networks_backed_up = 0
+
+                if networks_backed_up > 0:
+                    console.print(f"   [dim]Networks:[/dim] {networks_backed_up}")
                 if meta.kopia_snapshot_ids:
                     console.print(f"   [dim]Snapshots:[/dim] {len(meta.kopia_snapshot_ids)}")
             else:
@@ -240,6 +264,7 @@ def cmd_restore(
     advanced: bool = False,
     force_recreate_networks: bool = False,
     no_recreate_networks: bool = False,
+    config_path: Optional[Path] = None,
 ):
     """Launch the interactive restore wizard.
 
@@ -255,6 +280,7 @@ def cmd_restore(
             "Cannot use --force-recreate-networks and --no-recreate-networks together"
         )
 
+    _override_config(ctx, config_path)
     cfg = ensure_config(ctx)
     repo = ensure_repository(ctx)
 
@@ -284,6 +310,28 @@ def register(app: typer.Typer):
     Note: The 'list' command has been moved to 'admin snapshot list'.
     """
 
+    @app.command("list")
+    def _list_cmd(
+        ctx: typer.Context,
+        units: bool = typer.Option(
+            True,
+            "--units/--no-units",
+            help="Show discovered backup units",
+        ),
+        snapshots: bool = typer.Option(
+            False,
+            "--snapshots",
+            help="Show repository snapshots",
+        ),
+        config: Optional[Path] = typer.Option(
+            None,
+            "--config",
+            help="Path to configuration file",
+        ),
+    ):
+        """List backup units or snapshots (alias of 'admin snapshot list')."""
+        cmd_list(ctx, units=units, snapshots=snapshots, config_path=config)
+
     @app.command("backup")
     def _backup_cmd(
         ctx: typer.Context,
@@ -292,6 +340,11 @@ def register(app: typer.Typer):
         update_recovery_bundle: Optional[bool] = typer.Option(
             None, "--update-recovery/--no-update-recovery"
         ),
+        config: Optional[Path] = typer.Option(
+            None,
+            "--config",
+            help="Path to configuration file",
+        ),
         scope: str = typer.Option(
             BACKUP_SCOPE_STANDARD,
             "--scope",
@@ -299,7 +352,7 @@ def register(app: typer.Typer):
         ),
     ):
         """Run a cold backup for selected units (or all)."""
-        cmd_backup(ctx, unit, dry_run, update_recovery_bundle, scope)
+        cmd_backup(ctx, unit, dry_run, update_recovery_bundle, scope, config_path=config)
 
     @app.command("restore")
     def _restore_cmd(
@@ -326,6 +379,11 @@ def register(app: typer.Typer):
             "--no-recreate-networks",
             help="Never recreate existing networks during restore",
         ),
+        config: Optional[Path] = typer.Option(
+            None,
+            "--config",
+            help="Path to configuration file",
+        ),
     ):
         """Launch the interactive restore wizard.
 
@@ -337,4 +395,5 @@ def register(app: typer.Typer):
             advanced=advanced,
             force_recreate_networks=force_recreate_networks,
             no_recreate_networks=no_recreate_networks,
+            config_path=config,
         )

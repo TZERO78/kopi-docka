@@ -50,7 +50,7 @@ class TestValidation:
         assert helper.validate_time_format("") is False
         assert helper.validate_time_format("abc") is False
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_validate_oncalendar_valid(self, mock_run, helper):
         """Test OnCalendar validation with valid syntax."""
         mock_run.return_value = Mock(returncode=0)
@@ -60,12 +60,12 @@ class TestValidation:
         assert result is True
         mock_run.assert_called_once_with(
             ["systemd-analyze", "calendar", "*-*-* 02:00:00"],
-            capture_output=True,
-            text=True,
+            "Validating calendar syntax",
             timeout=5,
+            check=False,
         )
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_validate_oncalendar_invalid(self, mock_run, helper):
         """Test OnCalendar validation with invalid syntax."""
         mock_run.return_value = Mock(returncode=1)
@@ -74,7 +74,7 @@ class TestValidation:
 
         assert result is False
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_validate_oncalendar_timeout(self, mock_run, helper):
         """Test OnCalendar validation with timeout."""
         mock_run.side_effect = subprocess.TimeoutExpired("cmd", 5)
@@ -83,7 +83,7 @@ class TestValidation:
 
         assert result is False
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_validate_oncalendar_not_available(self, mock_run, helper):
         """Test OnCalendar validation when systemd-analyze is not available."""
         mock_run.side_effect = FileNotFoundError()
@@ -97,7 +97,7 @@ class TestValidation:
 class TestStatusMethods:
     """Test status retrieval methods."""
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_get_service_status_active_enabled(self, mock_run, helper):
         """Test getting service status when active and enabled."""
         mock_run.side_effect = [
@@ -112,7 +112,7 @@ class TestStatusMethods:
         assert status.enabled is True
         assert status.failed is False
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_get_service_status_inactive_disabled(self, mock_run, helper):
         """Test getting service status when inactive and disabled."""
         mock_run.side_effect = [
@@ -127,7 +127,7 @@ class TestStatusMethods:
         assert status.enabled is False
         assert status.failed is False
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_get_service_status_failed(self, mock_run, helper):
         """Test getting service status when failed."""
         mock_run.side_effect = [
@@ -142,7 +142,7 @@ class TestStatusMethods:
         assert status.enabled is True
         assert status.failed is True
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_get_service_status_exception(self, mock_run, helper):
         """Test getting service status when exception occurs."""
         mock_run.side_effect = Exception("Test error")
@@ -154,7 +154,7 @@ class TestStatusMethods:
         assert status.enabled is False
         assert status.failed is False
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_get_timer_status(self, mock_run, helper):
         """Test getting timer status."""
         mock_run.side_effect = [
@@ -186,10 +186,10 @@ class TestLockStatus:
             assert status["pid"] is None
             assert status["process_running"] is False
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_get_lock_status_exists_running(self, mock_run, helper):
         """Test lock status when file exists and process is running."""
-        mock_run.return_value = Mock()  # kill -0 succeeds
+        mock_run.return_value = Mock(returncode=0)  # kill -0 succeeds
 
         with patch("pathlib.Path.exists", return_value=True):
             with patch("pathlib.Path.read_text", return_value="12345"):
@@ -199,10 +199,10 @@ class TestLockStatus:
                 assert status["pid"] == 12345
                 assert status["process_running"] is True
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_get_lock_status_exists_not_running(self, mock_run, helper):
         """Test lock status when file exists but process is not running."""
-        mock_run.side_effect = subprocess.CalledProcessError(1, "kill")
+        mock_run.return_value = Mock(returncode=1)
 
         with patch("pathlib.Path.exists", return_value=True):
             with patch("pathlib.Path.read_text", return_value="12345"):
@@ -216,7 +216,7 @@ class TestLockStatus:
 class TestControlMethods:
     """Test service control methods."""
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_control_service_start(self, mock_run, helper):
         """Test starting service."""
         mock_run.return_value = Mock(returncode=0)
@@ -226,11 +226,12 @@ class TestControlMethods:
         assert result is True
         mock_run.assert_called_once_with(
             ["systemctl", "start", "kopi-docka.service"],
-            capture_output=True,
-            text=True,
+            "Running systemctl start",
+            timeout=30,
+            check=False,
         )
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_control_service_stop_timer(self, mock_run, helper):
         """Test stopping timer."""
         mock_run.return_value = Mock(returncode=0)
@@ -240,11 +241,12 @@ class TestControlMethods:
         assert result is True
         mock_run.assert_called_once_with(
             ["systemctl", "stop", "kopi-docka.timer"],
-            capture_output=True,
-            text=True,
+            "Running systemctl stop",
+            timeout=30,
+            check=False,
         )
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_control_service_invalid_action(self, mock_run, helper):
         """Test invalid action."""
         result = helper.control_service("invalid", "service")
@@ -252,7 +254,7 @@ class TestControlMethods:
         assert result is False
         mock_run.assert_not_called()
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_control_service_failure(self, mock_run, helper):
         """Test service control failure."""
         mock_run.return_value = Mock(returncode=1, stderr="Error")
@@ -261,7 +263,7 @@ class TestControlMethods:
 
         assert result is False
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_reload_daemon(self, mock_run, helper):
         """Test daemon reload."""
         mock_run.return_value = Mock(returncode=0)
@@ -271,8 +273,9 @@ class TestControlMethods:
         assert result is True
         mock_run.assert_called_once_with(
             ["systemctl", "daemon-reload"],
-            capture_output=True,
-            text=True,
+            "Reloading systemd daemon",
+            timeout=30,
+            check=False,
         )
 
 
@@ -328,7 +331,7 @@ OnCalendar=*-*-* 03:00:00
 class TestLogMethods:
     """Test log retrieval methods."""
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_get_logs_last(self, mock_run, helper):
         """Test getting last N log lines."""
         mock_run.return_value = Mock(
@@ -340,10 +343,11 @@ class TestLogMethods:
         assert len(logs) == 3
         assert logs[0] == "Log line 1"
         mock_run.assert_called_once()
-        assert "-n" in mock_run.call_args[0][0]
-        assert "3" in mock_run.call_args[0][0]
+        args, kwargs = mock_run.call_args
+        assert "-n" in args[0]
+        assert "3" in args[0]
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_get_logs_errors(self, mock_run, helper):
         """Test getting error logs."""
         mock_run.return_value = Mock(returncode=0, stdout="Error log")
@@ -355,7 +359,7 @@ class TestLogMethods:
         assert "-p" in mock_run.call_args[0][0]
         assert "err" in mock_run.call_args[0][0]
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_get_logs_hour(self, mock_run, helper):
         """Test getting logs from last hour."""
         mock_run.return_value = Mock(returncode=0, stdout="Recent log")
@@ -367,7 +371,7 @@ class TestLogMethods:
         assert "--since" in mock_run.call_args[0][0]
         assert "1 hour ago" in mock_run.call_args[0][0]
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.service_helper.run_command")
     def test_get_logs_failure(self, mock_run, helper):
         """Test log retrieval failure."""
         mock_run.return_value = Mock(returncode=1, stderr="Error")

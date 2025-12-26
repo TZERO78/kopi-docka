@@ -148,6 +148,10 @@ ProtectControlGroups=yes
 # Exception: Docker socket access is still allowed via ReadWritePaths
 PrivateDevices=yes
 
+# Allow write access only to Docker socket and /tmp
+# Keep rest of filesystem read-only via ProtectSystem
+ReadWritePaths=/var/run/docker.sock /tmp
+
 [Install]
 # Start this service automatically at boot when multi-user.target is reached
 # multi-user.target is the normal system boot target (non-graphical)

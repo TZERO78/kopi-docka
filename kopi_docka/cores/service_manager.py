@@ -41,13 +41,20 @@ import sys
 import time
 import signal
 import fcntl
-import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Tuple
 
 from ..helpers.logging import get_logger
+from ..helpers.ui_utils import (
+    print_header,
+    print_info,
+    print_success,
+    print_warning,
+    print_error,
+    run_command,
+)
 
 LOGGER = get_logger("kopi_docka.service")
 
@@ -213,13 +220,11 @@ class KopiDockaService:
         LOGGER.info("Starting backup run…")
         sd_notify_status("Running backup")
         try:
-            res = subprocess.run(
-                self.cfg.backup_cmd,
-                shell=True,
+            res = run_command(
+                ["bash", "-c", self.cfg.backup_cmd],
+                "Running backup command",
                 check=False,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
+                show_output=False,
             )
             for line in (res.stdout or "").splitlines():
                 LOGGER.info("BACKUP | %s", line)
@@ -274,6 +279,8 @@ class KopiDockaService:
 
 def write_systemd_units(output_dir: Path = Path("/etc/systemd/system")) -> None:
     """Schreibt gehärtete Service- und Timer-Units aus Templates."""
+    print_header("Writing systemd units", str(output_dir))
+
     # Determine template directory
     template_dir = Path(__file__).parent.parent / "templates" / "systemd"
 
@@ -292,6 +299,7 @@ def write_systemd_units(output_dir: Path = Path("/etc/systemd/system")) -> None:
         template_path = template_dir / template_name
 
         if not template_path.exists():
+            print_error(f"Template file not found: {template_path}")
             raise FileNotFoundError(
                 f"Template file not found: {template_path}\n"
                 f"Please ensure kopi-docka is properly installed with all template files."
@@ -304,8 +312,10 @@ def write_systemd_units(output_dir: Path = Path("/etc/systemd/system")) -> None:
         output_path = output_dir / output_name
         output_path.write_text(template_content)
         LOGGER.info("Wrote %s", output_path)
+        print_info(f"✓ {output_path}")
 
     LOGGER.info("All systemd units written to %s", output_dir)
+    print_success(f"Systemd units written to {output_dir}")
 
 
 # -------- Minimaler CLI-Entry für Standalone-Nutzung --------

@@ -262,14 +262,25 @@ class ServiceHelper:
             process_running = False
             if pid:
                 try:
-                    # Use os.kill(pid, 0) which is safer and more portable
-                    # Signal 0 doesn't actually kill - just checks if process exists
-                    os.kill(pid, 0)
-                    process_running = True
-                    LOGGER.debug("Process %d is running", pid)
+                    proc_check = run_command(
+                        ["kill", "-0", str(pid)],
+                        "Checking lock PID",
+                        timeout=5,
+                        check=False,
+                    )
+                    returncode = getattr(proc_check, "returncode", 0)
+                    try:
+                        process_running = int(returncode) == 0
+                    except Exception:
+                        process_running = True
+                    if process_running:
+                        LOGGER.debug("Process %d is running", pid)
+                    else:
+                        LOGGER.debug("Process %d is not running (stale lock)", pid)
+                except subprocess.CalledProcessError:
+                    process_running = False
                 except (ProcessLookupError, PermissionError):
                     process_running = False
-                    LOGGER.debug("Process %d is not running (stale lock)", pid)
 
             return {"exists": True, "pid": pid, "process_running": process_running}
 

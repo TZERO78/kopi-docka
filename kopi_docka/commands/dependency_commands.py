@@ -39,12 +39,30 @@ def get_config(ctx: typer.Context) -> Optional[Config]:
     return ctx.obj.get("config")
 
 
+def _override_config(ctx: typer.Context, config: Optional[Path]):
+    """Override config in context when command-level --config is used."""
+    if not config:
+        return
+    try:
+        cfg = Config(config)
+        ctx.obj["config"] = cfg
+        ctx.obj["config_path"] = config
+    except Exception as e:
+        print_error_panel(f"Failed to load config: {e}")
+        raise typer.Exit(code=1)
+
+
 # -------------------------
 # Commands
 # -------------------------
 
-def cmd_check(ctx: typer.Context, verbose: bool = False):
+def cmd_check(
+    ctx: typer.Context,
+    verbose: bool = False,
+    config: Optional[Path] = None,
+):
     """Check system requirements and dependencies."""
+    _override_config(ctx, config)
     deps = DependencyManager()
     deps.print_status(verbose=verbose)
 
@@ -65,8 +83,9 @@ def cmd_check(ctx: typer.Context, verbose: bool = False):
             else:
                 print_error("Kopia repository not connected")
                 console.print("  [dim]Run:[/dim] [cyan]kopi-docka init[/cyan]")
-        except Exception as e:
-            print_error(f"Repository check failed: {e}")
+        except Exception:
+            print_error("No configuration found")
+            console.print("  [dim]Run:[/dim] [cyan]kopi-docka admin config new[/cyan]")
     else:
         print_error("No configuration found")
         console.print("  [dim]Run:[/dim] [cyan]kopi-docka admin config new[/cyan]")
@@ -118,9 +137,14 @@ def register(app: typer.Typer):
     def _check_cmd(
         ctx: typer.Context,
         verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed information"),
+        config: Optional[Path] = typer.Option(
+            None,
+            "--config",
+            help="Path to configuration file",
+        ),
     ):
         """Check system requirements and dependencies."""
-        cmd_check(ctx, verbose)
+        cmd_check(ctx, verbose, config)
     
     @app.command("install-deps")
     def _install_deps_cmd(
