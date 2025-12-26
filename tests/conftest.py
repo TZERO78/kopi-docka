@@ -205,20 +205,84 @@ def sample_snapshots():
 @pytest.fixture
 def mock_ctx(tmp_config):
     """Create mock Typer context with config.
-    
+
     Use this for direct function tests instead of cli_runner.invoke().
     """
     from kopi_docka.helpers.config import Config
-    
+
     ctx = MagicMock()
     ctx.obj = {"config": Config(tmp_config)}
     return ctx
 
 
-# Markers
-def pytest_configure(config):
-    """Register custom markers."""
-    config.addinivalue_line("markers", "unit: Fast unit tests with mocks")
-    config.addinivalue_line("markers", "integration: Slow integration tests")
-    config.addinivalue_line("markers", "requires_docker: Tests that need Docker")
-    config.addinivalue_line("markers", "requires_root: Tests that need root access")
+@pytest.fixture
+def mock_backup_config(tmp_path):
+    """Create a mock Config object for BackupManager testing."""
+    config = Mock()
+    config.parallel_workers = 2
+    config.getint.return_value = 30  # Default timeout
+    config.getlist.return_value = []  # No exclude patterns
+    config.getboolean.return_value = False  # No DR bundle
+    config.backup_base_path = tmp_path / "kopi-docka-test"
+    return config
+
+
+@pytest.fixture
+def mock_kopia_config():
+    """Create a mock Config object for KopiaRepository testing."""
+    config = Mock()
+    config.get.return_value = "filesystem --path /backup/repo"
+    config.kopia_profile = "kopi-docka"
+    config.get_password.return_value = "test-password"
+    config.kopia_cache_directory = "/tmp/kopia-cache"
+    config.kopia_cache_size_mb = 500
+    return config
+
+
+@pytest.fixture
+def backup_unit_factory():
+    """Factory fixture to create BackupUnit instances for testing.
+
+    Usage:
+        def test_something(backup_unit_factory):
+            unit = backup_unit_factory(name="mystack", containers=2, volumes=1)
+    """
+    from kopi_docka.types import BackupUnit, ContainerInfo, VolumeInfo
+
+    def _make_backup_unit(
+        name: str = "mystack",
+        containers: int = 2,
+        volumes: int = 1,
+        with_database: bool = False,
+    ) -> BackupUnit:
+        container_list = []
+        for i in range(containers):
+            c = ContainerInfo(
+                id=f"container{i}",
+                name=f"{name}_service{i}",
+                image="nginx:latest" if not with_database or i > 0 else "postgres:15",
+                status="running",
+                database_type="postgres" if with_database and i == 0 else None,
+                inspect_data={"NetworkSettings": {"Networks": {"mynet": {}}}},
+            )
+            container_list.append(c)
+
+        volume_list = []
+        for i in range(volumes):
+            v = VolumeInfo(
+                name=f"{name}_data{i}",
+                driver="local",
+                mountpoint=f"/var/lib/docker/volumes/{name}_data{i}/_data",
+                size_bytes=1024 * 1024,
+            )
+            volume_list.append(v)
+
+        return BackupUnit(
+            name=name,
+            type="stack",
+            containers=container_list,
+            volumes=volume_list,
+            compose_files=[],
+        )
+
+    return _make_backup_unit
