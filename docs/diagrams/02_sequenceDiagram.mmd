@@ -1,0 +1,16 @@
+sequenceDiagram
+    participant User
+    participant CLI
+    participant Repo as KopiaRepository
+    participant Restore as RestoreManager
+    participant Hooks as HooksManager
+    participant Docker
+
+    User->>CLI: `kopi-docka restore`
+    CLI->>Repo: list_snapshots()/list_all_snapshots()
+    CLI->>Restore: interactive_restore()
+    Restore->>User: choose session -> choose unit
+    Restore->>Hooks: execute_pre_restore(unit)
+    Restore->>Repo: restore_snapshot(snapshot_id, target)
+    Restore->>Docker: create/restore volumes, recreate networks
+    Restore->>Hooks: execute_post_restore(unit)

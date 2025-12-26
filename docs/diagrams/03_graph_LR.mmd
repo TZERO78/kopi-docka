@@ -1,0 +1,12 @@
+graph LR
+  CLI --> Config
+  CLI --> Commands
+  Commands --> BackupManager
+  Commands --> RestoreManager
+  BackupManager --> DockerDiscovery
+  BackupManager --> HooksManager
+  BackupManager --> KopiaRepository
+  KopiaRepository --> Backends
+  KopiaRepository --> KopiaPolicyManager
+  HooksManager --> (user scripts)
+  Helpers --> (logging, ui_utils, system_utils)

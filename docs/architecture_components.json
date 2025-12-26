@@ -1,0 +1,639 @@
+{
+  "components": {
+    "BackupManager": [
+      {
+        "name": "BackupManager",
+        "methods": [
+          "backup_unit"
+        ]
+      }
+    ],
+    "KopiaRepository": [
+      {
+        "name": "KopiaRepository",
+        "methods": [
+          "connect",
+          "create_filesystem_repo_at_path",
+          "create_snapshot",
+          "create_snapshot_from_stdin",
+          "disconnect",
+          "discover_machines",
+          "initialize",
+          "is_connected",
+          "is_initialized",
+          "list_all_snapshots",
+          "list_backup_units",
+          "list_snapshots",
+          "maintenance_run",
+          "make_default_profile",
+          "restore_snapshot",
+          "set_repo_password",
+          "status",
+          "verify_password",
+          "verify_snapshot"
+        ]
+      }
+    ],
+    "RestoreManager": [
+      {
+        "name": "RestoreManager",
+        "methods": [
+          "advanced_interactive_restore",
+          "cleanup_old_safety_backups",
+          "interactive_restore"
+        ]
+      }
+    ],
+    "DockerDiscovery": [
+      {
+        "name": "DockerDiscovery",
+        "methods": [
+          "discover_backup_units"
+        ]
+      }
+    ],
+    "HooksManager": [
+      {
+        "name": "HooksManager",
+        "methods": [
+          "execute_hook",
+          "execute_post_backup",
+          "execute_post_restore",
+          "execute_pre_backup",
+          "execute_pre_restore",
+          "get_executed_hooks"
+        ]
+      }
+    ],
+    "KopiaPolicyManager": [
+      {
+        "name": "KopiaPolicyManager",
+        "methods": [
+          "apply_global_defaults",
+          "set_compression_for_target",
+          "set_retention_for_target"
+        ]
+      }
+    ],
+    "BackendBase": [
+      {
+        "name": "BackendBase",
+        "methods": [
+          "check_dependencies",
+          "description",
+          "display_name",
+          "get_backend_type",
+          "get_env_vars",
+          "get_kopia_args",
+          "get_recovery_instructions",
+          "get_status",
+          "install_dependencies",
+          "name",
+          "post_setup",
+          "setup_interactive",
+          "test_connection",
+          "validate_config"
+        ]
+      },
+      {
+        "name": "BackendError",
+        "methods": []
+      },
+      {
+        "name": "DependencyError",
+        "methods": []
+      },
+      {
+        "name": "ConfigurationError",
+        "methods": []
+      },
+      {
+        "name": "ConnectionError",
+        "methods": []
+      }
+    ]
+  },
+  "by_module": {
+    "cores/dependency_manager.py": [
+      {
+        "name": "DependencyManager",
+        "methods": [
+          "auto_install",
+          "check_all",
+          "check_dependency",
+          "check_docker",
+          "check_du",
+          "check_hostname",
+          "check_kopia",
+          "check_openssl",
+          "check_python_systemd",
+          "check_tar",
+          "export_requirements",
+          "get_install_commands",
+          "get_missing",
+          "get_version",
+          "install_missing",
+          "print_install_guide",
+          "print_status"
+        ]
+      }
+    ],
+    "cores/docker_discovery.py": [
+      {
+        "name": "DockerDiscovery",
+        "methods": [
+          "discover_backup_units"
+        ]
+      }
+    ],
+    "cores/repository_manager.py": [
+      {
+        "name": "KopiaRepository",
+        "methods": [
+          "connect",
+          "create_filesystem_repo_at_path",
+          "create_snapshot",
+          "create_snapshot_from_stdin",
+          "disconnect",
+          "discover_machines",
+          "initialize",
+          "is_connected",
+          "is_initialized",
+          "list_all_snapshots",
+          "list_backup_units",
+          "list_snapshots",
+          "maintenance_run",
+          "make_default_profile",
+          "restore_snapshot",
+          "set_repo_password",
+          "status",
+          "verify_password",
+          "verify_snapshot"
+        ]
+      }
+    ],
+    "cores/backup_manager.py": [
+      {
+        "name": "BackupManager",
+        "methods": [
+          "backup_unit"
+        ]
+      }
+    ],
+    "cores/disaster_recovery_manager.py": [
+      {
+        "name": "DisasterRecoveryManager",
+        "methods": [
+          "create_recovery_bundle"
+        ]
+      }
+    ],
+    "cores/service_helper.py": [
+      {
+        "name": "ServiceStatus",
+        "methods": []
+      },
+      {
+        "name": "TimerStatus",
+        "methods": []
+      },
+      {
+        "name": "BackupInfo",
+        "methods": []
+      },
+      {
+        "name": "ServiceHelper",
+        "methods": [
+          "control_service",
+          "edit_timer_schedule",
+          "fix_service_configuration",
+          "get_backup_service_status",
+          "get_current_schedule",
+          "get_last_backup_info",
+          "get_lock_status",
+          "get_logs",
+          "get_service_status",
+          "get_timer_status",
+          "reload_daemon",
+          "remove_stale_lock",
+          "start_backup_now",
+          "units_exist",
+          "validate_oncalendar",
+          "validate_service_configuration",
+          "validate_time_format"
+        ]
+      }
+    ],
+    "cores/hooks_manager.py": [
+      {
+        "name": "HooksManager",
+        "methods": [
+          "execute_hook",
+          "execute_post_backup",
+          "execute_post_restore",
+          "execute_pre_backup",
+          "execute_pre_restore",
+          "get_executed_hooks"
+        ]
+      }
+    ],
+    "cores/dry_run_manager.py": [
+      {
+        "name": "DryRunReport",
+        "methods": [
+          "estimate_backup_duration",
+          "generate"
+        ]
+      }
+    ],
+    "cores/kopia_policy_manager.py": [
+      {
+        "name": "KopiaPolicyManager",
+        "methods": [
+          "apply_global_defaults",
+          "set_compression_for_target",
+          "set_retention_for_target"
+        ]
+      }
+    ],
+    "cores/restore_manager.py": [
+      {
+        "name": "RestoreManager",
+        "methods": [
+          "advanced_interactive_restore",
+          "cleanup_old_safety_backups",
+          "interactive_restore"
+        ]
+      }
+    ],
+    "cores/service_manager.py": [
+      {
+        "name": "LockFile",
+        "methods": [
+          "acquire",
+          "release"
+        ]
+      },
+      {
+        "name": "ServiceConfig",
+        "methods": []
+      },
+      {
+        "name": "KopiDockaService",
+        "methods": [
+          "start"
+        ]
+      }
+    ],
+    "backends/azure.py": [
+      {
+        "name": "AzureBackend",
+        "methods": [
+          "check_dependencies",
+          "configure",
+          "description",
+          "display_name",
+          "get_kopia_args",
+          "get_status",
+          "install_dependencies",
+          "name",
+          "setup_interactive",
+          "test_connection",
+          "validate_config"
+        ]
+      }
+    ],
+    "backends/sftp.py": [
+      {
+        "name": "SFTPBackend",
+        "methods": [
+          "check_dependencies",
+          "configure",
+          "description",
+          "display_name",
+          "get_kopia_args",
+          "get_status",
+          "install_dependencies",
+          "name",
+          "setup_interactive",
+          "test_connection",
+          "validate_config"
+        ]
+      }
+    ],
+    "backends/s3.py": [
+      {
+        "name": "S3Backend",
+        "methods": [
+          "check_dependencies",
+          "configure",
+          "description",
+          "display_name",
+          "get_kopia_args",
+          "get_status",
+          "install_dependencies",
+          "name",
+          "setup_interactive",
+          "test_connection",
+          "validate_config"
+        ]
+      }
+    ],
+    "backends/tailscale.py": [
+      {
+        "name": "TailscalePeer",
+        "methods": []
+      },
+      {
+        "name": "TailscaleBackend",
+        "methods": [
+          "check_dependencies",
+          "configure",
+          "description",
+          "display_name",
+          "get_backend_type",
+          "get_kopia_args",
+          "get_recovery_instructions",
+          "get_status",
+          "install_dependencies",
+          "name",
+          "setup_interactive",
+          "test_connection",
+          "validate_config"
+        ]
+      }
+    ],
+    "backends/b2.py": [
+      {
+        "name": "B2Backend",
+        "methods": [
+          "check_dependencies",
+          "configure",
+          "description",
+          "display_name",
+          "get_kopia_args",
+          "get_status",
+          "install_dependencies",
+          "name",
+          "setup_interactive",
+          "test_connection",
+          "validate_config"
+        ]
+      }
+    ],
+    "backends/local.py": [
+      {
+        "name": "LocalBackend",
+        "methods": [
+          "check_dependencies",
+          "configure",
+          "description",
+          "display_name",
+          "get_kopia_args",
+          "get_status",
+          "install_dependencies",
+          "name",
+          "setup_interactive",
+          "test_connection",
+          "validate_config"
+        ]
+      }
+    ],
+    "backends/rclone.py": [
+      {
+        "name": "RcloneBackend",
+        "methods": [
+          "check_dependencies",
+          "configure",
+          "description",
+          "display_name",
+          "get_kopia_args",
+          "get_status",
+          "install_dependencies",
+          "name",
+          "setup_interactive",
+          "test_connection",
+          "validate_config"
+        ]
+      }
+    ],
+    "backends/gcs.py": [
+      {
+        "name": "GCSBackend",
+        "methods": [
+          "check_dependencies",
+          "configure",
+          "description",
+          "display_name",
+          "get_kopia_args",
+          "get_status",
+          "install_dependencies",
+          "name",
+          "setup_interactive",
+          "test_connection",
+          "validate_config"
+        ]
+      }
+    ],
+    "backends/base.py": [
+      {
+        "name": "BackendBase",
+        "methods": [
+          "check_dependencies",
+          "description",
+          "display_name",
+          "get_backend_type",
+          "get_env_vars",
+          "get_kopia_args",
+          "get_recovery_instructions",
+          "get_status",
+          "install_dependencies",
+          "name",
+          "post_setup",
+          "setup_interactive",
+          "test_connection",
+          "validate_config"
+        ]
+      },
+      {
+        "name": "BackendError",
+        "methods": []
+      },
+      {
+        "name": "DependencyError",
+        "methods": []
+      },
+      {
+        "name": "ConfigurationError",
+        "methods": []
+      },
+      {
+        "name": "ConnectionError",
+        "methods": []
+      }
+    ],
+    "helpers/system_utils.py": [
+      {
+        "name": "SystemUtils",
+        "methods": [
+          "check_docker",
+          "check_kopia",
+          "check_port_available",
+          "check_tar",
+          "check_writable",
+          "ensure_directory",
+          "estimate_backup_size",
+          "format_bytes",
+          "format_duration",
+          "get_available_disk_space",
+          "get_available_ram",
+          "get_cpu_count",
+          "get_current_user",
+          "get_disk_usage_percent",
+          "get_docker_version",
+          "get_kopia_version",
+          "get_load_average",
+          "get_memory_info",
+          "get_optimal_workers",
+          "get_system_info",
+          "get_total_disk_space",
+          "is_root"
+        ]
+      }
+    ],
+    "helpers/config.py": [
+      {
+        "name": "Config",
+        "methods": [
+          "backup_base_path",
+          "database_backup",
+          "display",
+          "get",
+          "get_password",
+          "getboolean",
+          "getint",
+          "getlist",
+          "kopia_cache_directory",
+          "kopia_cache_size_mb",
+          "kopia_compression",
+          "kopia_encryption",
+          "kopia_password",
+          "kopia_profile",
+          "parallel_workers",
+          "recovery_bundle_path",
+          "recovery_bundle_retention",
+          "save",
+          "set",
+          "set_password",
+          "start_timeout",
+          "stop_timeout",
+          "update_recovery_bundle",
+          "validate"
+        ]
+      }
+    ],
+    "helpers/ui_utils.py": [
+      {
+        "name": "SubprocessError",
+        "methods": []
+      }
+    ],
+    "helpers/logging.py": [
+      {
+        "name": "Colors",
+        "methods": []
+      },
+      {
+        "name": "StructuredFormatter",
+        "methods": [
+          "format"
+        ]
+      },
+      {
+        "name": "LogManager",
+        "methods": [
+          "get_logger",
+          "log_metrics",
+          "log_summary",
+          "operation",
+          "setup"
+        ]
+      }
+    ],
+    "helpers/dependency_installer.py": [
+      {
+        "name": "InstallStatus",
+        "methods": []
+      },
+      {
+        "name": "InstallResult",
+        "methods": []
+      },
+      {
+        "name": "DependencyInstaller",
+        "methods": [
+          "check_installed",
+          "install",
+          "install_docker",
+          "install_kopia",
+          "install_rclone",
+          "install_tailscale"
+        ]
+      }
+    ],
+    "helpers/os_detect.py": [
+      {
+        "name": "OSInfo",
+        "methods": [
+          "debian_version_major",
+          "is_arch",
+          "is_debian",
+          "is_debian_based",
+          "is_fedora",
+          "is_rhel_based",
+          "is_ubuntu",
+          "ubuntu_version"
+        ]
+      }
+    ],
+    "types.py": [
+      {
+        "name": "ContainerInfo",
+        "methods": [
+          "compose_file",
+          "is_database",
+          "is_running",
+          "stack_name"
+        ]
+      },
+      {
+        "name": "VolumeInfo",
+        "methods": []
+      },
+      {
+        "name": "MachineInfo",
+        "methods": []
+      },
+      {
+        "name": "BackupUnit",
+        "methods": [
+          "compose_file",
+          "get_database_containers",
+          "has_databases",
+          "running_containers",
+          "total_volume_size"
+        ]
+      },
+      {
+        "name": "BackupMetadata",
+        "methods": [
+          "to_dict"
+        ]
+      },
+      {
+        "name": "RestorePoint",
+        "methods": []
+      }
+    ]
+  }
+}

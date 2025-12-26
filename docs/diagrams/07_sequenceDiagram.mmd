@@ -1,0 +1,16 @@
+sequenceDiagram
+  participant User
+  participant Repo
+  participant Restore
+  participant Hooks
+  participant Docker
+
+  User->>Restore: interactive_restore()
+  Restore->>Repo: list_snapshots()/list_all_snapshots()
+  Restore->>User: present sessions & units
+  User->>Restore: choose session/unit
+  Restore->>Hooks: execute_pre_restore(unit)
+  Restore->>Repo: restore_snapshot(snapshot_id, tmpdir)
+  Restore->>Docker: recreate networks & volumes, restore content
+  Restore->>Hooks: execute_post_restore(unit)
+  Restore-->>User: done

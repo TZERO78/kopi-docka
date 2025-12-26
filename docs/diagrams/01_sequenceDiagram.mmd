@@ -1,0 +1,19 @@
+sequenceDiagram
+    participant User
+    participant CLI as `typer` CLI
+    participant Discovery as DockerDiscovery
+    participant Backup as BackupManager
+    participant Hooks as HooksManager
+    participant Repo as KopiaRepository
+
+    User->>CLI: `kopi-docka backup`
+    CLI->>Discovery: discover_backup_units()
+    CLI->>Backup: BackupManager(cfg)
+    Backup->>Hooks: execute_pre_backup(unit)
+    Backup->>Docker: stop containers
+    Backup->>Backup: _backup_recipes() → Repo.create_snapshot(tmpdir, tags)
+    Backup->>Backup: _backup_volume(...) [parallel workers]
+    Backup->>Repo: create_snapshot/create_snapshot_from_stdin
+    Backup->>Docker: start containers
+    Backup->>Hooks: execute_post_backup(unit)
+    Backup-->>CLI: metadata (success|errors)
