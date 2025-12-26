@@ -1221,3 +1221,747 @@ class TestNetworkRecreationConflicts:
         count = rm._restore_networks(rp, tmp_path)
 
         assert count == 0
+
+# =============================================================================
+# Interactive Restore Flow Tests
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestInteractiveRestoreFlow:
+    """Tests for interactive restore wizard flow."""
+
+    def test_dependency_check_failure_aborts_restore(self, monkeypatch, capsys):
+        """Should abort if dependencies are missing."""
+        rm = make_manager()
+
+        # Mock missing Docker
+        mock_deps = Mock()
+        mock_deps.check_docker.return_value = False
+        mock_deps.check_tar.return_value = True
+        mock_deps.check_kopia.return_value = True
+
+        with patch("kopi_docka.cores.dependency_manager.DependencyManager", return_value=mock_deps):
+            rm.interactive_restore()
+
+        captured = capsys.readouterr()
+        output = captured.out
+
+        # Should show missing dependency and abort
+        assert "Missing required dependencies" in output
+        assert "Docker" in output
+        assert "Install missing dependencies" in output
+
+    def test_repository_not_connected_aborts(self, monkeypatch, capsys):
+        """Should abort if repository is not connected."""
+        rm = make_manager()
+
+        # Mock deps OK but repo not connected
+        mock_deps = Mock()
+        mock_deps.check_docker.return_value = True
+        mock_deps.check_tar.return_value = True
+        mock_deps.check_kopia.return_value = True
+
+        rm.repo.is_connected.return_value = False
+
+        with patch("kopi_docka.cores.dependency_manager.DependencyManager", return_value=mock_deps):
+            rm.interactive_restore()
+
+        captured = capsys.readouterr()
+        output = captured.out
+
+        # Should show not connected message
+        assert "Not connected to Kopia repository" in output
+        assert "kopi-docka init" in output
+
+    def test_no_backups_found_aborts(self, monkeypatch, capsys):
+        """Should abort if no restore points found."""
+        rm = make_manager()
+
+        # Mock deps OK, repo connected, but no backups
+        mock_deps = Mock()
+        mock_deps.check_docker.return_value = True
+        mock_deps.check_tar.return_value = True
+        mock_deps.check_kopia.return_value = True
+
+        rm.repo.is_connected.return_value = True
+        monkeypatch.setattr(rm, "_find_restore_points", Mock(return_value=[]))
+
+        with patch("kopi_docka.cores.dependency_manager.DependencyManager", return_value=mock_deps):
+            rm.interactive_restore()
+
+        captured = capsys.readouterr()
+        output = captured.out
+
+        # Should show no backups message
+        assert "No backups found" in output
+
+    def test_session_selection_interactive(self, monkeypatch, capsys):
+        """User selects a session interactively."""
+        rm = make_manager()
+        rm.non_interactive = False
+
+        # Mock deps and repo
+        mock_deps = Mock()
+        mock_deps.check_docker.return_value = True
+        mock_deps.check_tar.return_value = True
+        mock_deps.check_kopia.return_value = True
+        rm.repo.is_connected.return_value = True
+
+        # Mock restore points
+        rp1 = RestorePoint(
+            unit_name="unit1",
+            backup_id="uuid-1",
+            timestamp=datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+            recipe_snapshots=[],
+            volume_snapshots=[{"id": "vol1", "tags": {}}],
+            network_snapshots=[],
+        )
+
+        monkeypatch.setattr(rm, "_find_restore_points", Mock(return_value=[rp1]))
+        monkeypatch.setattr(rm, "_restore_unit", Mock())
+
+        # Mock user input: select session 1, confirm yes
+        inputs = iter(["1", "yes"])
+        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+        with patch("kopi_docka.cores.dependency_manager.DependencyManager", return_value=mock_deps):
+            rm.interactive_restore()
+
+        captured = capsys.readouterr()
+        output = captured.out
+
+        # Verify session was shown and selected
+        assert "Available backup sessions" in output
+        assert "unit1" in output
+        assert "This will guide you through restoring" in output
+
+        # Verify restore was called
+        rm._restore_unit.assert_called_once()
+
+    def test_quit_at_session_selection(self, monkeypatch, capsys):
+        """User quits at session selection."""
+        rm = make_manager()
+        rm.non_interactive = False
+
+        mock_deps = Mock()
+        mock_deps.check_docker.return_value = True
+        mock_deps.check_tar.return_value = True
+        mock_deps.check_kopia.return_value = True
+        rm.repo.is_connected.return_value = True
+
+        rp1 = RestorePoint(
+            unit_name="unit1",
+            backup_id="uuid-1",
+            timestamp=datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+            recipe_snapshots=[],
+            volume_snapshots=[],
+            network_snapshots=[],
+        )
+
+        monkeypatch.setattr(rm, "_find_restore_points", Mock(return_value=[rp1]))
+        monkeypatch.setattr(rm, "_restore_unit", Mock())
+
+        # User enters 'q'
+        monkeypatch.setattr("builtins.input", lambda _: "q")
+
+        with patch("kopi_docka.cores.dependency_manager.DependencyManager", return_value=mock_deps):
+            rm.interactive_restore()
+
+        captured = capsys.readouterr()
+        output = captured.out
+
+        # Verify quit message
+        assert "Restore cancelled" in output
+
+        # Verify restore was NOT called
+        rm._restore_unit.assert_not_called()
+
+    def test_quit_at_unit_selection(self, monkeypatch, capsys):
+        """User quits at unit selection."""
+        rm = make_manager()
+        rm.non_interactive = False
+
+        mock_deps = Mock()
+        mock_deps.check_docker.return_value = True
+        mock_deps.check_tar.return_value = True
+        mock_deps.check_kopia.return_value = True
+        rm.repo.is_connected.return_value = True
+
+        # Multiple units in same session
+        rp1 = RestorePoint(
+            unit_name="unit1",
+            backup_id="uuid-1",
+            timestamp=datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+            recipe_snapshots=[],
+            volume_snapshots=[],
+            network_snapshots=[],
+        )
+        rp2 = RestorePoint(
+            unit_name="unit2",
+            backup_id="uuid-1",
+            timestamp=datetime(2025, 1, 15, 10, 1, 0, tzinfo=timezone.utc),
+            recipe_snapshots=[],
+            volume_snapshots=[],
+            network_snapshots=[],
+        )
+
+        monkeypatch.setattr(rm, "_find_restore_points", Mock(return_value=[rp1, rp2]))
+        monkeypatch.setattr(rm, "_restore_unit", Mock())
+
+        # User selects session 1, then quits at unit selection
+        inputs = iter(["1", "q"])
+        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+        with patch("kopi_docka.cores.dependency_manager.DependencyManager", return_value=mock_deps):
+            rm.interactive_restore()
+
+        captured = capsys.readouterr()
+        output = captured.out
+
+        # Verify quit message
+        assert "Restore cancelled" in output
+        rm._restore_unit.assert_not_called()
+
+    def test_quit_at_confirmation(self, monkeypatch, capsys):
+        """User quits at final confirmation."""
+        rm = make_manager()
+        rm.non_interactive = False
+
+        mock_deps = Mock()
+        mock_deps.check_docker.return_value = True
+        mock_deps.check_tar.return_value = True
+        mock_deps.check_kopia.return_value = True
+        rm.repo.is_connected.return_value = True
+
+        rp1 = RestorePoint(
+            unit_name="unit1",
+            backup_id="uuid-1",
+            timestamp=datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+            recipe_snapshots=[],
+            volume_snapshots=[],
+            network_snapshots=[],
+        )
+
+        monkeypatch.setattr(rm, "_find_restore_points", Mock(return_value=[rp1]))
+        monkeypatch.setattr(rm, "_restore_unit", Mock())
+
+        # User selects session, then says 'no' at confirmation
+        inputs = iter(["1", "no"])
+        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+        with patch("kopi_docka.cores.dependency_manager.DependencyManager", return_value=mock_deps):
+            rm.interactive_restore()
+
+        captured = capsys.readouterr()
+        output = captured.out
+
+        # Verify cancelled message
+        assert "Restore cancelled" in output
+        rm._restore_unit.assert_not_called()
+
+    def test_non_interactive_auto_selects(self, monkeypatch, capsys):
+        """Non-interactive mode auto-selects without prompts."""
+        rm = make_manager()
+        rm.non_interactive = True
+
+        mock_deps = Mock()
+        mock_deps.check_docker.return_value = True
+        mock_deps.check_tar.return_value = True
+        mock_deps.check_kopia.return_value = True
+        rm.repo.is_connected.return_value = True
+
+        # Multiple sessions and units
+        rp1 = RestorePoint(
+            unit_name="unit1",
+            backup_id="uuid-1",
+            timestamp=datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+            recipe_snapshots=[],
+            volume_snapshots=[],
+            network_snapshots=[],
+        )
+        rp2 = RestorePoint(
+            unit_name="unit2",
+            backup_id="uuid-1",
+            timestamp=datetime(2025, 1, 15, 10, 1, 0, tzinfo=timezone.utc),
+            recipe_snapshots=[],
+            volume_snapshots=[],
+            network_snapshots=[],
+        )
+
+        monkeypatch.setattr(rm, "_find_restore_points", Mock(return_value=[rp1, rp2]))
+        monkeypatch.setattr(rm, "_restore_unit", Mock())
+
+        with patch("kopi_docka.cores.dependency_manager.DependencyManager", return_value=mock_deps):
+            rm.interactive_restore()
+
+        captured = capsys.readouterr()
+        output = captured.out
+
+        # Verify auto-selection messages
+        assert "Auto-selecting most recent session" in output
+        assert "Auto-selecting first unit" in output
+        assert "Auto-confirming restore" in output
+
+        # Verify restore was called
+        rm._restore_unit.assert_called_once()
+
+    def test_single_unit_auto_selected(self, monkeypatch, capsys):
+        """Single unit in session is auto-selected."""
+        rm = make_manager()
+        rm.non_interactive = False
+
+        mock_deps = Mock()
+        mock_deps.check_docker.return_value = True
+        mock_deps.check_tar.return_value = True
+        mock_deps.check_kopia.return_value = True
+        rm.repo.is_connected.return_value = True
+
+        # Single unit
+        rp1 = RestorePoint(
+            unit_name="unit1",
+            backup_id="uuid-1",
+            timestamp=datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+            recipe_snapshots=[],
+            volume_snapshots=[],
+            network_snapshots=[],
+        )
+
+        monkeypatch.setattr(rm, "_find_restore_points", Mock(return_value=[rp1]))
+        monkeypatch.setattr(rm, "_restore_unit", Mock())
+
+        # Only need to confirm
+        monkeypatch.setattr("builtins.input", lambda prompt: "1" if "session" in prompt else "yes")
+
+        with patch("kopi_docka.cores.dependency_manager.DependencyManager", return_value=mock_deps):
+            rm.interactive_restore()
+
+        # Should skip unit selection since only one unit
+        rm._restore_unit.assert_called_once()
+
+    def test_invalid_session_selection_retries(self, monkeypatch, capsys):
+        """Invalid session number prompts retry."""
+        rm = make_manager()
+        rm.non_interactive = False
+
+        mock_deps = Mock()
+        mock_deps.check_docker.return_value = True
+        mock_deps.check_tar.return_value = True
+        mock_deps.check_kopia.return_value = True
+        rm.repo.is_connected.return_value = True
+
+        rp1 = RestorePoint(
+            unit_name="unit1",
+            backup_id="uuid-1",
+            timestamp=datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+            recipe_snapshots=[],
+            volume_snapshots=[],
+            network_snapshots=[],
+        )
+
+        monkeypatch.setattr(rm, "_find_restore_points", Mock(return_value=[rp1]))
+        monkeypatch.setattr(rm, "_restore_unit", Mock())
+
+        # Invalid input, then valid
+        inputs = iter(["99", "1", "yes"])
+        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+        with patch("kopi_docka.cores.dependency_manager.DependencyManager", return_value=mock_deps):
+            rm.interactive_restore()
+
+        captured = capsys.readouterr()
+        output = captured.out
+
+        # Verify error message shown
+        assert "Invalid selection" in output
+
+        # But restore eventually succeeds
+        rm._restore_unit.assert_called_once()
+
+    def test_keyboard_interrupt_at_session_selection(self, monkeypatch, capsys):
+        """KeyboardInterrupt cancels restore gracefully."""
+        rm = make_manager()
+        rm.non_interactive = False
+
+        mock_deps = Mock()
+        mock_deps.check_docker.return_value = True
+        mock_deps.check_tar.return_value = True
+        mock_deps.check_kopia.return_value = True
+        rm.repo.is_connected.return_value = True
+
+        rp1 = RestorePoint(
+            unit_name="unit1",
+            backup_id="uuid-1",
+            timestamp=datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+            recipe_snapshots=[],
+            volume_snapshots=[],
+            network_snapshots=[],
+        )
+
+        monkeypatch.setattr(rm, "_find_restore_points", Mock(return_value=[rp1]))
+        monkeypatch.setattr(rm, "_restore_unit", Mock())
+
+        # Simulate Ctrl+C
+        def raise_interrupt(_):
+            raise KeyboardInterrupt()
+
+        monkeypatch.setattr("builtins.input", raise_interrupt)
+
+        with patch("kopi_docka.cores.dependency_manager.DependencyManager", return_value=mock_deps):
+            rm.interactive_restore()
+
+        captured = capsys.readouterr()
+        output = captured.out
+
+        # Verify cancelled message
+        assert "Restore cancelled" in output
+        rm._restore_unit.assert_not_called()
+
+    def test_multiple_units_requires_selection(self, monkeypatch, capsys):
+        """Multiple units in session requires user selection."""
+        rm = make_manager()
+        rm.non_interactive = False
+
+        mock_deps = Mock()
+        mock_deps.check_docker.return_value = True
+        mock_deps.check_tar.return_value = True
+        mock_deps.check_kopia.return_value = True
+        rm.repo.is_connected.return_value = True
+
+        # Two units in same session
+        rp1 = RestorePoint(
+            unit_name="unit1",
+            backup_id="uuid-1",
+            timestamp=datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+            recipe_snapshots=[],
+            volume_snapshots=[{"id": "vol1", "tags": {}}],
+            network_snapshots=[],
+        )
+        rp2 = RestorePoint(
+            unit_name="unit2",
+            backup_id="uuid-1",
+            timestamp=datetime(2025, 1, 15, 10, 1, 0, tzinfo=timezone.utc),
+            recipe_snapshots=[],
+            volume_snapshots=[{"id": "vol2", "tags": {}}],
+            network_snapshots=[],
+        )
+
+        monkeypatch.setattr(rm, "_find_restore_points", Mock(return_value=[rp1, rp2]))
+        monkeypatch.setattr(rm, "_restore_unit", Mock())
+
+        # Select session 1, then unit 2
+        inputs = iter(["1", "2", "yes"])
+        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+        with patch("kopi_docka.cores.dependency_manager.DependencyManager", return_value=mock_deps):
+            rm.interactive_restore()
+
+        captured = capsys.readouterr()
+        output = captured.out
+
+        # Verify unit selection prompt shown
+        assert "Units in this backup session" in output
+        assert "unit1" in output
+        assert "unit2" in output
+
+        # Verify correct unit was restored
+        # Note: After sorting by timestamp (newest first), rp2 is first, rp1 is second
+        # So selecting "2" selects rp1 (unit1)
+        rm._restore_unit.assert_called_once()
+        restored_unit = rm._restore_unit.call_args[0][0]
+        assert restored_unit.unit_name == "unit1"
+
+    def test_session_grouping_by_time(self, monkeypatch, capsys):
+        """Restore points are grouped into sessions by 5-minute window."""
+        rm = make_manager()
+        rm.non_interactive = True
+
+        mock_deps = Mock()
+        mock_deps.check_docker.return_value = True
+        mock_deps.check_tar.return_value = True
+        mock_deps.check_kopia.return_value = True
+        rm.repo.is_connected.return_value = True
+
+        # Two sessions: one at 10:00, another at 11:00
+        rp1 = RestorePoint(
+            unit_name="unit1",
+            backup_id="uuid-1",
+            timestamp=datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+            recipe_snapshots=[],
+            volume_snapshots=[],
+            network_snapshots=[],
+        )
+        rp2 = RestorePoint(
+            unit_name="unit2",
+            backup_id="uuid-2",
+            timestamp=datetime(2025, 1, 15, 11, 0, 0, tzinfo=timezone.utc),  # 1 hour later
+            recipe_snapshots=[],
+            volume_snapshots=[],
+            network_snapshots=[],
+        )
+
+        monkeypatch.setattr(rm, "_find_restore_points", Mock(return_value=[rp2, rp1]))
+        monkeypatch.setattr(rm, "_restore_unit", Mock())
+
+        with patch("kopi_docka.cores.dependency_manager.DependencyManager", return_value=mock_deps):
+            rm.interactive_restore()
+
+        captured = capsys.readouterr()
+        output = captured.out
+
+        # Should show 2 sessions
+        assert "1. 📅" in output
+        assert "2. 📅" in output
+
+    def test_all_dependencies_missing(self, monkeypatch, capsys):
+        """Should list all missing dependencies."""
+        rm = make_manager()
+
+        # All deps missing
+        mock_deps = Mock()
+        mock_deps.check_docker.return_value = False
+        mock_deps.check_tar.return_value = False
+        mock_deps.check_kopia.return_value = False
+
+        with patch("kopi_docka.cores.dependency_manager.DependencyManager", return_value=mock_deps):
+            rm.interactive_restore()
+
+        captured = capsys.readouterr()
+        output = captured.out
+
+        # Should show all three
+        assert "Docker" in output
+        assert "tar" in output
+        assert "Kopia" in output
+        assert "Missing required dependencies" in output
+
+
+# =============================================================================
+# Container Network Operations Tests (disconnect/reconnect/restart)
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestContainerNetworkOperations:
+    """Tests for container disconnect/reconnect/restart operations."""
+
+    def test_disconnect_containers_from_network(self, monkeypatch):
+        """Disconnects all containers from specified network."""
+        rm = make_manager()
+
+        run_calls = []
+
+        def fake_run(cmd, description, timeout=None, check=True, **kwargs):
+            run_calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(restore_manager, "run_command", fake_run)
+
+        containers = [("abc123", "web"), ("xyz789", "db")]
+        rm._disconnect_containers_from_network("mynet", containers)
+
+        # Should call docker network disconnect for each container with -f flag
+        assert len(run_calls) == 2
+        assert run_calls[0] == ["docker", "network", "disconnect", "-f", "mynet", "abc123"]
+        assert run_calls[1] == ["docker", "network", "disconnect", "-f", "mynet", "xyz789"]
+
+    def test_disconnect_containers_handles_failure(self, monkeypatch):
+        """Continues disconnecting other containers if one fails."""
+        rm = make_manager()
+
+        call_count = [0]
+
+        def fake_run(cmd, description, timeout=None, check=True, **kwargs):
+            call_count[0] += 1
+            # Return failure for first container, success for second
+            if call_count[0] == 1:
+                return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="not found")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(restore_manager, "run_command", fake_run)
+
+        containers = [("abc123", "web"), ("xyz789", "db")]
+        result = rm._disconnect_containers_from_network("mynet", containers)
+
+        # Should try both, but only return successful ones
+        assert call_count[0] == 2
+        assert result == ["xyz789"]  # Only the second one succeeded
+
+    def test_reconnect_containers_to_network(self, monkeypatch):
+        """Reconnects containers to network after recreation."""
+        rm = make_manager()
+
+        run_calls = []
+
+        def fake_run(cmd, description, timeout=None, check=True, **kwargs):
+            run_calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(restore_manager, "run_command", fake_run)
+
+        containers = [("abc123", "web"), ("xyz789", "db")]
+        rm._reconnect_containers_to_network("mynet", containers)
+
+        # Should call docker network connect for each container
+        assert len(run_calls) == 2
+        assert run_calls[0] == ["docker", "network", "connect", "mynet", "abc123"]
+        assert run_calls[1] == ["docker", "network", "connect", "mynet", "xyz789"]
+
+    def test_reconnect_containers_handles_failure(self, monkeypatch):
+        """Continues reconnecting other containers if one fails."""
+        rm = make_manager()
+
+        call_count = [0]
+
+        def fake_run(cmd, description, timeout=None, check=True, **kwargs):
+            call_count[0] += 1
+            # Return failure for first container, success for second
+            if call_count[0] == 1:
+                return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="network not found")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(restore_manager, "run_command", fake_run)
+
+        containers = [("abc123", "web"), ("xyz789", "db")]
+        rm._reconnect_containers_to_network("mynet", containers)
+
+        # Should attempt both
+        assert call_count[0] == 2
+
+    def test_restart_containers_success(self, monkeypatch):
+        """Restarts all containers successfully."""
+        rm = make_manager()
+        rm.start_timeout = 60
+
+        run_calls = []
+
+        def fake_run(cmd, description, timeout=None, check=True, **kwargs):
+            run_calls.append((cmd, timeout))
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(restore_manager, "run_command", fake_run)
+
+        container_ids = ["abc123", "xyz789"]
+        rm._restart_containers(container_ids, "mynet")
+
+        # Should call docker start once with all containers
+        assert len(run_calls) == 1
+        assert run_calls[0][0] == ["docker", "start", "abc123", "xyz789"]
+        assert run_calls[0][1] == 60
+
+    def test_restart_containers_handles_failure(self, monkeypatch):
+        """Logs error when container restart fails."""
+        rm = make_manager()
+
+        def fake_run(cmd, description, timeout=None, check=True, **kwargs):
+            raise restore_manager.SubprocessError(cmd, 1, "container exited")
+
+        monkeypatch.setattr(restore_manager, "run_command", fake_run)
+
+        container_ids = ["abc123"]
+        # Should not raise exception
+        rm._restart_containers(container_ids, "mynet")
+
+
+# =============================================================================
+# Secret Detection Tests
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestSecretDetection:
+    """Tests for _check_for_secrets method."""
+
+    def test_check_for_secrets_detects_redacted_in_inspect_json(self, tmp_path, capsys):
+        """Detects redacted secrets in inspect JSON files."""
+        rm = make_manager()
+
+        recipe_dir = tmp_path / "mystack"
+        recipe_dir.mkdir()
+        (recipe_dir / "container_inspect.json").write_text('{"env": ["PASSWORD=***REDACTED***"]}')
+
+        rm._check_for_secrets(recipe_dir)
+
+        captured = capsys.readouterr()
+        output = captured.out
+
+        assert "REDACTED" in output or "redacted" in output
+
+    def test_check_for_secrets_no_warning_when_clean(self, tmp_path, capsys):
+        """No warning when no redacted secrets found."""
+        rm = make_manager()
+
+        recipe_dir = tmp_path / "mystack"
+        recipe_dir.mkdir()
+        (recipe_dir / "docker_inspect.json").write_text('{"env": ["PATH=/usr/bin"]}')
+
+        rm._check_for_secrets(recipe_dir)
+
+        captured = capsys.readouterr()
+        output = captured.out
+
+        # Should not mention redacted secrets
+        assert "REDACTED" not in output
+
+
+# =============================================================================
+# Safety Backup Cleanup Tests
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestSafetyBackupCleanup:
+    """Tests for cleanup_old_safety_backups method."""
+
+    def test_cleanup_handles_no_backups(self, monkeypatch):
+        """Cleanup handles case with no safety backups."""
+        rm = make_manager()
+
+        # Mock glob to return empty list
+        monkeypatch.setattr("pathlib.Path.glob", lambda self, pattern: [])
+
+        # Should not raise exception
+        rm.cleanup_old_safety_backups(keep_last=3)
+
+
+# =============================================================================
+# User ID Helpers Tests
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestUserIdHelpers:
+    """Tests for _get_real_user_ids method."""
+
+    def test_get_real_user_ids_from_sudo(self, monkeypatch):
+        """Gets real user IDs from SUDO_UID and SUDO_GID."""
+        rm = make_manager()
+
+        monkeypatch.setenv("SUDO_UID", "1000")
+        monkeypatch.setenv("SUDO_GID", "1000")
+        monkeypatch.setenv("SUDO_USER", "testuser")
+
+        uid, gid, user = rm._get_real_user_ids()
+
+        assert uid == 1000
+        assert gid == 1000
+        assert user == "testuser"
+
+    def test_get_real_user_ids_fallback_to_current(self, monkeypatch):
+        """Falls back to current user when not running via sudo."""
+        rm = make_manager()
+
+        # Remove SUDO env vars
+        monkeypatch.delenv("SUDO_UID", raising=False)
+        monkeypatch.delenv("SUDO_GID", raising=False)
+        monkeypatch.delenv("SUDO_USER", raising=False)
+
+        with patch("os.getuid", return_value=1001):
+            with patch("os.getgid", return_value=1001):
+                uid, gid, user = rm._get_real_user_ids()
+
+        assert uid == 1001
+        assert gid == 1001
+        assert user == "root"  # Default when SUDO_USER not set
+
+
