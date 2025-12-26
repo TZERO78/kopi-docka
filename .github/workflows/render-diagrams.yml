@@ -65,4 +65,10 @@ jobs:
             exit 0
           fi
           git commit -m "docs: render Mermaid diagrams to SVG"
-          git push
+          # When this job runs for a pull_request the checkout is a detached HEAD (refs/pull/<id>/merge).
+          # Push the generated files back to the PR head branch using GITHUB_HEAD_REF.
+          if [ -n "${GITHUB_HEAD_REF:-}" ]; then
+            git push origin HEAD:"$GITHUB_HEAD_REF"
+          else
+            git push
+          fi
