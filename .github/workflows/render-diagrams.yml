@@ -20,8 +20,13 @@ jobs:
       - name: Install system libraries and Node.js
         run: |
           sudo apt-get update
+          # Ensure 'universe' repository is enabled so packages like libasound2 are available
+          sudo apt-get install -y --no-install-recommends software-properties-common || true
+          sudo add-apt-repository -y universe || true
+          sudo apt-get update
+          # Install common Chromium/Puppeteer dependencies (use stable package names)
           sudo apt-get install -y --no-install-recommends \
-            libnss3 libatk1.0-0 libatk-bridge2.0-0 libgtk-3-0 libx11-xcb1 libxss1 libasound2 fonts-liberation libgbm-dev libpangocairo-1.0-0
+            libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libgtk-3-0 libx11-xcb1 libxss1 libasound2 fonts-liberation libgbm1 libpangocairo-1.0-0 libxrandr2 libxcomposite1 libxdamage1
           if ! command -v node >/dev/null 2>&1; then
             curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
             sudo apt-get install -y nodejs
