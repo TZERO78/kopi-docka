@@ -5,6 +5,55 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.2.1] - 2025-12-26
+
+### Added
+
+- **CLAUDE.md** - Quick reference guide for Claude Code assistance
+- **Machine-Readable Architecture** - JSON format for architecture documentation
+- **Mermaid CI Workflow** - Automatic SVG rendering of architecture diagrams
+
+### Changed
+
+- **Documentation Reorganization** - Moved `ARCHITECTURE.md` into `docs/` folder
+- **Code of Conduct** - Added community guidelines and synced documentation
+- **CI Pipeline** - Multiple improvements for Mermaid diagram rendering on GitHub runners
+
+### Removed
+
+- Obsolete files: `PR_DESCRIPTION.md`, `RELEASE_NOTES.md`, `requirements.txt`
+- Planning documents: `PROBLEM_1_PLAN.md`, `PROBLEM_2_PLAN.md`
+
+---
+
+## [5.2.0] - 2025-12-24
+
+### Added
+
+- **Centralized `run_command()` Wrapper** - New subprocess helper in `ui_utils.py`
+  - Standardized error handling for all subprocess calls
+  - Consistent logging and output capture
+  - Foundation for improved testability
+- **UI Design Coverage Test** - Automated test for UI component coverage
+
+### Changed
+
+- **Subprocess Migration** - Migrated all subprocess calls to `run_command()`:
+  - `backup_manager.py` - Backup execution calls
+  - `restore_manager.py` - 21 subprocess calls migrated
+  - `service_helper.py` - 14 subprocess calls migrated
+  - `tailscale.py` - 9 subprocess calls migrated
+  - `rclone.py` - 5 subprocess calls migrated
+  - Repository commands, service manager, daemon backup invocations
+- **Restore Network Handling** - Improved network recreation with better container handling
+
+### Fixed
+
+- **CLI Config Handling** - Fixed configuration loading and related tests
+- **Advanced Restore Mode** - Fixed datetime comparison in advanced restore workflow
+
+---
+
 ## [5.1.0] - 2025-12-23
 
 ### Added
@@ -289,6 +338,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[5.2.1]: https://github.com/TZERO78/kopi-docka/compare/v5.2.0...v5.2.1
+[5.2.0]: https://github.com/TZERO78/kopi-docka/compare/v5.1.0...v5.2.0
+[5.1.0]: https://github.com/TZERO78/kopi-docka/compare/v5.0.0...v5.1.0
+[5.0.0]: https://github.com/TZERO78/kopi-docka/compare/v4.2.5...v5.0.0
 [4.2.5]: https://github.com/TZERO78/kopi-docka/compare/v4.2.4...v4.2.5
 [4.2.4]: https://github.com/TZERO78/kopi-docka/compare/v4.2.3...v4.2.4
 [4.2.3]: https://github.com/TZERO78/kopi-docka/compare/v4.2.2...v4.2.3
