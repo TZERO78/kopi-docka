@@ -5,6 +5,24 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.4.1] - 2025-12-27
+
+### Fixed
+
+- **Email Notification Setup Enhancement**
+  - Added "Display Name" prompt in email setup wizard
+  - Email sender now shows custom display name instead of just email address
+  - Example: "Kopi-Docka Backup <user@gmail.com>" instead of "user@gmail.com"
+  - Automatically builds correct `from` parameter in mailto URL
+  - Updated documentation to reflect new display name feature
+  - Improves email notification readability and professionalism
+
+### Changed
+
+- Updated `notification_commands.py` - Email setup wizard now asks for display name
+- Updated `docs/NOTIFICATIONS.md` - Added display name to setup instructions
+- Updated `docs/CONFIGURATION.md` - Email example now includes from parameter
+
 ## [5.4.0] - 2025-12-27
 
 ### Added
