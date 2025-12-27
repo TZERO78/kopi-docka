@@ -45,6 +45,9 @@ htmlcov/
 !.claude/agent.md
 !.codex/agent.md
 
+# Ignore project-specific Claude instructions
+CLAUDE.md
+
 ############################
 # Local planning / agent workbench
 ############################
