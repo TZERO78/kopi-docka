@@ -5,6 +5,136 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.3.0] - 2025-12-27
+
+### Fixed
+
+- **CRITICAL: Direct Mode Retention Policies Now Work** 🔥
+  - **Issue**: Since v5.0, retention policies (e.g., `latest: 3`) failed to delete old volume backups in Direct Mode
+  - **Root Cause**: Policies were applied to virtual paths (`volumes/myproject`) but snapshots used actual mountpoints (`/var/lib/docker/volumes/myproject_data/_data`)
+  - **Impact**: Repositories grew unbounded, storage costs increased significantly
+  - **Solution**: Retention policies now correctly applied to actual volume mountpoints in Direct Mode
+  - **Details**: `BackupManager._ensure_policies()` now detects backup format and applies policies to appropriate paths
+  - TAR Mode behavior unchanged (uses virtual paths as before)
+  - Mixed repositories (old TAR + new Direct backups) handled correctly
+  - **Migration**: No action required - retention will work automatically on next backup
+
+- **Rclone Backend Improvements** (#29)
+  - **Fixed**: Rclone config detection now distinguishes permission errors from missing config
+  - **Fixed**: Better handling of sudo usage with rclone configuration
+  - **Improved**: Clear error messages when config is found but not readable
+  - **Impact**: Prevents confusing "config not found" errors when permission issues exist
+
+- **CLI Config Handling**
+  - Fixed configuration loading and related tests
+  - Improved config file detection and validation
+
+### Added
+
+- **Stable Staging Paths for Recipe/Network Metadata** 🎯
+  - Recipe backups now use `/var/cache/kopi-docka/staging/recipes/<unit-name>/`
+  - Network backups now use `/var/cache/kopi-docka/staging/networks/<unit-name>/`
+  - **Why**: Replaced random temp directories (`/tmp/tmpXYZ...`) with stable paths
+  - **Benefit**: Enables Kopia retention policies to work correctly for metadata
+  - **Impact**: Prevents "ghost sessions" (empty backup sessions with only metadata, no volumes)
+  - **Implementation**: New `_prepare_staging_dir()` helper method for directory management
+  - Staging directories are cleared and reused on each backup (idempotent)
+  - Better debuggability (can inspect staging dir on errors)
+
+- **New Command: `kopi-docka admin repo prune-empty-sessions`** 🧹
+  - Clean up legacy "ghost sessions" from repositories created before v5.3.0
+  - Identifies backup sessions with only recipe/network snapshots (no volumes)
+  - **Dry-run mode by default** - preview what would be deleted without making changes
+  - Use `--no-dry-run` flag to perform actual deletion
+  - Rich table display showing backup ID, recipe count, network count
+  - Confirmation prompt before deletion (double safety)
+  - Progress bar with spinner during deletion
+  - **Use case**: Clean up repositories with accumulated empty sessions from pre-5.3.0 backups
+
+- **MASSIVE Test Coverage Improvements** 🧪
+  - **Integration Tests**:
+    - Comprehensive hooks and cross-machine restore tests
+    - Full backup→restore integration test suite
+    - TAR format tests for legacy backup/restore compatibility
+    - Stable staging directory functionality tests
+    - Direct Mode retention policy verification
+  - **Unit Tests**:
+    - P1 edge case tests for backup manager
+    - Comprehensive disaster recovery and restore operation tests
+    - Critical backup/restore path coverage
+    - Error handling tests for backup/restore operations
+    - Staging directory management tests (8 new tests)
+  - **Test Infrastructure**:
+    - Improved pytest configuration with parallelization support (`pytest-xdist`)
+    - Better test markers (unit, integration, slow, requires_docker, requires_root)
+    - Enhanced test fixtures and utilities
+  - **Coverage**: Significantly improved test coverage across critical paths
+
+- **Documentation & Infrastructure** 📚
+  - **CLAUDE.md**: Quick reference guide for Claude Code assistance
+  - **Machine-Readable Architecture**: JSON format architecture documentation
+  - **Mermaid CI Workflow**: Automatic SVG rendering of architecture diagrams on GitHub
+  - **Code of Conduct**: Added community guidelines
+  - **Architecture Organization**: Moved ARCHITECTURE.md into docs/ folder
+  - **Rclone Backend Documentation**: Comprehensive guide for rclone backend and sudo behavior
+
+### Changed
+
+- **Code Quality Improvements** ✨
+  - **Centralized Subprocess Handling**: Migrated to `run_command()` wrapper throughout codebase
+    - Repository commands now use standardized subprocess calls
+    - Service manager uses run_command for systemctl operations
+    - Lock PID checks use run_command
+    - Daemon backup invocations standardized
+    - Improved error handling and logging consistency
+  - **UI Design Coverage**: Added automated test for UI component coverage
+  - **Pytest Configuration**: Better parallelization and test organization
+
+- **Documentation Updates** 📖
+  - **USAGE.md**: Added "Retention Policies (Direct Mode vs TAR Mode)" section explaining path matching behavior
+  - **CONFIGURATION.md**: Added comprehensive "Retention Policies" section with path matching examples
+  - **ARCHITECTURE.md**: Updated backup flow diagrams and method descriptions to reflect stable staging paths
+  - All documentation now clearly explains v5.3.0 retention fixes and stable staging feature
+  - Updated references from v5.2.1 to v5.3.0 throughout documentation
+
+### Removed
+
+- Obsolete files: `PR_DESCRIPTION.md`, `RELEASE_NOTES.md`, `requirements.txt`
+- Planning documents: `PROBLEM_1_PLAN.md`, `PROBLEM_2_PLAN.md`
+
+### Technical Details
+
+- **Files Modified**:
+  - `kopi_docka/cores/backup_manager.py` - Updated `_ensure_policies()`, `_backup_recipes()`, `_backup_networks()`, added `_prepare_staging_dir()`
+  - `kopi_docka/helpers/constants.py` - Added `STAGING_BASE_DIR` constant and documentation
+  - `kopi_docka/cores/repository_manager.py` - Added `delete_snapshot()` method
+  - `kopi_docka/commands/repository_commands.py` - Added `prune_empty_sessions` command
+
+- **Tests Added**:
+  - 8 new unit tests for `_prepare_staging_dir()` method
+  - 3 integration tests for stable staging functionality
+  - 1 integration test for Direct Mode retention (proves old snapshots are deleted)
+  - Fixed 2 existing tests to work with new staging implementation
+  - **Total**: 74 unit tests passing, 4 new integration tests
+
+### Migration Guide
+
+**No action required!** This release is fully backward compatible:
+- ✅ Existing repositories work without modification
+- ✅ Old TAR-based backups remain fully restorable
+- ✅ Old Direct Mode backups remain restorable
+- ✅ Retention policies will start working automatically on next backup
+- 💡 **Optional**: Run `kopi-docka admin repo prune-empty-sessions` to clean up old ghost sessions
+
+### Performance Impact
+
+- **Storage**: Reduced repository growth (retention now works correctly)
+- **Metadata**: Slightly fewer snapshots created (no more ghost sessions)
+- **Debugging**: Easier to inspect staging directories (stable paths)
+- **No negative performance impact** - changes are additive
+
+---
+
 ## [5.2.1] - 2025-12-26
 
 ### Added
@@ -338,6 +468,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[5.3.0]: https://github.com/TZERO78/kopi-docka/compare/v5.2.1...v5.3.0
 [5.2.1]: https://github.com/TZERO78/kopi-docka/compare/v5.2.0...v5.2.1
 [5.2.0]: https://github.com/TZERO78/kopi-docka/compare/v5.1.0...v5.2.0
 [5.1.0]: https://github.com/TZERO78/kopi-docka/compare/v5.0.0...v5.1.0

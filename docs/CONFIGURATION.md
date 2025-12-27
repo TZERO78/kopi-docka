@@ -218,6 +218,86 @@ kopi-docka --config /path/to/config.json <command>
 
 ---
 
+## Retention Policies
+
+### How Retention Policies Work
+
+Retention policies control **how many snapshots to keep** for each backup target. Kopia automatically deletes older snapshots based on your retention settings.
+
+**Example configuration:**
+```json
+"retention": {
+  "latest": 3,     // Keep last 3 snapshots regardless of age
+  "daily": 7,      // Keep 1 snapshot per day for last 7 days
+  "weekly": 4,     // Keep 1 snapshot per week for last 4 weeks
+  "monthly": 12,   // Keep 1 snapshot per month for last 12 months
+  "annual": 3      // Keep 1 snapshot per year for last 3 years
+}
+```
+
+### Path Matching Behavior
+
+**IMPORTANT:** Retention policies are **path-based** in Kopia. The snapshot's source path must match exactly for retention to work.
+
+#### Direct Mode (Default since v5.0)
+
+**Volume backups:**
+- Snapshots are created from actual Docker volume mountpoints
+- Example path: `/var/lib/docker/volumes/myproject_data/_data`
+- Retention policies are automatically applied to these **actual mountpoints**
+
+**Recipe and network backups:**
+- Use stable staging directories (since v5.3.0)
+- Recipe path: `/var/cache/kopi-docka/staging/recipes/<unit-name>/`
+- Network path: `/var/cache/kopi-docka/staging/networks/<unit-name>/`
+
+**Example:**
+```bash
+# Backup creates snapshots with these paths:
+/var/lib/docker/volumes/webapp_data/_data         # Volume
+/var/lib/docker/volumes/webapp_db/_data           # Volume
+/var/cache/kopi-docka/staging/recipes/webapp/     # Recipe
+/var/cache/kopi-docka/staging/networks/webapp/    # Network
+
+# Retention policy "latest: 3" is applied to EACH path independently
+# After 4 backups, each path keeps only its 3 newest snapshots
+```
+
+#### TAR Mode (Legacy)
+
+**Volume backups:**
+- Snapshots created via tar streams
+- Uses virtual paths like `volumes/myproject`
+- Retention policies are applied to these **virtual paths**
+
+**Recipe and network backups:**
+- Same as Direct Mode (stable staging paths)
+
+### Critical Fix in v5.3.0
+
+Prior to v5.3.0, there was a critical bug where:
+- ❌ Direct Mode: Retention policies were applied to virtual paths (`volumes/myproject`)
+- ❌ But snapshots were created with actual mountpoints (`/var/lib/docker/volumes/...`)
+- ❌ Result: **Path mismatch** → retention never triggered → repositories grew unbounded
+
+**Fixed in v5.3.0:**
+- ✅ Direct Mode retention policies now correctly applied to actual mountpoints
+- ✅ Recipe/network metadata uses stable staging paths (no more random temp dirs)
+- ✅ Retention policies work correctly in both modes
+- ✅ Old snapshots are automatically deleted per your settings
+
+### No Action Required
+
+**If you're using v5.3.0 or later:**
+- ✅ Retention policies work automatically
+- ✅ No configuration changes needed
+- ✅ Works correctly for both Direct Mode and TAR Mode
+- ✅ Mixed repositories (old TAR + new Direct backups) are handled correctly
+
+**Path matching happens automatically** based on your backup format setting. Just configure your desired retention values in the config file.
+
+---
+
 ## Storage Backends
 
 Kopi-Docka supports 8 different backends. The **config wizard** (`admin config new`) interactively guides you through backend selection and configuration!

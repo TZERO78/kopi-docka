@@ -5,7 +5,7 @@ Quick reference for Claude Code when working with Kopi-Docka.
 ## 🎯 Quick Facts
 
 - **What:** Python CLI for Docker cold backups via Kopia
-- **Version:** 5.2.0 (Beta, Stabilization Phase)
+- **Version:** 5.3.0 (Beta, Stabilization Phase)
 - **Platform:** Linux only, Python 3.10+
 - **Key Rule:** Always work on `dev` branch, always use venv
 

@@ -32,7 +32,7 @@ Notes:
 from pathlib import Path
 
 # Version information
-VERSION = "5.2.1"
+VERSION = "5.3.0"
 
 # Backup Scope Levels
 BACKUP_SCOPE_MINIMAL = "minimal"  # Only volumes
@@ -83,7 +83,7 @@ NETWORK_BACKUP_DIR = "networks"
 DOCKER_CONFIG_BACKUP_DIR = "docker-config"
 # DATABASE_BACKUP_DIR removed (no DB dumps in cold backups)
 
-# Staging directories (v5.2.1+)
+# Staging directories (v5.3.0+)
 # =============================
 # Stable staging paths for metadata backups (recipes, networks).
 # Replaces random tempfile.TemporaryDirectory() to enable retention policies.
@@ -127,7 +127,7 @@ STAGING_BASE_DIR = Path("/var/cache/kopi-docka/staging")
 #     "/var/lib/docker/volumes/myproject_data/_data"
 #   - Retention policies MUST be applied to each volume's mountpoint
 #   - Each volume gets its own retention policy
-#   - Path mismatch was a critical bug fixed in v5.2.1
+#   - Path mismatch was a critical bug fixed in v5.3.0
 #     (policies on virtual paths never triggered for actual mountpoint snapshots)
 #
 # See: backup_manager.py::_ensure_policies() for implementation details

@@ -433,7 +433,7 @@ def get_menu_choice(prompt_text: str = "Select", valid_choices: List[str] = None
 
 
 # =============================================================================
-# Subprocess Utilities (v5.2.0)
+# Subprocess Utilities (v5.3.0)
 # =============================================================================
 
 
