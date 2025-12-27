@@ -666,6 +666,23 @@ class KopiaRepository:
         )
         return proc.returncode == 0
 
+    def delete_snapshot(self, snapshot_id: str, unsafe_ignore_source: bool = False) -> None:
+        """
+        Delete a snapshot from the repository.
+
+        Args:
+            snapshot_id: The snapshot ID to delete
+            unsafe_ignore_source: If True, ignore source mismatch warnings
+                                  (needed for snapshots from different machines)
+        """
+        cmd = ["kopia", "snapshot", "delete", snapshot_id, "--delete"]
+
+        if unsafe_ignore_source:
+            cmd.append("--unsafe-ignore-source")
+
+        self._run(cmd, check=True)
+        logger.info("Deleted snapshot %s", snapshot_id)
+
     def maintenance_run(self, full: bool = True) -> None:
         """Run 'kopia maintenance run' (default: --full)."""
         args = ["kopia", "maintenance", "run"]

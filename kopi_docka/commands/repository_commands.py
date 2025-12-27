@@ -649,6 +649,149 @@ def cmd_repo_maintenance(ctx: typer.Context, config: Optional[Path] = None):
         raise typer.Exit(code=1)
 
 
+def cmd_prune_empty_sessions(
+    ctx: typer.Context, config: Optional[Path] = None, dry_run: bool = True
+):
+    """
+    Prune empty backup sessions (ghost sessions) from the repository.
+
+    Scans for backup sessions that contain only recipe/network snapshots
+    but no volume data. These "ghost sessions" can accumulate in legacy
+    repositories that used random temporary directories for metadata backups.
+
+    Args:
+        ctx: Typer context
+        config: Optional config file path
+        dry_run: If True, only show what would be deleted (default)
+    """
+    _override_config(ctx, config)
+    ensure_config(ctx)
+    repo = ensure_repository(ctx)
+
+    console.print("\n[cyan]Scanning for empty backup sessions...[/cyan]\n")
+
+    try:
+        # Get all snapshots
+        all_snapshots = repo.list_all_snapshots()
+
+        if not all_snapshots:
+            print_success("No snapshots found in repository")
+            return
+
+        # Group snapshots by backup_id
+        sessions = {}
+        for snapshot in all_snapshots:
+            tags = snapshot.get("tags", {})
+            backup_id = tags.get("backup_id")
+            snap_type = tags.get("type")
+
+            if not backup_id:
+                continue  # Skip snapshots without backup_id
+
+            if backup_id not in sessions:
+                sessions[backup_id] = {"volume": [], "recipe": [], "networks": []}
+
+            if snap_type == "volume":
+                sessions[backup_id]["volume"].append(snapshot)
+            elif snap_type == "recipe":
+                sessions[backup_id]["recipe"].append(snapshot)
+            elif snap_type == "networks":
+                sessions[backup_id]["networks"].append(snapshot)
+
+        # Find empty sessions (no volume snapshots)
+        empty_sessions = {}
+        for backup_id, snapshots in sessions.items():
+            if len(snapshots["volume"]) == 0 and (
+                len(snapshots["recipe"]) > 0 or len(snapshots["networks"]) > 0
+            ):
+                empty_sessions[backup_id] = snapshots
+
+        if not empty_sessions:
+            print_success(
+                "No empty sessions found!\n\n"
+                "All backup sessions contain volume data. Repository is clean."
+            )
+            return
+
+        # Display results
+        table = Table(title="Empty Backup Sessions Found", box=box.ROUNDED)
+        table.add_column("Backup ID", style="cyan")
+        table.add_column("Recipes", justify="right", style="yellow")
+        table.add_column("Networks", justify="right", style="yellow")
+        table.add_column("Total Snapshots", justify="right", style="red")
+
+        total_snapshots_to_delete = 0
+        for backup_id, snapshots in empty_sessions.items():
+            recipe_count = len(snapshots["recipe"])
+            network_count = len(snapshots["networks"])
+            total = recipe_count + network_count
+            total_snapshots_to_delete += total
+
+            table.add_row(
+                backup_id[:16] + "...",
+                str(recipe_count),
+                str(network_count),
+                str(total),
+            )
+
+        console.print(table)
+        console.print(
+            f"\n[yellow]Found {len(empty_sessions)} empty session(s) "
+            f"with {total_snapshots_to_delete} snapshot(s) to delete[/yellow]\n"
+        )
+
+        if dry_run:
+            print_warning(
+                "DRY RUN MODE - No changes made\n\n"
+                "To actually delete these snapshots, run:\n"
+                "[cyan]kopi-docka repo-prune-empty-sessions --no-dry-run[/cyan]"
+            )
+            return
+
+        # Confirm deletion
+        console.print("[yellow]⚠️  This will permanently delete these snapshots![/yellow]\n")
+        confirm = typer.confirm("Do you want to proceed with deletion?", default=False)
+
+        if not confirm:
+            console.print("[dim]Operation cancelled[/dim]")
+            return
+
+        # Delete snapshots
+        console.print("\n[cyan]Deleting empty session snapshots...[/cyan]\n")
+        deleted_count = 0
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Deleting snapshots...", total=total_snapshots_to_delete)
+
+            for backup_id, snapshots in empty_sessions.items():
+                all_session_snapshots = snapshots["recipe"] + snapshots["networks"]
+
+                for snapshot in all_session_snapshots:
+                    snapshot_id = snapshot.get("id")
+                    if snapshot_id:
+                        try:
+                            repo.delete_snapshot(snapshot_id)
+                            deleted_count += 1
+                            progress.update(task, advance=1)
+                        except Exception as e:
+                            print_error(f"Failed to delete snapshot {snapshot_id}: {e}")
+
+        # Success message
+        print_success_panel(
+            f"Deleted {deleted_count} snapshot(s) from {len(empty_sessions)} empty session(s)\n\n"
+            "[dim]Tip: Run repository maintenance to reclaim disk space:[/dim]\n"
+            "[cyan]kopi-docka repo-maintenance[/cyan]"
+        )
+
+    except Exception as e:
+        print_error_panel(f"Failed to prune empty sessions: {e}")
+        raise typer.Exit(code=1)
+
+
 def cmd_change_password(
     ctx: typer.Context,
     new_password: Optional[str] = None,
@@ -777,6 +920,23 @@ def register(app: typer.Typer):
     app.command("repo-which-config")(cmd_repo_which_config)
     app.command("repo-set-default")(cmd_repo_set_default)
     app.command("repo-maintenance")(cmd_repo_maintenance)
+
+    @app.command("repo-prune-empty-sessions")
+    def _repo_prune_empty_sessions_cmd(
+        ctx: typer.Context,
+        config: Optional[Path] = typer.Option(
+            None,
+            "--config",
+            help="Path to configuration file",
+        ),
+        dry_run: bool = typer.Option(
+            True,
+            "--dry-run/--no-dry-run",
+            help="Preview changes without deleting (default: dry-run)",
+        ),
+    ):
+        """Clean up empty backup sessions (ghost sessions) from repository."""
+        cmd_prune_empty_sessions(ctx, config, dry_run)
 
     @app.command("repo-init-path")
     def _repo_init_path_cmd(
