@@ -65,7 +65,7 @@ The wizard guides you through:
 sudo kopi-docka doctor
 
 # List backup units (containers/stacks)
-sudo kopi-docka admin snapshot list
+sudo kopi-docka advanced snapshot list
 
 # Test run (no changes)
 sudo kopi-docka dry-run
@@ -84,7 +84,7 @@ sudo kopi-docka disaster-recovery
 
 ```bash
 # Generate systemd units
-sudo kopi-docka admin service write-units
+sudo kopi-docka advanced service write-units
 
 # Enable daily backups (02:00 default)
 sudo systemctl enable --now kopi-docka.timer
@@ -93,7 +93,7 @@ sudo systemctl enable --now kopi-docka.timer
 sudo systemctl status kopi-docka.timer
 
 # Or use the interactive management wizard
-sudo kopi-docka admin service manage
+sudo kopi-docka advanced service manage
 ```
 
 **[Systemd integration →](docs/FEATURES.md#4-systemd-integration)**
@@ -139,7 +139,7 @@ Note: The legacy TAR/stdin snapshot method is deprecated in favor of direct Kopi
 Automatic peer discovery for P2P backups over WireGuard mesh network:
 
 ```bash
-sudo kopi-docka admin config new
+sudo kopi-docka advanced config new
 # → Select Tailscale
 # → Shows all devices in your Tailnet
 # → Auto-configures SSH keys
@@ -201,24 +201,24 @@ kopi-docka version                 # Show version
 ### Admin Commands
 ```bash
 # Configuration
-sudo kopi-docka admin config show      # Show config
-sudo kopi-docka admin config new       # Create new config
-sudo kopi-docka admin config edit      # Edit config
+sudo kopi-docka advanced config show      # Show config
+sudo kopi-docka advanced config new       # Create new config
+sudo kopi-docka advanced config edit      # Edit config
 
 # Repository
-sudo kopi-docka admin repo init        # Initialize repository
-sudo kopi-docka admin repo status      # Repository info
-sudo kopi-docka admin repo maintenance # Run maintenance
+sudo kopi-docka advanced repo init        # Initialize repository
+sudo kopi-docka advanced repo status      # Repository info
+sudo kopi-docka advanced repo maintenance # Run maintenance
 
 # Snapshots & Units
-sudo kopi-docka admin snapshot list          # List backup units
-sudo kopi-docka admin snapshot list --snapshots  # List all snapshots
-sudo kopi-docka admin snapshot estimate-size # Estimate backup size
+sudo kopi-docka advanced snapshot list          # List backup units
+sudo kopi-docka advanced snapshot list --snapshots  # List all snapshots
+sudo kopi-docka advanced snapshot estimate-size # Estimate backup size
 
 # System & Service
-sudo kopi-docka admin system install-deps    # Install dependencies
-sudo kopi-docka admin service write-units    # Generate systemd units
-sudo kopi-docka admin service daemon         # Run as daemon
+sudo kopi-docka advanced system install-deps    # Install dependencies
+sudo kopi-docka advanced service write-units    # Generate systemd units
+sudo kopi-docka advanced service daemon         # Run as daemon
 ```
 
 **[Complete CLI reference →](docs/USAGE.md#cli-commands-reference)**
