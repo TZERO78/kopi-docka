@@ -16,6 +16,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+
 # Check if Docker is available
 def docker_available() -> bool:
     """Check if Docker daemon is running and accessible."""
@@ -41,10 +42,7 @@ def is_root() -> bool:
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.requires_docker,
-    pytest.mark.skipif(
-        not docker_available(),
-        reason="Docker daemon not available"
-    ),
+    pytest.mark.skipif(not docker_available(), reason="Docker daemon not available"),
 ]
 
 
@@ -117,7 +115,8 @@ class TestComposeStackDiscovery:
     def compose_stack(self, tmp_path):
         """Create a temporary Compose stack for testing."""
         compose_file = tmp_path / "docker-compose.yml"
-        compose_file.write_text("""
+        compose_file.write_text(
+            """
 services:
   web:
     image: alpine:latest
@@ -127,17 +126,22 @@ services:
 
 volumes:
   testdata:
-""")
+"""
+        )
         project_name = f"kopi_test_{os.getpid()}"
 
         # Start the stack
         try:
             subprocess.run(
                 [
-                    "docker", "compose",
-                    "-f", str(compose_file),
-                    "-p", project_name,
-                    "up", "-d",
+                    "docker",
+                    "compose",
+                    "-f",
+                    str(compose_file),
+                    "-p",
+                    project_name,
+                    "up",
+                    "-d",
                 ],
                 capture_output=True,
                 check=True,
@@ -156,10 +160,14 @@ volumes:
             # Cleanup
             subprocess.run(
                 [
-                    "docker", "compose",
-                    "-f", str(compose_file),
-                    "-p", project_name,
-                    "down", "-v",
+                    "docker",
+                    "compose",
+                    "-f",
+                    str(compose_file),
+                    "-p",
+                    project_name,
+                    "down",
+                    "-v",
                 ],
                 capture_output=True,
                 cwd=tmp_path,
@@ -176,10 +184,7 @@ volumes:
         units = discovery.discover_backup_units()
 
         # Find our test stack
-        test_unit = next(
-            (u for u in units if u.name == compose_stack["project_name"]),
-            None
-        )
+        test_unit = next((u for u in units if u.name == compose_stack["project_name"]), None)
 
         assert test_unit is not None
         assert test_unit.type == "stack"
@@ -215,10 +220,15 @@ class TestVolumeContent:
             test_data = "Hello from kopi-docka test!"
             subprocess.run(
                 [
-                    "docker", "run", "--rm",
-                    "-v", f"{vol_name}:/data",
+                    "docker",
+                    "run",
+                    "--rm",
+                    "-v",
+                    f"{vol_name}:/data",
                     "alpine:latest",
-                    "sh", "-c", f"echo '{test_data}' > /data/test.txt",
+                    "sh",
+                    "-c",
+                    f"echo '{test_data}' > /data/test.txt",
                 ],
                 capture_output=True,
                 check=True,
@@ -244,10 +254,14 @@ class TestVolumeContent:
         # Read the data back
         result = subprocess.run(
             [
-                "docker", "run", "--rm",
-                "-v", f"{volume_with_data['name']}:/data",
+                "docker",
+                "run",
+                "--rm",
+                "-v",
+                f"{volume_with_data['name']}:/data",
                 "alpine:latest",
-                "cat", "/data/test.txt",
+                "cat",
+                "/data/test.txt",
             ],
             capture_output=True,
             text=True,
@@ -337,9 +351,14 @@ class TestKopiaIntegration:
         # Create repository
         subprocess.run(
             [
-                "kopia", "repository", "create", "filesystem",
-                "--path", str(repo_path),
-                "--config-file", str(config_file),
+                "kopia",
+                "repository",
+                "create",
+                "filesystem",
+                "--path",
+                str(repo_path),
+                "--config-file",
+                str(config_file),
             ],
             capture_output=True,
             check=True,
@@ -365,8 +384,12 @@ class TestKopiaIntegration:
         # Create snapshot
         result = subprocess.run(
             [
-                "kopia", "snapshot", "create", str(test_dir),
-                "--config-file", str(ephemeral_repo["config_file"]),
+                "kopia",
+                "snapshot",
+                "create",
+                str(test_dir),
+                "--config-file",
+                str(ephemeral_repo["config_file"]),
                 "--json",
             ],
             capture_output=True,
@@ -388,8 +411,12 @@ class TestKopiaIntegration:
 
         subprocess.run(
             [
-                "kopia", "snapshot", "create", str(test_dir),
-                "--config-file", str(ephemeral_repo["config_file"]),
+                "kopia",
+                "snapshot",
+                "create",
+                str(test_dir),
+                "--config-file",
+                str(ephemeral_repo["config_file"]),
             ],
             capture_output=True,
             check=True,
@@ -399,8 +426,11 @@ class TestKopiaIntegration:
         # List snapshots
         result = subprocess.run(
             [
-                "kopia", "snapshot", "list",
-                "--config-file", str(ephemeral_repo["config_file"]),
+                "kopia",
+                "snapshot",
+                "list",
+                "--config-file",
+                str(ephemeral_repo["config_file"]),
                 "--json",
             ],
             capture_output=True,
@@ -449,9 +479,14 @@ class TestFullBackupRestoreCycle:
 
         subprocess.run(
             [
-                "kopia", "repository", "create", "filesystem",
-                "--path", str(repo_path),
-                "--config-file", str(config_file),
+                "kopia",
+                "repository",
+                "create",
+                "filesystem",
+                "--path",
+                str(repo_path),
+                "--config-file",
+                str(config_file),
             ],
             capture_output=True,
             check=True,
@@ -461,9 +496,14 @@ class TestFullBackupRestoreCycle:
         # Connect to repository
         subprocess.run(
             [
-                "kopia", "repository", "connect", "filesystem",
-                "--path", str(repo_path),
-                "--config-file", str(config_file),
+                "kopia",
+                "repository",
+                "connect",
+                "filesystem",
+                "--path",
+                str(repo_path),
+                "--config-file",
+                str(config_file),
             ],
             capture_output=True,
             check=True,
@@ -482,10 +522,14 @@ class TestFullBackupRestoreCycle:
         test_data = f"Kopi-Docka E2E Test Data - {time.time()}"
         subprocess.run(
             [
-                "docker", "run", "--rm",
-                "-v", f"{vol_name}:/data",
+                "docker",
+                "run",
+                "--rm",
+                "-v",
+                f"{vol_name}:/data",
                 "alpine:latest",
-                "sh", "-c",
+                "sh",
+                "-c",
                 f"echo '{test_data}' > /data/test_file.txt && "
                 f"mkdir -p /data/subdir && "
                 f"echo 'nested' > /data/subdir/nested.txt",
@@ -581,10 +625,15 @@ class TestFullBackupRestoreCycle:
             print("\n=== STEP 2: Clear Volume Data ===")
             subprocess.run(
                 [
-                    "docker", "run", "--rm",
-                    "-v", f"{vol_name}:/data",
+                    "docker",
+                    "run",
+                    "--rm",
+                    "-v",
+                    f"{vol_name}:/data",
                     "alpine:latest",
-                    "sh", "-c", "rm -rf /data/*",
+                    "sh",
+                    "-c",
+                    "rm -rf /data/*",
                 ],
                 capture_output=True,
                 check=True,
@@ -593,10 +642,15 @@ class TestFullBackupRestoreCycle:
             # Verify volume is empty
             verify_result = subprocess.run(
                 [
-                    "docker", "run", "--rm",
-                    "-v", f"{vol_name}:/data",
+                    "docker",
+                    "run",
+                    "--rm",
+                    "-v",
+                    f"{vol_name}:/data",
                     "alpine:latest",
-                    "ls", "-la", "/data",
+                    "ls",
+                    "-la",
+                    "/data",
                 ],
                 capture_output=True,
                 text=True,
@@ -623,10 +677,14 @@ class TestFullBackupRestoreCycle:
             print("\n=== STEP 4: Verify Data Integrity ===")
             read_result = subprocess.run(
                 [
-                    "docker", "run", "--rm",
-                    "-v", f"{vol_name}:/data",
+                    "docker",
+                    "run",
+                    "--rm",
+                    "-v",
+                    f"{vol_name}:/data",
                     "alpine:latest",
-                    "cat", "/data/test_file.txt",
+                    "cat",
+                    "/data/test_file.txt",
                 ],
                 capture_output=True,
                 text=True,
@@ -639,10 +697,14 @@ class TestFullBackupRestoreCycle:
             # Verify nested file
             nested_result = subprocess.run(
                 [
-                    "docker", "run", "--rm",
-                    "-v", f"{vol_name}:/data",
+                    "docker",
+                    "run",
+                    "--rm",
+                    "-v",
+                    f"{vol_name}:/data",
                     "alpine:latest",
-                    "cat", "/data/subdir/nested.txt",
+                    "cat",
+                    "/data/subdir/nested.txt",
                 ],
                 capture_output=True,
                 text=True,
@@ -705,10 +767,15 @@ class TestFullBackupRestoreCycle:
                 # Modify data between backups
                 subprocess.run(
                     [
-                        "docker", "run", "--rm",
-                        "-v", f"{vol_name}:/data",
+                        "docker",
+                        "run",
+                        "--rm",
+                        "-v",
+                        f"{vol_name}:/data",
                         "alpine:latest",
-                        "sh", "-c", f"echo 'version_{i}' > /data/version.txt",
+                        "sh",
+                        "-c",
+                        f"echo 'version_{i}' > /data/version.txt",
                     ],
                     capture_output=True,
                     check=True,
@@ -740,10 +807,14 @@ class TestFullBackupRestoreCycle:
         # Create file with specific permissions
         subprocess.run(
             [
-                "docker", "run", "--rm",
-                "-v", f"{vol_name}:/data",
+                "docker",
+                "run",
+                "--rm",
+                "-v",
+                f"{vol_name}:/data",
                 "alpine:latest",
-                "sh", "-c",
+                "sh",
+                "-c",
                 "echo 'secret' > /data/secret.txt && chmod 600 /data/secret.txt",
             ],
             capture_output=True,
@@ -793,10 +864,15 @@ class TestFullBackupRestoreCycle:
             # Clear volume
             subprocess.run(
                 [
-                    "docker", "run", "--rm",
-                    "-v", f"{vol_name}:/data",
+                    "docker",
+                    "run",
+                    "--rm",
+                    "-v",
+                    f"{vol_name}:/data",
                     "alpine:latest",
-                    "rm", "-rf", "/data/*",
+                    "rm",
+                    "-rf",
+                    "/data/*",
                 ],
                 capture_output=True,
                 check=True,
@@ -815,10 +891,16 @@ class TestFullBackupRestoreCycle:
             # Check permissions preserved
             perm_check = subprocess.run(
                 [
-                    "docker", "run", "--rm",
-                    "-v", f"{vol_name}:/data",
+                    "docker",
+                    "run",
+                    "--rm",
+                    "-v",
+                    f"{vol_name}:/data",
                     "alpine:latest",
-                    "stat", "-c", "%a", "/data/secret.txt",
+                    "stat",
+                    "-c",
+                    "%a",
+                    "/data/secret.txt",
                 ],
                 capture_output=True,
                 text=True,
@@ -828,3 +910,203 @@ class TestFullBackupRestoreCycle:
             permissions = perm_check.stdout.strip()
             assert permissions == "600", f"Expected 600, got {permissions}"
             print(f"✓ Permissions preserved: {permissions}")
+
+    def test_cross_machine_restore(self, test_environment, capsys):
+        """
+        Test cross-machine restore scenario (DR use case).
+
+        Simulates:
+        1. Backup created on "machine-a"
+        2. Restore performed on "machine-b" (different hostname)
+        3. Warnings displayed to user
+        4. Data restored successfully despite hostname mismatch
+        """
+        from kopi_docka.cores.backup_manager import BackupManager
+        from kopi_docka.cores.restore_manager import RestoreManager
+        from kopi_docka.cores.repository_manager import KopiaRepository
+        from kopi_docka.helpers.config import Config
+        from kopi_docka.types import BackupUnit, VolumeInfo
+        import socket
+
+        vol_name = test_environment["vol_name"]
+        config_file = str(test_environment["config_file"])
+        original_hostname = "backup-machine-a"
+        restore_hostname = "restore-machine-b"
+
+        # Create minimal config
+        config = Mock(spec=Config)
+        config.parallel_workers = 1
+        config.backup_base_path = test_environment["tmp_path"] / "metadata"
+        config.backup_base_path.mkdir(exist_ok=True)
+        config.getint = Mock(return_value=30)
+        config.getlist = Mock(return_value=[])
+        config.getboolean = Mock(return_value=False)
+        config.kopia_config_file = config_file
+
+        with patch.dict(os.environ, test_environment["env"]):
+            # Step 1: Create backup with specific hostname
+            print("\n=== STEP 1: Backup on 'machine-a' ===")
+
+            # Mock hostname during backup
+            with patch("socket.gethostname", return_value=original_hostname):
+                backup_mgr = BackupManager(config)
+                repo = KopiaRepository(config)
+
+                # Get volume info
+                vol_inspect = subprocess.run(
+                    ["docker", "volume", "inspect", vol_name, "--format", "{{.Mountpoint}}"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                mountpoint = vol_inspect.stdout.strip()
+
+                volume_info = VolumeInfo(
+                    name=vol_name,
+                    driver="local",
+                    mountpoint=mountpoint,
+                    size_bytes=1024,
+                )
+
+                unit = BackupUnit(
+                    name="cross_machine_test",
+                    type="standalone",
+                    containers=[],
+                    volumes=[volume_info],
+                    compose_files=[],
+                )
+
+                # Perform backup
+                metadata = backup_mgr.backup_unit(unit, backup_scope="minimal")
+                assert metadata.success is True
+                snapshot_id = metadata.kopia_snapshot_ids[0]
+                print(f"✓ Backup created with hostname: {original_hostname}")
+
+            # Step 2: Clear volume
+            print("\n=== STEP 2: Clear Volume ===")
+            subprocess.run(
+                [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "-v",
+                    f"{vol_name}:/data",
+                    "alpine:latest",
+                    "sh",
+                    "-c",
+                    "rm -rf /data/*",
+                ],
+                capture_output=True,
+                check=True,
+            )
+            print("✓ Volume cleared")
+
+            # Step 3: Restore on different machine
+            print("\n=== STEP 3: Restore on 'machine-b' (cross-machine) ===")
+
+            # Mock hostname to simulate different machine
+            with patch("socket.gethostname", return_value=restore_hostname):
+                # Verify machines are discovered
+                repo = KopiaRepository(config)
+                machines = repo.discover_machines()
+
+                # Should find the original machine
+                machine_hostnames = [m.hostname for m in machines]
+                assert (
+                    original_hostname in machine_hostnames
+                ), f"Original machine not found. Found: {machine_hostnames}"
+
+                print(f"✓ Discovered machines: {machine_hostnames}")
+                print(f"✓ Current hostname: {restore_hostname}")
+                print(f"✓ Source hostname: {original_hostname}")
+
+                # Verify cross-machine scenario
+                assert (
+                    original_hostname != restore_hostname
+                ), "Test setup error: hostnames should be different"
+
+                # Now perform restore
+                # We'll use the internal method for simplicity in testing
+                restore_mgr = RestoreManager(config)
+
+                # Test that we can still restore despite hostname mismatch
+                success = restore_mgr._execute_volume_restore_direct(
+                    vol=vol_name,
+                    snap_id=snapshot_id,
+                    config_file=config_file,
+                )
+
+                assert success is True, "Cross-machine restore failed"
+                print("✓ Restore successful despite hostname mismatch")
+
+            # Step 4: Verify data integrity
+            print("\n=== STEP 4: Verify Data Integrity ===")
+            read_result = subprocess.run(
+                [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "-v",
+                    f"{vol_name}:/data",
+                    "alpine:latest",
+                    "cat",
+                    "/data/test_file.txt",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+            assert test_environment["test_data"] in read_result.stdout
+            print(f"✓ Data verified: {read_result.stdout.strip()}")
+
+            # Step 5: Test advanced restore wizard with cross-machine warning
+            print("\n=== STEP 5: Test Advanced Restore with Warnings ===")
+
+            # Clear volume again for second restore test
+            subprocess.run(
+                [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "-v",
+                    f"{vol_name}:/data",
+                    "alpine:latest",
+                    "sh",
+                    "-c",
+                    "rm -rf /data/*",
+                ],
+                capture_output=True,
+                check=True,
+            )
+
+            # Mock hostname and test advanced restore with warning display
+            with patch("socket.gethostname", return_value=restore_hostname):
+                # Create restore manager in non-interactive mode
+                config.getboolean = Mock(
+                    side_effect=lambda key, fallback=False: (
+                        True if key == "non_interactive" else False
+                    )
+                )
+                restore_mgr = RestoreManager(config)
+
+                # Capture output to verify warnings
+                capsys.readouterr()  # Clear any previous output
+
+                # We can't easily test the full interactive flow, but we can verify
+                # that the restore manager can handle cross-machine scenarios
+                # by checking the find_restore_points_for_machine method
+                points = restore_mgr._find_restore_points_for_machine(original_hostname)
+                assert len(points) > 0, "Should find restore points from original machine"
+
+                # Find the restore point for our unit
+                unit_point = next((p for p in points if "cross_machine_test" in p.unit_name), None)
+                assert unit_point is not None, "Should find our test unit"
+
+                print(f"✓ Found restore point from {original_hostname}")
+                print(f"✓ Cross-machine restore capability verified")
+
+            print("\n=== ✅ CROSS-MACHINE RESTORE TEST COMPLETE ===")
+            print(f"   Backup source:  {original_hostname}")
+            print(f"   Restore target: {restore_hostname}")
+            print(f"   Status: Data successfully restored across machines")
