@@ -5,6 +5,7 @@ Tests the restore orchestration business logic with mocked external dependencies
 """
 
 import subprocess
+from subprocess import CompletedProcess
 import pytest
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -1963,5 +1964,299 @@ class TestUserIdHelpers:
         assert uid == 1001
         assert gid == 1001
         assert user == "root"  # Default when SUDO_USER not set
+
+
+# =============================================================================
+# Volume Restore TAR Tests (LEGACY)
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestVolumeRestoreTar:
+    """Tests for _execute_volume_restore_tar method (legacy TAR format)."""
+
+    @patch("kopi_docka.cores.restore_manager.run_command")
+    @patch("kopi_docka.cores.restore_manager.shutil.rmtree")
+    @patch("kopi_docka.cores.restore_manager.tempfile.mkdtemp")
+    def test_successful_tar_restore(self, mock_mkdtemp, mock_rmtree, mock_run):
+        """Should successfully restore TAR format backup."""
+        from pathlib import Path
+        import tempfile
+
+        rm = make_manager()
+
+        # Create a real temp directory for testing
+        real_temp_dir = Path(tempfile.mkdtemp(prefix="test-tar-restore-"))
+        mock_mkdtemp.return_value = str(real_temp_dir)
+
+        try:
+            # Create the expected directory structure
+            volumes_dir = real_temp_dir / "volumes" / "myunit"
+            volumes_dir.mkdir(parents=True, exist_ok=True)
+
+            # Create a fake tar file
+            tar_file = volumes_dir / "myvolume"
+            tar_file.write_bytes(b"fake tar content")
+
+            # Mock run_command responses
+            mock_run.side_effect = [
+                CompletedProcess([], 0, stdout="", stderr=""),  # docker ps -q
+                CompletedProcess([], 0, stdout="", stderr=""),  # safety backup
+                CompletedProcess([], 0, stdout="", stderr=""),  # kopia restore
+                CompletedProcess(
+                    [], 0, stdout="tar archive", stderr=""
+                ),  # file type check
+                CompletedProcess([], 0, stdout="", stderr=""),  # docker run (tar extract)
+                CompletedProcess([], 0, stdout="c1\nc2", stderr=""),  # docker ps -q (restart)
+                CompletedProcess([], 0, stdout="", stderr=""),  # docker start
+            ]
+
+            result = rm._execute_volume_restore_tar("myvolume", "myunit", "snap123", "/tmp/config")
+
+            assert result is True
+            # Verify kopia restore was called
+            kopia_calls = [c for c in mock_run.call_args_list if "kopia" in str(c)]
+            assert len(kopia_calls) == 1
+
+        finally:
+            # Cleanup
+            if real_temp_dir.exists():
+                import shutil
+
+                shutil.rmtree(real_temp_dir)
+
+    @patch("kopi_docka.cores.restore_manager.run_command")
+    @patch("kopi_docka.cores.restore_manager.shutil.rmtree")
+    @patch("kopi_docka.cores.restore_manager.tempfile.mkdtemp")
+    def test_tar_file_not_found(self, mock_mkdtemp, mock_rmtree, mock_run):
+        """Should return False if tar file not found after restore."""
+        from pathlib import Path
+        import tempfile
+
+        rm = make_manager()
+
+        # Create a real temp directory
+        real_temp_dir = Path(tempfile.mkdtemp(prefix="test-tar-missing-"))
+        mock_mkdtemp.return_value = str(real_temp_dir)
+
+        try:
+            # Create directory structure but NO tar file
+            volumes_dir = real_temp_dir / "volumes" / "myunit"
+            volumes_dir.mkdir(parents=True, exist_ok=True)
+            # Don't create the tar file
+
+            # Mock run_command responses
+            mock_run.side_effect = [
+                CompletedProcess([], 0, stdout="", stderr=""),  # docker ps -q
+                CompletedProcess([], 0, stdout="", stderr=""),  # safety backup
+                CompletedProcess([], 0, stdout="", stderr=""),  # kopia restore
+            ]
+
+            result = rm._execute_volume_restore_tar("myvolume", "myunit", "snap123", "/tmp/config")
+
+            assert result is False
+
+        finally:
+            # Cleanup
+            if real_temp_dir.exists():
+                import shutil
+
+                shutil.rmtree(real_temp_dir)
+
+    @patch("kopi_docka.cores.restore_manager.run_command")
+    @patch("kopi_docka.cores.restore_manager.shutil.rmtree")
+    @patch("kopi_docka.cores.restore_manager.tempfile.mkdtemp")
+    def test_invalid_tar_file(self, mock_mkdtemp, mock_rmtree, mock_run):
+        """Should return False if restored file is not a tar archive."""
+        from pathlib import Path
+        import tempfile
+
+        rm = make_manager()
+
+        # Create a real temp directory
+        real_temp_dir = Path(tempfile.mkdtemp(prefix="test-tar-invalid-"))
+        mock_mkdtemp.return_value = str(real_temp_dir)
+
+        try:
+            # Create directory structure with a non-tar file
+            volumes_dir = real_temp_dir / "volumes" / "myunit"
+            volumes_dir.mkdir(parents=True, exist_ok=True)
+
+            # Create a file that's not a tar archive
+            tar_file = volumes_dir / "myvolume"
+            tar_file.write_text("not a tar file")
+
+            # Mock run_command responses
+            mock_run.side_effect = [
+                CompletedProcess([], 0, stdout="", stderr=""),  # docker ps -q
+                CompletedProcess([], 0, stdout="", stderr=""),  # safety backup
+                CompletedProcess([], 0, stdout="", stderr=""),  # kopia restore
+                CompletedProcess(
+                    [], 0, stdout="ASCII text", stderr=""
+                ),  # file type check - NOT tar
+            ]
+
+            result = rm._execute_volume_restore_tar("myvolume", "myunit", "snap123", "/tmp/config")
+
+            assert result is False
+
+        finally:
+            # Cleanup
+            if real_temp_dir.exists():
+                import shutil
+
+                shutil.rmtree(real_temp_dir)
+
+    @patch("kopi_docka.cores.restore_manager.run_command")
+    @patch("kopi_docka.cores.restore_manager.shutil.rmtree")
+    @patch("kopi_docka.cores.restore_manager.tempfile.mkdtemp")
+    def test_tar_extraction_fails(self, mock_mkdtemp, mock_rmtree, mock_run):
+        """Should return False if tar extraction fails."""
+        from pathlib import Path
+        import tempfile
+
+        rm = make_manager()
+
+        # Create a real temp directory
+        real_temp_dir = Path(tempfile.mkdtemp(prefix="test-tar-extract-fail-"))
+        mock_mkdtemp.return_value = str(real_temp_dir)
+
+        try:
+            # Create directory structure with tar file
+            volumes_dir = real_temp_dir / "volumes" / "myunit"
+            volumes_dir.mkdir(parents=True, exist_ok=True)
+
+            tar_file = volumes_dir / "myvolume"
+            tar_file.write_bytes(b"fake tar content")
+
+            # Mock run_command responses
+            mock_run.side_effect = [
+                CompletedProcess([], 0, stdout="", stderr=""),  # docker ps -q
+                CompletedProcess([], 0, stdout="", stderr=""),  # safety backup
+                CompletedProcess([], 0, stdout="", stderr=""),  # kopia restore
+                CompletedProcess(
+                    [], 0, stdout="tar archive", stderr=""
+                ),  # file type check
+                CompletedProcess(
+                    [], 1, stdout="", stderr="tar: Error extracting"
+                ),  # docker run FAILS
+            ]
+
+            result = rm._execute_volume_restore_tar("myvolume", "myunit", "snap123", "/tmp/config")
+
+            assert result is False
+
+        finally:
+            # Cleanup
+            if real_temp_dir.exists():
+                import shutil
+
+                shutil.rmtree(real_temp_dir)
+
+    @patch("kopi_docka.cores.restore_manager.run_command")
+    @patch("kopi_docka.cores.restore_manager.shutil.rmtree")
+    @patch("kopi_docka.cores.restore_manager.tempfile.mkdtemp")
+    def test_stops_and_restarts_containers(self, mock_mkdtemp, mock_rmtree, mock_run):
+        """Should stop containers before restore and restart after."""
+        from pathlib import Path
+        import tempfile
+
+        rm = make_manager()
+
+        # Create a real temp directory
+        real_temp_dir = Path(tempfile.mkdtemp(prefix="test-tar-containers-"))
+        mock_mkdtemp.return_value = str(real_temp_dir)
+
+        try:
+            # Create directory structure with tar file
+            volumes_dir = real_temp_dir / "volumes" / "myunit"
+            volumes_dir.mkdir(parents=True, exist_ok=True)
+
+            tar_file = volumes_dir / "myvolume"
+            tar_file.write_bytes(b"fake tar content")
+
+            # Mock run_command responses
+            mock_run.side_effect = [
+                CompletedProcess(
+                    [], 0, stdout="c1\nc2", stderr=""
+                ),  # docker ps -q (finds 2 containers)
+                CompletedProcess([], 0, stdout="", stderr=""),  # docker stop
+                CompletedProcess([], 0, stdout="", stderr=""),  # safety backup
+                CompletedProcess([], 0, stdout="", stderr=""),  # kopia restore
+                CompletedProcess(
+                    [], 0, stdout="tar archive", stderr=""
+                ),  # file type check
+                CompletedProcess([], 0, stdout="", stderr=""),  # docker run (extract)
+                CompletedProcess(
+                    [], 0, stdout="c1\nc2", stderr=""
+                ),  # docker ps -q (restart)
+                CompletedProcess([], 0, stdout="", stderr=""),  # docker start
+            ]
+
+            result = rm._execute_volume_restore_tar("myvolume", "myunit", "snap123", "/tmp/config")
+
+            assert result is True
+
+            # Verify docker stop was called
+            stop_calls = [c for c in mock_run.call_args_list if "stop" in str(c[0][0])]
+            assert len(stop_calls) > 0
+
+            # Verify docker start was called
+            start_calls = [c for c in mock_run.call_args_list if "start" in str(c[0][0])]
+            assert len(start_calls) > 0
+
+        finally:
+            # Cleanup
+            if real_temp_dir.exists():
+                import shutil
+
+                shutil.rmtree(real_temp_dir)
+
+    @patch("kopi_docka.cores.restore_manager.run_command")
+    @patch("kopi_docka.cores.restore_manager.shutil.rmtree")
+    @patch("kopi_docka.cores.restore_manager.tempfile.mkdtemp")
+    def test_creates_safety_backup(self, mock_mkdtemp, mock_rmtree, mock_run):
+        """Should create safety backup before restore."""
+        from pathlib import Path
+        import tempfile
+
+        rm = make_manager()
+
+        # Create a real temp directory
+        real_temp_dir = Path(tempfile.mkdtemp(prefix="test-tar-safety-"))
+        mock_mkdtemp.return_value = str(real_temp_dir)
+
+        try:
+            # Create directory structure with tar file
+            volumes_dir = real_temp_dir / "volumes" / "myunit"
+            volumes_dir.mkdir(parents=True, exist_ok=True)
+
+            tar_file = volumes_dir / "myvolume"
+            tar_file.write_bytes(b"fake tar content")
+
+            # Mock run_command responses
+            mock_run.side_effect = [
+                CompletedProcess([], 0, stdout="", stderr=""),  # docker ps -q
+                CompletedProcess([], 0, stdout="", stderr=""),  # safety backup (tar -czf)
+                CompletedProcess([], 0, stdout="", stderr=""),  # kopia restore
+                CompletedProcess(
+                    [], 0, stdout="tar archive", stderr=""
+                ),  # file type check
+                CompletedProcess([], 0, stdout="", stderr=""),  # docker run (extract)
+                CompletedProcess([], 0, stdout="", stderr=""),  # docker ps -q (restart)
+            ]
+
+            result = rm._execute_volume_restore_tar("myvolume", "myunit", "snap123", "/tmp/config")
+
+            # Verify safety backup command was called
+            backup_calls = [c for c in mock_run.call_args_list if "tar -czf" in str(c)]
+            assert len(backup_calls) > 0
+
+        finally:
+            # Cleanup
+            if real_temp_dir.exists():
+                import shutil
+
+                shutil.rmtree(real_temp_dir)
 
 

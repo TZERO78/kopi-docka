@@ -1287,6 +1287,220 @@ class TestEdgeCases:
 
 
 # =============================================================================
+# Backup Volume TAR Tests (LEGACY)
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestBackupVolumeTar:
+    """Tests for _backup_volume_tar method (legacy TAR format)."""
+
+    @patch("kopi_docka.cores.backup_manager.subprocess.Popen")
+    def test_creates_tar_with_correct_flags(self, mock_popen):
+        """Should create tar command with all required flags."""
+        from subprocess import PIPE
+
+        manager = make_backup_manager()
+        manager.exclude_patterns = []
+
+        volume = VolumeInfo(
+            name="mydata",
+            driver="local",
+            mountpoint="/var/lib/docker/volumes/mydata/_data",
+            size_bytes=2048,
+        )
+        unit = make_backup_unit(name="mystack")
+
+        # Mock tar process
+        mock_process = Mock()
+        mock_process.stdout = Mock()
+        mock_process.returncode = 0
+        mock_process.wait.return_value = None
+        mock_popen.return_value = mock_process
+
+        # Mock repo.create_snapshot_from_stdin
+        manager.repo.create_snapshot_from_stdin = Mock(return_value="snap123")
+
+        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123")
+
+        assert result == "snap123"
+
+        # Verify tar command construction
+        tar_call = mock_popen.call_args[0][0]
+        assert tar_call[0] == "tar"
+        assert "-cf" in tar_call
+        assert "-" in tar_call  # Output to stdout
+        assert "--numeric-owner" in tar_call
+        assert "--xattrs" in tar_call
+        assert "--acls" in tar_call
+        assert "--one-file-system" in tar_call
+        assert "--mtime=@0" in tar_call
+        assert "--clamp-mtime" in tar_call
+        assert "--sort=name" in tar_call
+        assert "-C" in tar_call
+        assert volume.mountpoint in tar_call
+        assert "." in tar_call
+
+    @patch("kopi_docka.cores.backup_manager.subprocess.Popen")
+    def test_includes_exclude_patterns_in_tar_command(self, mock_popen):
+        """Should add --exclude flags for each exclude pattern."""
+        from subprocess import PIPE
+
+        manager = make_backup_manager()
+        manager.exclude_patterns = ["*.log", "cache/*", "temp"]
+
+        volume = VolumeInfo(
+            name="mydata",
+            driver="local",
+            mountpoint="/var/lib/docker/volumes/mydata/_data",
+            size_bytes=2048,
+        )
+        unit = make_backup_unit(name="mystack")
+
+        # Mock tar process
+        mock_process = Mock()
+        mock_process.stdout = Mock()
+        mock_process.returncode = 0
+        mock_process.wait.return_value = None
+        mock_popen.return_value = mock_process
+
+        manager.repo.create_snapshot_from_stdin = Mock(return_value="snap123")
+
+        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123")
+
+        # Verify exclude patterns are in command
+        tar_call = mock_popen.call_args[0][0]
+        assert "--exclude" in tar_call
+
+        # Count exclude flags (should be 3)
+        exclude_count = tar_call.count("--exclude")
+        assert exclude_count == 3
+
+        # Verify patterns are present
+        assert "*.log" in tar_call
+        assert "cache/*" in tar_call
+        assert "temp" in tar_call
+
+    @patch("kopi_docka.cores.backup_manager.subprocess.Popen")
+    def test_creates_snapshot_with_tar_format_tag(self, mock_popen):
+        """Should tag snapshot with backup_format=TAR."""
+        from kopi_docka.helpers.constants import BACKUP_FORMAT_TAR
+
+        manager = make_backup_manager()
+        manager.exclude_patterns = []
+
+        volume = VolumeInfo(
+            name="mydata",
+            driver="local",
+            mountpoint="/var/lib/docker/volumes/mydata/_data",
+            size_bytes=2048,
+        )
+        unit = make_backup_unit(name="mystack")
+
+        # Mock tar process
+        mock_process = Mock()
+        mock_process.stdout = Mock()
+        mock_process.returncode = 0
+        mock_process.wait.return_value = None
+        mock_popen.return_value = mock_process
+
+        manager.repo.create_snapshot_from_stdin = Mock(return_value="snap123")
+
+        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123")
+
+        # Verify snapshot tags
+        call_args = manager.repo.create_snapshot_from_stdin.call_args
+        tags = call_args[1]["tags"]
+        assert tags["backup_format"] == BACKUP_FORMAT_TAR
+        assert tags["type"] == "volume"
+        assert tags["unit"] == "mystack"
+        assert tags["volume"] == "mydata"
+        assert tags["backup_id"] == "backup-uuid-123"
+
+    @patch("kopi_docka.cores.backup_manager.subprocess.Popen")
+    def test_returns_none_when_tar_fails(self, mock_popen):
+        """Should return None if tar process fails."""
+        manager = make_backup_manager()
+        manager.exclude_patterns = []
+
+        volume = VolumeInfo(
+            name="mydata",
+            driver="local",
+            mountpoint="/var/lib/docker/volumes/mydata/_data",
+            size_bytes=2048,
+        )
+        unit = make_backup_unit(name="mystack")
+
+        # Mock tar process that fails
+        mock_process = Mock()
+        mock_process.stdout = Mock()
+        mock_process.returncode = 1  # Non-zero = failure
+        mock_process.wait.return_value = None
+        mock_popen.return_value = mock_process
+
+        manager.repo.create_snapshot_from_stdin = Mock(return_value="snap123")
+
+        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123")
+
+        # Should return None on tar failure
+        assert result is None
+
+    @patch("kopi_docka.cores.backup_manager.subprocess.Popen")
+    def test_handles_exception_during_tar_backup(self, mock_popen):
+        """Should return None and log error on exception."""
+        manager = make_backup_manager()
+        manager.exclude_patterns = []
+
+        volume = VolumeInfo(
+            name="mydata",
+            driver="local",
+            mountpoint="/var/lib/docker/volumes/mydata/_data",
+            size_bytes=2048,
+        )
+        unit = make_backup_unit(name="mystack")
+
+        # Mock Popen to raise exception
+        mock_popen.side_effect = Exception("Tar command failed")
+
+        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123")
+
+        # Should handle exception and return None
+        assert result is None
+
+    @patch("kopi_docka.cores.backup_manager.subprocess.Popen")
+    def test_uses_temporary_file_for_stderr(self, mock_popen):
+        """Should use temporary file for stderr to avoid deadlock."""
+        manager = make_backup_manager()
+        manager.exclude_patterns = []
+
+        volume = VolumeInfo(
+            name="mydata",
+            driver="local",
+            mountpoint="/var/lib/docker/volumes/mydata/_data",
+            size_bytes=2048,
+        )
+        unit = make_backup_unit(name="mystack")
+
+        # Mock tar process
+        mock_process = Mock()
+        mock_process.stdout = Mock()
+        mock_process.returncode = 0
+        mock_process.wait.return_value = None
+        mock_popen.return_value = mock_process
+
+        manager.repo.create_snapshot_from_stdin = Mock(return_value="snap123")
+
+        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123")
+
+        # Verify Popen was called with stdout=PIPE
+        call_kwargs = mock_popen.call_args[1]
+        from subprocess import PIPE
+        assert call_kwargs["stdout"] == PIPE
+        # stderr should be a file object (not PIPE to avoid deadlock)
+        assert call_kwargs["stderr"] != PIPE
+
+
+# =============================================================================
 # Backup Recipes Tests
 # =============================================================================
 
