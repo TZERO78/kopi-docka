@@ -5,6 +5,28 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.3.1] - 2025-12-27
+
+### Changed
+
+- **CLI UX Improvements:**
+  - Dynamic version display in `--help` header (shows current version automatically)
+  - Renamed `admin` command group to `advanced` for better clarity
+  - Help text updated to "Advanced tools (Config, Repo, System)."
+  - Hidden wrapper commands from help menu while preserving functionality:
+    - Dependency commands: `check`, `install-deps`, `show-deps`
+    - Repository commands: `init`, `repo-*`, `change-password`
+    - Service command: `daemon`
+  - Result: Cleaner `kopi-docka --help` output showing only primary commands and advanced group
+
+### Technical
+
+- Updated `kopi_docka/__main__.py` to import `__version__` dynamically
+- Modified `dependency_commands.register()` to support `hidden=True` parameter
+- Modified `repository_commands.register()` to support `hidden=True` parameter
+- Backward compatibility: All hidden commands remain fully functional
+- Legacy `admin` command alias preserved (hidden) for backward compatibility
+
 ## [5.3.0] - 2025-12-27
 
 ### Fixed

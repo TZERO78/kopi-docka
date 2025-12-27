@@ -2,9 +2,9 @@
 
 # Usage
 
-## CLI Structure (v3.4+)
+## CLI Structure (v5.3.1+)
 
-Kopi-Docka features a simplified CLI with **"The Big 6"** top-level commands and an `admin` subcommand for advanced operations.
+Kopi-Docka features a simplified CLI with primary commands and an `advanced` subcommand for power users.
 
 ```
 kopi-docka
@@ -15,7 +15,7 @@ kopi-docka
 ├── dry-run            # Simulate backup (preview)
 ├── doctor             # System health check
 ├── version            # Show version
-└── admin              # Advanced administration
+└── advanced           # Advanced tools (Config, Repo, System)
     ├── config         # Configuration management
     │   ├── show
     │   ├── new
@@ -38,11 +38,13 @@ kopi-docka
         └── estimate-size
 ```
 
+**Note:** For backward compatibility, `admin` is still supported as a hidden alias for `advanced`.
+
 ---
 
 ## CLI Commands Reference
 
-### Top-Level Commands ("The Big 6")
+### Primary Commands
 
 | Command | Description |
 |---------|-------------|
@@ -54,49 +56,63 @@ kopi-docka
 | `doctor` | **System health check** - Dependencies, config, backend, repository |
 | `version` | Show Kopi-Docka version |
 
-### Admin Config Commands
+### Advanced Config Commands
 
 | Command | Description |
 |---------|-------------|
-| `admin config show` | Show config (secrets masked) |
-| `admin config new` | **Config wizard** - Interactive backend & config creation |
-| `admin config edit` | Open config in editor ($EDITOR or nano) |
-| `admin config reset` | ⚠️ Reset config (new password!) |
+| `advanced config show` | Show config (secrets masked) |
+| `advanced config new` | **Config wizard** - Interactive backend & config creation |
+| `advanced config edit` | Open config in editor ($EDITOR or nano) |
+| `advanced config reset` | ⚠️ Reset config (new password!) |
 
-### Admin Repo Commands
-
-| Command | Description |
-|---------|-------------|
-| `admin repo init` | Initialize/connect repository |
-| `admin repo status` | Show repository status |
-| `admin repo maintenance` | Run repository maintenance (cleanup/optimize) |
-| `admin repo change-password` | Safely change repository password |
-| `admin repo which-config` | Show active Kopia config file |
-| `admin repo set-default` | Set as default Kopia config |
-| `admin repo selftest` | Create ephemeral test repository |
-| `admin repo init-path PATH` | Create repository at specific path |
-
-### Admin Service Commands
+### Advanced Repo Commands
 
 | Command | Description |
 |---------|-------------|
-| `admin service daemon` | Run as systemd daemon |
-| `admin service write-units` | Generate systemd unit files |
+| `advanced repo init` | Initialize/connect repository |
+| `advanced repo status` | Show repository status |
+| `advanced repo maintenance` | Run repository maintenance (cleanup/optimize) |
+| `advanced repo change-password` | Safely change repository password |
+| `advanced repo which-config` | Show active Kopia config file |
+| `advanced repo set-default` | Set as default Kopia config |
+| `advanced repo selftest` | Create ephemeral test repository |
+| `advanced repo init-path PATH` | Create repository at specific path |
 
-### Admin System Commands
+### Advanced Service Commands
 
 | Command | Description |
 |---------|-------------|
-| `admin system install-deps` | Auto-install missing dependencies |
-| `admin system show-deps` | Show manual installation guide |
+| `advanced service daemon` | Run as systemd daemon |
+| `advanced service write-units` | Generate systemd unit files |
 
-### Admin Snapshot Commands
+### Advanced System Commands
 
 | Command | Description |
 |---------|-------------|
-| `admin snapshot list` | Show backup units (containers/stacks) |
-| `admin snapshot list --snapshots` | Show all snapshots in repo |
-| `admin snapshot estimate-size` | Calculate backup size |
+| `advanced system install-deps` | Auto-install missing dependencies |
+| `advanced system show-deps` | Show manual installation guide |
+
+### Advanced Snapshot Commands
+
+| Command | Description |
+|---------|-------------|
+| `advanced snapshot list` | Show backup units (containers/stacks) |
+| `advanced snapshot list --snapshots` | Show all snapshots in repo |
+| `advanced snapshot estimate-size` | Calculate backup size |
+
+### Legacy/Hidden Commands
+
+For backward compatibility, these commands still work but are hidden from `--help`:
+
+- **Wrapper commands** (use `advanced` subcommands instead):
+  - `check` → Use `advanced system` or `doctor` instead
+  - `install-deps` → Use `advanced system install-deps`
+  - `show-deps` → Use `advanced system show-deps`
+  - `init` → Use `advanced repo init`
+  - `repo-*` → Use `advanced repo` subcommands
+  - `change-password` → Use `advanced repo change-password`
+  - `daemon` → Use `advanced service daemon`
+- **Legacy alias**: `admin` → Use `advanced` instead
 
 ### Backup Options
 
