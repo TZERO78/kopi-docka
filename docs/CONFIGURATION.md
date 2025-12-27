@@ -220,7 +220,7 @@ kopi-docka --config /path/to/config.json <command>
 
 ## Storage Backends
 
-Kopi-Docka supports 7 different backends. The **config wizard** (`admin config new`) interactively guides you through backend selection and configuration!
+Kopi-Docka supports 8 different backends. The **config wizard** (`admin config new`) interactively guides you through backend selection and configuration!
 
 **Backend selection in wizard:**
 ```
@@ -232,6 +232,7 @@ Available backends:
   5. Google Cloud     - GCS storage
   6. SFTP             - Remote server via SSH
   7. Tailscale        - Peer-to-peer over private network
+  8. Rclone           - 50+ cloud providers (Drive, OneDrive, Dropbox)
 ```
 
 For each backend, the wizard queries necessary settings and generates the correct `kopia_params` config.
@@ -339,6 +340,98 @@ Setup SSH key for passwordless access? Yes
 - SSH access to backup server (one-time for key setup)
 
 **More details:** See README.md - Tailscale Integration section
+
+---
+
+#### 8. Rclone (Cloud Storage)
+**Support for 50+ cloud providers via Rclone**
+
+```json
+"kopia_params": "rclone --remote-path=gdrive:kopia-backup"
+```
+
+**What it supports:**
+- Google Drive, OneDrive, Dropbox
+- Box, pCloud, Mega
+- 50+ other cloud providers supported by Rclone
+
+**Prerequisites:**
+```bash
+# Install rclone
+curl https://rclone.org/install.sh | sudo bash
+
+# Configure rclone (as your regular user, not root!)
+rclone config
+```
+
+---
+
+##### Using Rclone with Sudo (Important!)
+
+When running `sudo kopi-docka admin config new`, the application needs to access your rclone configuration. Due to permission restrictions, you may encounter warnings if the config is only readable by your user.
+
+**Config Detection Priority:**
+1. `/home/YOUR_USER/.config/rclone/rclone.conf` (when using sudo)
+2. `/root/.config/rclone/rclone.conf` (when running as root)
+
+**⚠️ Permission Issues:**
+
+If you see this warning:
+```
+WARNING: Rclone configuration found but not readable!
+  Found: /home/username/.config/rclone/rclone.conf
+  Status: Permission denied (running as root via sudo)
+```
+
+**Solution - Choose one workaround:**
+
+1. **Preserve environment (Recommended):**
+   ```bash
+   sudo -E kopi-docka admin config new
+   ```
+   The `-E` flag preserves your user environment, allowing access to your rclone config.
+
+2. **Make config readable by root:**
+   ```bash
+   chmod 644 ~/.config/rclone/rclone.conf
+   sudo kopi-docka admin config new
+   ```
+   This allows root to read your config file.
+
+3. **Copy config to root's home:**
+   ```bash
+   sudo cp ~/.config/rclone/rclone.conf /root/.config/rclone/
+   sudo kopi-docka admin config new
+   ```
+   Creates a separate config for root (requires manual updates if you change rclone settings).
+
+**Best Practice:**
+- Run `rclone config` as your **regular user** (not with sudo)
+- Use `sudo -E` when running kopi-docka commands
+- Keep OAuth tokens fresh by using the original config (option 1 or 2)
+
+**Example workflow:**
+```bash
+# 1. Configure rclone as regular user
+rclone config
+# Follow prompts to set up Google Drive, OneDrive, etc.
+
+# 2. Test rclone connection
+rclone lsd gdrive:
+
+# 3. Run kopi-docka with -E flag
+sudo -E kopi-docka admin config new
+# Select Rclone backend
+# Enter remote path: gdrive:kopia-backup
+
+# 4. Verify connection
+sudo -E kopi-docka admin repo status
+```
+
+**Why preserve user config?**
+- **OAuth tokens**: Cloud providers like Google Drive use OAuth tokens that expire. Using the original config keeps tokens fresh.
+- **Settings preserved**: Custom settings (like `root_folder_id` for Google Drive) remain intact.
+- **Single source of truth**: No duplicate configs to maintain.
 
 ---
 
