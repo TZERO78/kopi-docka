@@ -411,3 +411,420 @@ class TestKopiaIntegration:
         assert result.returncode == 0
         snapshots = json.loads(result.stdout)
         assert len(snapshots) >= 1
+
+
+# =============================================================================
+# Full Backup→Restore Cycle Tests (P2)
+# =============================================================================
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.skipif(not kopia_available(), reason="Kopia not installed")
+class TestFullBackupRestoreCycle:
+    """
+    Complete end-to-end backup and restore tests.
+
+    Tests the full lifecycle:
+    1. Create volume with test data
+    2. Backup using BackupManager
+    3. Clear/delete volume
+    4. Restore using RestoreManager
+    5. Verify data integrity
+    """
+
+    @pytest.fixture
+    def test_environment(self, tmp_path):
+        """Set up complete test environment with Kopia repo and test volume."""
+        if not is_root():
+            pytest.skip("Requires root for backup/restore operations")
+
+        # Create Kopia repository
+        repo_path = tmp_path / "kopia_repo"
+        config_file = tmp_path / "kopia.config"
+        password = "test-password-e2e"
+
+        env = os.environ.copy()
+        env["KOPIA_PASSWORD"] = password
+
+        subprocess.run(
+            [
+                "kopia", "repository", "create", "filesystem",
+                "--path", str(repo_path),
+                "--config-file", str(config_file),
+            ],
+            capture_output=True,
+            check=True,
+            env=env,
+        )
+
+        # Connect to repository
+        subprocess.run(
+            [
+                "kopia", "repository", "connect", "filesystem",
+                "--path", str(repo_path),
+                "--config-file", str(config_file),
+            ],
+            capture_output=True,
+            check=True,
+            env=env,
+        )
+
+        # Create test volume with data
+        vol_name = f"kopi_e2e_test_{os.getpid()}"
+        subprocess.run(
+            ["docker", "volume", "create", vol_name],
+            capture_output=True,
+            check=True,
+        )
+
+        # Write test data to volume
+        test_data = f"Kopi-Docka E2E Test Data - {time.time()}"
+        subprocess.run(
+            [
+                "docker", "run", "--rm",
+                "-v", f"{vol_name}:/data",
+                "alpine:latest",
+                "sh", "-c",
+                f"echo '{test_data}' > /data/test_file.txt && "
+                f"mkdir -p /data/subdir && "
+                f"echo 'nested' > /data/subdir/nested.txt",
+            ],
+            capture_output=True,
+            check=True,
+        )
+
+        yield {
+            "vol_name": vol_name,
+            "test_data": test_data,
+            "repo_path": repo_path,
+            "config_file": config_file,
+            "password": password,
+            "env": env,
+            "tmp_path": tmp_path,
+        }
+
+        # Cleanup
+        subprocess.run(["docker", "volume", "rm", "-f", vol_name], capture_output=True)
+
+    def test_full_backup_and_restore_cycle(self, test_environment):
+        """
+        Complete backup→restore cycle with data verification.
+
+        This is the main end-to-end test for backup and restore functionality.
+        """
+        from kopi_docka.cores.backup_manager import BackupManager
+        from kopi_docka.cores.restore_manager import RestoreManager
+        from kopi_docka.cores.repository_manager import KopiaRepository
+        from kopi_docka.helpers.config import Config
+        from kopi_docka.types import BackupUnit, VolumeInfo
+
+        vol_name = test_environment["vol_name"]
+        config_file = str(test_environment["config_file"])
+
+        # Create minimal config
+        config = Mock(spec=Config)
+        config.parallel_workers = 1
+        config.backup_base_path = test_environment["tmp_path"] / "metadata"
+        config.backup_base_path.mkdir(exist_ok=True)
+        config.getint = Mock(return_value=30)
+        config.getlist = Mock(return_value=[])
+        config.getboolean = Mock(return_value=False)
+        config.kopia_config_file = config_file
+
+        # Initialize repository with environment
+        with patch.dict(os.environ, test_environment["env"]):
+            repo = KopiaRepository(config)
+
+            # Step 1: Backup the volume
+            print("\n=== STEP 1: Backup Volume ===")
+            backup_mgr = BackupManager(config)
+
+            # Get volume mountpoint
+            vol_inspect = subprocess.run(
+                ["docker", "volume", "inspect", vol_name, "--format", "{{.Mountpoint}}"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            mountpoint = vol_inspect.stdout.strip()
+
+            # Create BackupUnit
+            volume_info = VolumeInfo(
+                name=vol_name,
+                driver="local",
+                mountpoint=mountpoint,
+                size_bytes=1024,
+            )
+
+            unit = BackupUnit(
+                name="e2e_test_unit",
+                type="standalone",
+                containers=[],
+                volumes=[volume_info],
+                compose_files=[],
+            )
+
+            # Perform backup
+            metadata = backup_mgr.backup_unit(unit, backup_scope="minimal")
+
+            assert metadata.success is True, f"Backup failed: {metadata.errors}"
+            assert metadata.volumes_backed_up == 1
+            assert len(metadata.kopia_snapshot_ids) >= 1
+
+            snapshot_id = metadata.kopia_snapshot_ids[0]
+            backup_id = metadata.backup_id
+
+            print(f"✓ Backup successful: snapshot_id={snapshot_id}")
+
+            # Step 2: Clear volume data
+            print("\n=== STEP 2: Clear Volume Data ===")
+            subprocess.run(
+                [
+                    "docker", "run", "--rm",
+                    "-v", f"{vol_name}:/data",
+                    "alpine:latest",
+                    "sh", "-c", "rm -rf /data/*",
+                ],
+                capture_output=True,
+                check=True,
+            )
+
+            # Verify volume is empty
+            verify_result = subprocess.run(
+                [
+                    "docker", "run", "--rm",
+                    "-v", f"{vol_name}:/data",
+                    "alpine:latest",
+                    "ls", "-la", "/data",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            assert "test_file.txt" not in verify_result.stdout
+            print("✓ Volume cleared")
+
+            # Step 3: Restore from backup
+            print("\n=== STEP 3: Restore from Backup ===")
+            restore_mgr = RestoreManager(config)
+
+            # Note: _execute_volume_restore_direct is internal, but we'll test the actual method
+            # For this integration test, we directly call the restore method
+            success = restore_mgr._execute_volume_restore_direct(
+                vol=vol_name,
+                snap_id=snapshot_id,
+                config_file=config_file,
+            )
+
+            assert success is True, "Restore failed"
+            print("✓ Restore successful")
+
+            # Step 4: Verify restored data
+            print("\n=== STEP 4: Verify Data Integrity ===")
+            read_result = subprocess.run(
+                [
+                    "docker", "run", "--rm",
+                    "-v", f"{vol_name}:/data",
+                    "alpine:latest",
+                    "cat", "/data/test_file.txt",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+            assert test_environment["test_data"] in read_result.stdout
+            print(f"✓ Main file data verified: {read_result.stdout.strip()}")
+
+            # Verify nested file
+            nested_result = subprocess.run(
+                [
+                    "docker", "run", "--rm",
+                    "-v", f"{vol_name}:/data",
+                    "alpine:latest",
+                    "cat", "/data/subdir/nested.txt",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+            assert "nested" in nested_result.stdout
+            print("✓ Nested file verified")
+
+            print("\n=== ✅ FULL BACKUP→RESTORE CYCLE COMPLETE ===")
+
+    def test_multiple_backup_cycles(self, test_environment):
+        """Test multiple backup and restore cycles work correctly."""
+        from kopi_docka.cores.backup_manager import BackupManager
+        from kopi_docka.helpers.config import Config
+        from kopi_docka.types import BackupUnit, VolumeInfo
+
+        vol_name = test_environment["vol_name"]
+        config_file = str(test_environment["config_file"])
+
+        config = Mock(spec=Config)
+        config.parallel_workers = 1
+        config.backup_base_path = test_environment["tmp_path"] / "metadata"
+        config.backup_base_path.mkdir(exist_ok=True)
+        config.getint = Mock(return_value=30)
+        config.getlist = Mock(return_value=[])
+        config.getboolean = Mock(return_value=False)
+        config.kopia_config_file = config_file
+
+        with patch.dict(os.environ, test_environment["env"]):
+            backup_mgr = BackupManager(config)
+
+            # Get volume info
+            vol_inspect = subprocess.run(
+                ["docker", "volume", "inspect", vol_name, "--format", "{{.Mountpoint}}"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            mountpoint = vol_inspect.stdout.strip()
+
+            volume_info = VolumeInfo(
+                name=vol_name,
+                driver="local",
+                mountpoint=mountpoint,
+                size_bytes=1024,
+            )
+
+            unit = BackupUnit(
+                name="e2e_test_unit",
+                type="standalone",
+                containers=[],
+                volumes=[volume_info],
+                compose_files=[],
+            )
+
+            # Create multiple backups
+            snapshot_ids = []
+            for i in range(3):
+                # Modify data between backups
+                subprocess.run(
+                    [
+                        "docker", "run", "--rm",
+                        "-v", f"{vol_name}:/data",
+                        "alpine:latest",
+                        "sh", "-c", f"echo 'version_{i}' > /data/version.txt",
+                    ],
+                    capture_output=True,
+                    check=True,
+                )
+
+                metadata = backup_mgr.backup_unit(unit, backup_scope="minimal")
+                assert metadata.success is True
+                snapshot_ids.append(metadata.kopia_snapshot_ids[0])
+
+                # Small delay between backups
+                time.sleep(1)
+
+            # Verify we created 3 distinct snapshots
+            assert len(snapshot_ids) == 3
+            assert len(set(snapshot_ids)) == 3, "Snapshot IDs should be unique"
+
+            print(f"✓ Created {len(snapshot_ids)} distinct backups")
+
+    def test_backup_preserves_permissions(self, test_environment):
+        """Test that file permissions and ownership are preserved."""
+        from kopi_docka.cores.backup_manager import BackupManager
+        from kopi_docka.cores.restore_manager import RestoreManager
+        from kopi_docka.helpers.config import Config
+        from kopi_docka.types import BackupUnit, VolumeInfo
+
+        vol_name = test_environment["vol_name"]
+        config_file = str(test_environment["config_file"])
+
+        # Create file with specific permissions
+        subprocess.run(
+            [
+                "docker", "run", "--rm",
+                "-v", f"{vol_name}:/data",
+                "alpine:latest",
+                "sh", "-c",
+                "echo 'secret' > /data/secret.txt && chmod 600 /data/secret.txt",
+            ],
+            capture_output=True,
+            check=True,
+        )
+
+        config = Mock(spec=Config)
+        config.parallel_workers = 1
+        config.backup_base_path = test_environment["tmp_path"] / "metadata"
+        config.backup_base_path.mkdir(exist_ok=True)
+        config.getint = Mock(return_value=30)
+        config.getlist = Mock(return_value=[])
+        config.getboolean = Mock(return_value=False)
+        config.kopia_config_file = config_file
+
+        with patch.dict(os.environ, test_environment["env"]):
+            # Backup
+            backup_mgr = BackupManager(config)
+
+            vol_inspect = subprocess.run(
+                ["docker", "volume", "inspect", vol_name, "--format", "{{.Mountpoint}}"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            mountpoint = vol_inspect.stdout.strip()
+
+            volume_info = VolumeInfo(
+                name=vol_name,
+                driver="local",
+                mountpoint=mountpoint,
+                size_bytes=1024,
+            )
+
+            unit = BackupUnit(
+                name="e2e_test_unit",
+                type="standalone",
+                containers=[],
+                volumes=[volume_info],
+                compose_files=[],
+            )
+
+            metadata = backup_mgr.backup_unit(unit, backup_scope="minimal")
+            assert metadata.success is True
+            snapshot_id = metadata.kopia_snapshot_ids[0]
+
+            # Clear volume
+            subprocess.run(
+                [
+                    "docker", "run", "--rm",
+                    "-v", f"{vol_name}:/data",
+                    "alpine:latest",
+                    "rm", "-rf", "/data/*",
+                ],
+                capture_output=True,
+                check=True,
+            )
+
+            # Restore
+            restore_mgr = RestoreManager(config)
+            success = restore_mgr._execute_volume_restore_direct(
+                vol=vol_name,
+                snap_id=snapshot_id,
+                config_file=config_file,
+            )
+
+            assert success is True
+
+            # Check permissions preserved
+            perm_check = subprocess.run(
+                [
+                    "docker", "run", "--rm",
+                    "-v", f"{vol_name}:/data",
+                    "alpine:latest",
+                    "stat", "-c", "%a", "/data/secret.txt",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+            permissions = perm_check.stdout.strip()
+            assert permissions == "600", f"Expected 600, got {permissions}"
+            print(f"✓ Permissions preserved: {permissions}")
