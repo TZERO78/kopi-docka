@@ -6,7 +6,7 @@
 # @description: Package entry point exposing core APIs and utilities
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
-# @version:     5.4.1
+# @version:     5.4.2
 #
 # ------------------------------------------------------------------------------
 # Copyright (c) 2025 Markus F. (TZERO78)

@@ -5,17 +5,39 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.4.2] - 2025-12-27
+
+### Fixed
+
+- **Email Notification Display Name - Proper URL Encoding**
+  - Fixed URL encoding for email sender display name
+  - Added `urllib.parse.quote()` to properly encode spaces and special characters
+  - Format: `Display Name <email>` → `Display%20Name%20%3Cemail%3E`
+  - Changed prompt text from "Display Name" to "Sender Display Name" for clarity
+  - Example URL: `mailto://user@smtp.gmail.com:587?to=admin@example.com&from=Kopi-Docka%20%3Cuser@gmail.com%3E`
+  - Updated documentation with URL-encoded examples and encoding reference
+
+### Changed
+
+- `notification_commands.py`:
+  - Added `from urllib.parse import quote`
+  - Properly URL-encode from-header: `quote(f"{display_name} <{username}>", safe='')`
+  - Append encoded parameter: `&from={encoded_from}`
+- `docs/NOTIFICATIONS.md`:
+  - Updated manual configuration with URL-encoded example
+  - Added URL encoding reference note (Space=%20, <=%3C, >=%3E)
+- `docs/CONFIGURATION.md`:
+  - Updated email example with properly encoded from parameter
+
 ## [5.4.1] - 2025-12-27
 
 ### Fixed
 
-- **Email Notification Setup Enhancement**
+- **Email Notification Setup Enhancement** (⚠️ Incomplete - Fixed in v5.4.2)
   - Added "Display Name" prompt in email setup wizard
   - Email sender now shows custom display name instead of just email address
   - Example: "Kopi-Docka Backup <user@gmail.com>" instead of "user@gmail.com"
-  - Automatically builds correct `from` parameter in mailto URL
-  - Updated documentation to reflect new display name feature
-  - Improves email notification readability and professionalism
+  - ⚠️ Note: Missing proper URL encoding - fixed in v5.4.2
 
 ### Changed
 

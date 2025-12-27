@@ -24,6 +24,7 @@ Commands:
 """
 
 import typer
+from urllib.parse import quote
 from rich.console import Console
 from rich.panel import Panel
 
@@ -86,13 +87,19 @@ def _setup_email() -> dict:
     smtp_port = typer.prompt("SMTP Port", default="587")
     username = typer.prompt("Username/Email")
     password = typer.prompt("Password (or App Password)", hide_input=True)
-    display_name = typer.prompt("Display Name (e.g., 'Kopi-Docka Backup')", default="Kopi-Docka")
+    display_name = typer.prompt("Sender Display Name", default="Kopi-Docka")
     recipient = typer.prompt("Recipient Email")
 
-    # Build mailto URL with display name in from parameter
-    # Format: mailto://user@server:port?to=recipient&from=DisplayName<email>
-    from_email = f"{display_name}<{username}>"
-    url = f"mailto://{username}@{smtp_server}:{smtp_port}?to={recipient}&from={from_email}"
+    # Build mailto URL with URL-encoded from parameter
+    # 1. Construct from-header: "Display Name <username>"
+    from_header = f"{display_name} <{username}>"
+
+    # 2. URL-encode the from-header to handle spaces and special characters
+    encoded_from = quote(from_header, safe='')
+
+    # 3. Build final mailto URL with encoded from parameter
+    # Example: mailto://user@smtp.gmail.com:587?to=recip@test.com&from=Kopi-Docka%20%3Cuser@test.com%3E
+    url = f"mailto://{username}@{smtp_server}:{smtp_port}?to={recipient}&from={encoded_from}"
 
     return {
         "service": "email",
