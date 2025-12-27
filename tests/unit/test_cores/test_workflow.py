@@ -149,6 +149,7 @@ class TestBackupWorkflow:
 
         # Make run_command fail for docker stop
         from kopi_docka.helpers.ui_utils import SubprocessError
+
         mock_run.side_effect = SubprocessError("docker stop failed", "", "Container not found")
 
         start_called = False
@@ -200,9 +201,7 @@ class TestBackupWorkflow:
         assert metadata.success is False
 
     @patch("kopi_docka.cores.backup_manager.run_command")
-    def test_backup_flow_container_start_failure(
-        self, mock_run, backup_unit_factory, tmp_path
-    ):
+    def test_backup_flow_container_start_failure(self, mock_run, backup_unit_factory, tmp_path):
         """Reports but doesn't fail if container restart fails."""
         manager = make_backup_manager(tmp_path)
         unit = backup_unit_factory(containers=2)
@@ -230,9 +229,7 @@ class TestBackupWorkflow:
         assert metadata.success is True  # No errors added to metadata
 
     @patch("kopi_docka.cores.backup_manager.run_command")
-    def test_backup_id_consistent_across_snapshots(
-        self, mock_run, backup_unit_factory, tmp_path
-    ):
+    def test_backup_id_consistent_across_snapshots(self, mock_run, backup_unit_factory, tmp_path):
         """All snapshots in one backup share same backup_id."""
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager(tmp_path)
@@ -285,9 +282,7 @@ class TestBackupWorkflow:
         assert len(metadata.errors) == 0
 
     @patch("kopi_docka.cores.backup_manager.run_command")
-    def test_backup_scope_minimal_skips_networks(
-        self, mock_run, backup_unit_factory, tmp_path
-    ):
+    def test_backup_scope_minimal_skips_networks(self, mock_run, backup_unit_factory, tmp_path):
         """Minimal scope only backs up volumes."""
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager(tmp_path)
@@ -402,9 +397,7 @@ class TestBackupWorkflow:
         assert saved_metadata.backup_id == metadata.backup_id
 
     @patch("kopi_docka.cores.backup_manager.run_command")
-    def test_backup_flow_hooks_executed_tracked(
-        self, mock_run, backup_unit_factory, tmp_path
-    ):
+    def test_backup_flow_hooks_executed_tracked(self, mock_run, backup_unit_factory, tmp_path):
         """Executed hooks are tracked in metadata."""
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager(tmp_path)
@@ -427,9 +420,7 @@ class TestBackupWorkflow:
         ]
 
     @patch("kopi_docka.cores.backup_manager.run_command")
-    def test_backup_flow_parallel_volume_backup(
-        self, mock_run, backup_unit_factory, tmp_path
-    ):
+    def test_backup_flow_parallel_volume_backup(self, mock_run, backup_unit_factory, tmp_path):
         """Multiple volumes are backed up in parallel."""
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager(tmp_path)
@@ -455,9 +446,7 @@ class TestBackupWorkflow:
         assert metadata.success is True
 
     @patch("kopi_docka.cores.backup_manager.run_command")
-    def test_backup_flow_dr_bundle_update_on_success(
-        self, mock_run, backup_unit_factory, tmp_path
-    ):
+    def test_backup_flow_dr_bundle_update_on_success(self, mock_run, backup_unit_factory, tmp_path):
         """DR bundle is updated after successful backup if configured."""
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager(tmp_path)

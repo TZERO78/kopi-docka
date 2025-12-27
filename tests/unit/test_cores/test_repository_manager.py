@@ -164,9 +164,7 @@ class TestStatus:
             "formatVersion": "2",
             "storage": {"type": "filesystem"},
         }
-        mock_run.return_value = CompletedProcess(
-            [], 0, stdout=json.dumps(status_json), stderr=""
-        )
+        mock_run.return_value = CompletedProcess([], 0, stdout=json.dumps(status_json), stderr="")
         repo = make_repository()
 
         result = repo.status(json_output=True)
@@ -233,9 +231,7 @@ class TestCreateSnapshot:
     @patch("subprocess.run")
     def test_includes_tags_in_command(self, mock_run):
         """Should pass tags to Kopia command."""
-        mock_run.return_value = CompletedProcess(
-            [], 0, stdout='{"snapshotID": "k123"}', stderr=""
-        )
+        mock_run.return_value = CompletedProcess([], 0, stdout='{"snapshotID": "k123"}', stderr="")
         repo = make_repository()
 
         repo.create_snapshot("/path", tags={"unit": "mystack", "type": "volume"})
@@ -248,9 +244,7 @@ class TestCreateSnapshot:
     @patch("subprocess.run")
     def test_includes_exclude_patterns(self, mock_run):
         """Should pass exclude patterns to Kopia command."""
-        mock_run.return_value = CompletedProcess(
-            [], 0, stdout='{"snapshotID": "k123"}', stderr=""
-        )
+        mock_run.return_value = CompletedProcess([], 0, stdout='{"snapshotID": "k123"}', stderr="")
         repo = make_repository()
 
         repo.create_snapshot("/path", exclude_patterns=["*.log", "cache/*"])
@@ -271,9 +265,7 @@ class TestCreateSnapshot:
     @patch("subprocess.run")
     def test_raises_on_missing_snapshot_id(self, mock_run):
         """Should raise RuntimeError if snapshot ID not in output."""
-        mock_run.return_value = CompletedProcess(
-            [], 0, stdout='{"status": "ok"}', stderr=""
-        )
+        mock_run.return_value = CompletedProcess([], 0, stdout='{"status": "ok"}', stderr="")
         repo = make_repository()
 
         with pytest.raises(RuntimeError, match="Could not determine snapshot ID"):
@@ -282,9 +274,7 @@ class TestCreateSnapshot:
     @patch("subprocess.run")
     def test_raises_on_command_failure(self, mock_run):
         """Should raise RuntimeError when Kopia command fails."""
-        mock_run.return_value = CompletedProcess(
-            [], 1, stdout="", stderr="permission denied"
-        )
+        mock_run.return_value = CompletedProcess([], 1, stdout="", stderr="permission denied")
         repo = make_repository()
 
         with pytest.raises(RuntimeError, match="permission denied"):
@@ -394,9 +384,7 @@ class TestListSnapshots:
     @patch("subprocess.run")
     def test_handles_invalid_json(self, mock_run):
         """Should return empty list on invalid JSON."""
-        mock_run.return_value = CompletedProcess(
-            [], 0, stdout="not valid json", stderr=""
-        )
+        mock_run.return_value = CompletedProcess([], 0, stdout="not valid json", stderr="")
         repo = make_repository()
 
         result = repo.list_snapshots()
@@ -567,9 +555,7 @@ class TestVerifyPassword:
     @patch("subprocess.run")
     def test_returns_false_on_failure(self, mock_run):
         """Should return False when password is wrong."""
-        mock_run.return_value = CompletedProcess(
-            [], 1, stdout="", stderr="invalid password"
-        )
+        mock_run.return_value = CompletedProcess([], 1, stdout="", stderr="invalid password")
         repo = make_repository()
 
         result = repo.verify_password("wrong-password")
@@ -624,9 +610,7 @@ class TestVerifySnapshot:
     @patch("subprocess.run")
     def test_returns_false_on_failure(self, mock_run):
         """Should return False when verification fails."""
-        mock_run.return_value = CompletedProcess(
-            [], 1, stdout="", stderr="verification failed"
-        )
+        mock_run.return_value = CompletedProcess([], 1, stdout="", stderr="verification failed")
         repo = make_repository()
 
         result = repo.verify_snapshot("k123456")
@@ -696,9 +680,7 @@ class TestParseSingleJsonLine:
 
     def test_parses_first_line_of_ndjson(self):
         """Should parse first line of NDJSON output."""
-        result = KopiaRepository._parse_single_json_line(
-            '{"id": "snap1"}\n{"id": "snap2"}'
-        )
+        result = KopiaRepository._parse_single_json_line('{"id": "snap1"}\n{"id": "snap2"}')
 
         assert result == {"id": "snap1"}
 

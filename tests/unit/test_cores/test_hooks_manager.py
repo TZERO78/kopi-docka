@@ -71,9 +71,7 @@ class TestHookExecution:
         manager = HooksManager(config)
 
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = Mock(
-                returncode=0, stdout="Hook output\n", stderr=""
-            )
+            mock_run.return_value = Mock(returncode=0, stdout="Hook output\n", stderr="")
 
             result = manager.execute_hook(HOOK_PRE_BACKUP)
 
@@ -102,9 +100,7 @@ class TestHookExecution:
         manager = HooksManager(config)
 
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = Mock(
-                returncode=1, stdout="", stderr="Error occurred"
-            )
+            mock_run.return_value = Mock(returncode=1, stdout="", stderr="Error occurred")
 
             result = manager.execute_hook(HOOK_PRE_BACKUP)
 
@@ -182,9 +178,7 @@ class TestHookTimeout:
         manager = HooksManager(config)
 
         with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = subprocess.TimeoutExpired(
-                cmd=str(hook_script), timeout=1
-            )
+            mock_run.side_effect = subprocess.TimeoutExpired(cmd=str(hook_script), timeout=1)
 
             result = manager.execute_hook(HOOK_PRE_BACKUP, timeout=1)
 

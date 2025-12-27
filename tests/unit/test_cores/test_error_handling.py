@@ -233,9 +233,7 @@ class TestKopiaConnectionFailure:
 
         with patch("shutil.which", return_value="/usr/bin/kopia"):
             with patch("subprocess.run") as mock_run:
-                mock_run.return_value = CompletedProcess(
-                    [], 1, stdout="", stderr="not connected"
-                )
+                mock_run.return_value = CompletedProcess([], 1, stdout="", stderr="not connected")
 
                 result = repo.is_connected()
 
@@ -327,14 +325,19 @@ class TestDockerDiscoveryErrors:
             CompletedProcess([], 0, stdout="c1\nc2\n", stderr=""),
             Exception("Container not found"),  # c1 inspect fails
             CompletedProcess(
-                [], 0,
-                stdout=json.dumps([{
-                    "Id": "c2",
-                    "Name": "/web",
-                    "Config": {"Image": "nginx", "Labels": {}, "Env": []},
-                    "State": {"Status": "running"},
-                    "Mounts": [],
-                }]),
+                [],
+                0,
+                stdout=json.dumps(
+                    [
+                        {
+                            "Id": "c2",
+                            "Name": "/web",
+                            "Config": {"Image": "nginx", "Labels": {}, "Env": []},
+                            "State": {"Status": "running"},
+                            "Mounts": [],
+                        }
+                    ]
+                ),
                 stderr="",
             ),
         ]

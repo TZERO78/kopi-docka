@@ -183,9 +183,7 @@ class TestParseContainerInfo:
         assert result.labels.get(DOCKER_COMPOSE_PROJECT_LABEL) == "mystack"
         assert len(result.compose_files) == 2
         assert result.compose_files[0] == Path("/home/user/mystack/docker-compose.yml")
-        assert result.compose_files[1] == Path(
-            "/home/user/mystack/docker-compose.override.yml"
-        )
+        assert result.compose_files[1] == Path("/home/user/mystack/docker-compose.override.yml")
 
     def test_parse_container_with_empty_labels(self):
         """Container with null/empty labels should not raise."""
@@ -350,7 +348,9 @@ class TestDiscoverVolumes:
                 stderr="",
             ),
             # du -sb for pgdata
-            CompletedProcess([], 0, stdout="1048576\t/var/lib/docker/volumes/pgdata/_data", stderr=""),
+            CompletedProcess(
+                [], 0, stdout="1048576\t/var/lib/docker/volumes/pgdata/_data", stderr=""
+            ),
             # docker volume inspect appdata
             CompletedProcess(
                 [],
@@ -368,7 +368,9 @@ class TestDiscoverVolumes:
                 stderr="",
             ),
             # du -sb for appdata
-            CompletedProcess([], 0, stdout="2097152\t/var/lib/docker/volumes/appdata/_data", stderr=""),
+            CompletedProcess(
+                [], 0, stdout="2097152\t/var/lib/docker/volumes/appdata/_data", stderr=""
+            ),
         ]
 
         volumes = discovery._discover_volumes()

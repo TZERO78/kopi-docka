@@ -168,7 +168,9 @@ class TestBackupScope:
         unit = make_backup_unit()
 
         with patch.object(manager, "_backup_recipes", return_value="recipe_snap") as mock_recipes:
-            with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)) as mock_networks:
+            with patch.object(
+                manager, "_backup_networks", return_value=("net_snap", 1)
+            ) as mock_networks:
                 with patch.object(manager, "_backup_volume", return_value="vol_snap"):
                     metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_STANDARD)
 
@@ -184,7 +186,9 @@ class TestBackupScope:
         unit = make_backup_unit()
 
         with patch.object(manager, "_backup_recipes", return_value="recipe_snap") as mock_recipes:
-            with patch.object(manager, "_backup_networks", return_value=("net_snap", 2)) as mock_networks:
+            with patch.object(
+                manager, "_backup_networks", return_value=("net_snap", 2)
+            ) as mock_networks:
                 with patch.object(manager, "_backup_volume", return_value="vol_snap"):
                     metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_FULL)
 
@@ -842,6 +846,7 @@ class TestParallelBackup:
             call_count[0] += 1
             if call_count[0] == 1:
                 import time
+
                 time.sleep(10)  # Would timeout if actually waited
             return f"snap_{volume.name}"
 
@@ -876,7 +881,9 @@ class TestParallelBackup:
 
         with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
             with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch("kopi_docka.cores.backup_manager.ThreadPoolExecutor", return_value=mock_executor):
+                with patch(
+                    "kopi_docka.cores.backup_manager.ThreadPoolExecutor", return_value=mock_executor
+                ):
                     metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # First volume timed out, second succeeded
@@ -911,16 +918,24 @@ class TestParallelBackup:
         with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
             with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
                 with patch.object(manager, "_backup_volume", return_value="snap123"):
-                    with patch.object(manager, "_save_metadata"):  # Mock to avoid JSON serialization
+                    with patch.object(
+                        manager, "_save_metadata"
+                    ):  # Mock to avoid JSON serialization
                         with patch.object(ThreadPoolExecutor, "__init__", track_executor_init):
-                            with patch.object(ThreadPoolExecutor, "__enter__", return_value=MagicMock()):
-                                with patch.object(ThreadPoolExecutor, "__exit__", return_value=None):
+                            with patch.object(
+                                ThreadPoolExecutor, "__enter__", return_value=MagicMock()
+                            ):
+                                with patch.object(
+                                    ThreadPoolExecutor, "__exit__", return_value=None
+                                ):
                                     # Mock submit to avoid actual execution
                                     with patch.object(ThreadPoolExecutor, "submit") as mock_submit:
                                         mock_future = MagicMock()
                                         mock_future.result.return_value = "snap123"
                                         mock_submit.return_value = mock_future
-                                        metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+                                        metadata = manager.backup_unit(
+                                            unit, backup_scope=BACKUP_SCOPE_MINIMAL
+                                        )
 
         # ThreadPoolExecutor should have been created with max_workers=4
         assert 4 in executor_max_workers
@@ -1020,9 +1035,7 @@ class TestEdgeCases:
         unit = BackupUnit(
             name="no_volumes_stack",
             type="stack",
-            containers=[
-                ContainerInfo(id="c1", name="web", image="nginx", status="running")
-            ],
+            containers=[ContainerInfo(id="c1", name="web", image="nginx", status="running")],
             volumes=[],  # No volumes
             compose_files=[],
         )
@@ -1050,9 +1063,7 @@ class TestEdgeCases:
         unit = BackupUnit(
             name="no_compose_stack",
             type="stack",
-            containers=[
-                ContainerInfo(id="c1", name="web", image="nginx", status="running")
-            ],
+            containers=[ContainerInfo(id="c1", name="web", image="nginx", status="running")],
             volumes=[],
             compose_files=[],  # No compose files
         )
@@ -1495,6 +1506,7 @@ class TestBackupVolumeTar:
         # Verify Popen was called with stdout=PIPE
         call_kwargs = mock_popen.call_args[1]
         from subprocess import PIPE
+
         assert call_kwargs["stdout"] == PIPE
         # stderr should be a file object (not PIPE to avoid deadlock)
         assert call_kwargs["stderr"] != PIPE
@@ -1509,8 +1521,11 @@ class TestBackupVolumeTar:
 class TestBackupRecipes:
     """Tests for _backup_recipes method (secret redaction)."""
 
+    @patch("pathlib.Path.write_text")
+    @patch("pathlib.Path.mkdir")
+    @patch("pathlib.Path.iterdir", return_value=[])
     @patch("kopi_docka.cores.backup_manager.run_command")
-    def test_redacts_sensitive_env_vars(self, mock_run):
+    def test_redacts_sensitive_env_vars(self, mock_run, mock_iterdir, mock_mkdir, mock_write_text):
         """Should redact environment variables containing sensitive keywords."""
         manager = make_backup_manager()
         manager.repo.create_snapshot.return_value = "snap123"
@@ -1528,9 +1543,7 @@ class TestBackupRecipes:
                 }
             }
         ]
-        mock_run.return_value = CompletedProcess(
-            [], 0, stdout=json.dumps(inspect_data), stderr=""
-        )
+        mock_run.return_value = CompletedProcess([], 0, stdout=json.dumps(inspect_data), stderr="")
 
         unit = make_backup_unit(containers=1)
         unit.compose_files = []  # No compose files for simplicity
@@ -1612,17 +1625,18 @@ class TestBackupMetadata:
 class TestBackupNetworks:
     """Tests for _backup_networks method."""
 
+    @patch("pathlib.Path.write_text")
+    @patch("pathlib.Path.mkdir")
+    @patch("pathlib.Path.iterdir", return_value=[])
     @patch("kopi_docka.cores.backup_manager.run_command")
-    def test_backs_up_custom_networks(self, mock_run):
+    def test_backs_up_custom_networks(self, mock_run, mock_iterdir, mock_mkdir, mock_write_text):
         """Should backup custom networks (not bridge/host/none)."""
         manager = make_backup_manager()
         manager.repo.create_snapshot.return_value = "net_snap123"
 
         # Mock network inspect response
         network_data = [{"Name": "mynet", "Driver": "bridge", "IPAM": {}}]
-        mock_run.return_value = CompletedProcess(
-            [], 0, stdout=json.dumps(network_data), stderr=""
-        )
+        mock_run.return_value = CompletedProcess([], 0, stdout=json.dumps(network_data), stderr="")
 
         unit = make_backup_unit()
         # Add custom network to container inspect data
@@ -1642,9 +1656,7 @@ class TestBackupNetworks:
         unit = make_backup_unit()
         # Set ALL containers to only have default networks
         for container in unit.containers:
-            container.inspect_data = {
-                "NetworkSettings": {"Networks": {"bridge": {}, "host": {}}}
-            }
+            container.inspect_data = {"NetworkSettings": {"Networks": {"bridge": {}, "host": {}}}}
 
         snapshot_id, count = manager._backup_networks(unit, "backup-id")
 
@@ -1652,3 +1664,468 @@ class TestBackupNetworks:
         assert count == 0
         # No snapshot should be created for default networks
         manager.repo.create_snapshot.assert_not_called()
+
+
+# =============================================================================
+# Retention Policy Tests (Direct vs TAR Mode)
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestEnsurePolicies:
+    """Tests for _ensure_policies method (retention policy application)."""
+
+    def test_direct_mode_applies_policies_to_volume_mountpoints(self):
+        """In Direct Mode, policies should be applied to actual volume mountpoints."""
+        from kopi_docka.helpers.constants import BACKUP_FORMAT_DIRECT
+
+        manager = make_backup_manager()
+        unit = make_backup_unit(name="mystack", volumes=2)
+
+        # Mock getint to return retention values
+        manager.config.getint.return_value = 5
+
+        # Patch BACKUP_FORMAT_DEFAULT to ensure Direct Mode
+        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_DIRECT):
+            manager._ensure_policies(unit)
+
+        # Should have called set_retention_for_target for:
+        # - 2 static targets (recipes, networks)
+        # - 2 volume mountpoints (one per volume)
+        assert manager.policy_manager.set_retention_for_target.call_count == 4
+
+        # Verify volume mountpoints were used (not virtual paths)
+        calls = manager.policy_manager.set_retention_for_target.call_args_list
+
+        # Check that volume mountpoints are in the calls
+        volume_calls = [
+            call for call in calls if call[0][0] in [v.mountpoint for v in unit.volumes]
+        ]
+        assert len(volume_calls) == 2
+
+        # Verify actual mountpoint paths
+        assert any("/var/lib/docker/volumes/mystack_data0/_data" in str(call) for call in calls)
+        assert any("/var/lib/docker/volumes/mystack_data1/_data" in str(call) for call in calls)
+
+    def test_tar_mode_applies_policy_to_virtual_path(self):
+        """In TAR Mode, policy should be applied to virtual volume path."""
+        from kopi_docka.helpers.constants import BACKUP_FORMAT_TAR
+
+        manager = make_backup_manager()
+        unit = make_backup_unit(name="mystack", volumes=2)
+
+        manager.config.getint.return_value = 5
+
+        # Patch BACKUP_FORMAT_DEFAULT to TAR Mode
+        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_TAR):
+            manager._ensure_policies(unit)
+
+        # Should have called set_retention_for_target for:
+        # - 2 static targets (recipes, networks)
+        # - 1 virtual volume path (volumes/mystack)
+        assert manager.policy_manager.set_retention_for_target.call_count == 3
+
+        # Verify virtual path was used
+        calls = manager.policy_manager.set_retention_for_target.call_args_list
+        virtual_path_calls = [call for call in calls if "volumes/mystack" in str(call[0][0])]
+        assert len(virtual_path_calls) == 1
+
+        # Verify mountpoints were NOT used
+        mountpoint_calls = [call for call in calls if "/var/lib/docker/volumes/" in str(call[0][0])]
+        assert len(mountpoint_calls) == 0
+
+    def test_static_targets_same_in_both_modes(self):
+        """Recipes and networks should use same paths in both modes."""
+        from kopi_docka.helpers.constants import BACKUP_FORMAT_DIRECT, BACKUP_FORMAT_TAR
+
+        manager = make_backup_manager()
+        unit = make_backup_unit(name="mystack", volumes=1)
+        manager.config.getint.return_value = 5
+
+        # Test Direct Mode
+        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_DIRECT):
+            manager._ensure_policies(unit)
+
+        direct_calls = manager.policy_manager.set_retention_for_target.call_args_list
+        manager.policy_manager.set_retention_for_target.reset_mock()
+
+        # Test TAR Mode
+        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_TAR):
+            manager._ensure_policies(unit)
+
+        tar_calls = manager.policy_manager.set_retention_for_target.call_args_list
+
+        # Extract static targets from both modes
+        direct_static = [
+            call[0][0]
+            for call in direct_calls
+            if "recipes/" in call[0][0] or "networks/" in call[0][0]
+        ]
+        tar_static = [
+            call[0][0]
+            for call in tar_calls
+            if "recipes/" in call[0][0] or "networks/" in call[0][0]
+        ]
+
+        # Static targets should be identical
+        assert set(direct_static) == set(tar_static)
+        assert "recipes/mystack" in direct_static
+        assert "networks/mystack" in direct_static
+
+    def test_retention_config_values_passed_correctly(self):
+        """Should pass all retention config values to policy manager."""
+        from kopi_docka.helpers.constants import BACKUP_FORMAT_DIRECT
+
+        manager = make_backup_manager()
+        unit = make_backup_unit(name="mystack", volumes=1)
+
+        # Mock retention config values
+        def mock_getint(section, key, default):
+            retention_values = {
+                "latest": 10,
+                "hourly": 24,
+                "daily": 7,
+                "weekly": 4,
+                "monthly": 12,
+                "annual": 3,
+            }
+            return retention_values.get(key, default)
+
+        manager.config.getint = Mock(side_effect=mock_getint)
+
+        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_DIRECT):
+            manager._ensure_policies(unit)
+
+        # Check that at least one call has all retention parameters
+        calls = manager.policy_manager.set_retention_for_target.call_args_list
+        assert len(calls) > 0
+
+        # Verify retention parameters in first call
+        first_call_kwargs = calls[0][1]
+        assert first_call_kwargs["keep_latest"] == 10
+        assert first_call_kwargs["keep_hourly"] == 24
+        assert first_call_kwargs["keep_daily"] == 7
+        assert first_call_kwargs["keep_weekly"] == 4
+        assert first_call_kwargs["keep_monthly"] == 12
+        assert first_call_kwargs["keep_annual"] == 3
+
+    def test_multiple_volumes_each_get_policy_direct_mode(self):
+        """In Direct Mode, each volume should get its own retention policy."""
+        from kopi_docka.helpers.constants import BACKUP_FORMAT_DIRECT
+
+        manager = make_backup_manager()
+        unit = make_backup_unit(name="mystack", volumes=5)  # 5 volumes
+        manager.config.getint.return_value = 5
+
+        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_DIRECT):
+            manager._ensure_policies(unit)
+
+        # Should have:
+        # - 2 static targets (recipes, networks)
+        # - 5 volume mountpoints
+        assert manager.policy_manager.set_retention_for_target.call_count == 7
+
+        # Verify all 5 volume mountpoints were used
+        calls = manager.policy_manager.set_retention_for_target.call_args_list
+        volume_calls = [call for call in calls if "/var/lib/docker/volumes/" in str(call[0][0])]
+        assert len(volume_calls) == 5
+
+        # Verify each volume got a unique mountpoint
+        mountpoints = [call[0][0] for call in volume_calls]
+        assert len(set(mountpoints)) == 5  # All unique
+
+    def test_handles_policy_application_errors_gracefully(self):
+        """Should log warning but continue if policy application fails."""
+        from kopi_docka.helpers.constants import BACKUP_FORMAT_DIRECT
+
+        manager = make_backup_manager()
+        unit = make_backup_unit(name="mystack", volumes=2)
+        manager.config.getint.return_value = 5
+
+        # Make first call raise exception, others succeed
+        call_count = [0]
+
+        def mock_set_retention(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise Exception("Kopia policy error")
+
+        manager.policy_manager.set_retention_for_target.side_effect = mock_set_retention
+
+        # Should not raise exception
+        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_DIRECT):
+            manager._ensure_policies(unit)
+
+        # All 4 calls should have been attempted (2 static + 2 volumes)
+        assert manager.policy_manager.set_retention_for_target.call_count == 4
+
+    def test_unit_with_no_volumes_direct_mode(self):
+        """Unit with no volumes should only set static policies."""
+        from kopi_docka.helpers.constants import BACKUP_FORMAT_DIRECT
+
+        manager = make_backup_manager()
+        unit = make_backup_unit(name="mystack", volumes=0)  # No volumes
+        manager.config.getint.return_value = 5
+
+        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_DIRECT):
+            manager._ensure_policies(unit)
+
+        # Should only have 2 static targets (recipes, networks)
+        assert manager.policy_manager.set_retention_for_target.call_count == 2
+
+        calls = manager.policy_manager.set_retention_for_target.call_args_list
+        assert "recipes/mystack" in str(calls[0][0][0]) or "recipes/mystack" in str(calls[1][0][0])
+        assert "networks/mystack" in str(calls[0][0][0]) or "networks/mystack" in str(
+            calls[1][0][0]
+        )
+
+    def test_unit_with_no_volumes_tar_mode(self):
+        """Unit with no volumes in TAR Mode should only set static policies."""
+        from kopi_docka.helpers.constants import BACKUP_FORMAT_TAR
+
+        manager = make_backup_manager()
+        unit = make_backup_unit(name="mystack", volumes=0)  # No volumes
+        manager.config.getint.return_value = 5
+
+        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_TAR):
+            manager._ensure_policies(unit)
+
+        # Should have:
+        # - 2 static targets (recipes, networks)
+        # - 1 virtual volume path (even with 0 volumes, TAR mode creates this)
+        assert manager.policy_manager.set_retention_for_target.call_count == 3
+
+    def test_direct_mode_uses_correct_mountpoint_paths(self):
+        """Verify actual mountpoint paths are used, not volume names."""
+        from kopi_docka.helpers.constants import BACKUP_FORMAT_DIRECT
+
+        manager = make_backup_manager()
+
+        # Create custom volumes with specific mountpoints
+        custom_unit = BackupUnit(
+            name="custom",
+            type="stack",
+            containers=[],
+            volumes=[
+                VolumeInfo(
+                    name="vol1",
+                    driver="local",
+                    mountpoint="/custom/path/vol1",
+                    size_bytes=1024,
+                ),
+                VolumeInfo(
+                    name="vol2",
+                    driver="overlay2",
+                    mountpoint="/another/path/vol2",
+                    size_bytes=2048,
+                ),
+            ],
+            compose_files=[],
+        )
+
+        manager.config.getint.return_value = 5
+
+        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_DIRECT):
+            manager._ensure_policies(custom_unit)
+
+        # Verify custom mountpoints were used
+        calls = manager.policy_manager.set_retention_for_target.call_args_list
+        volume_calls = [
+            call for call in calls if "/custom/path/" in str(call) or "/another/path/" in str(call)
+        ]
+
+        assert len(volume_calls) == 2
+        assert any("/custom/path/vol1" in str(call) for call in calls)
+        assert any("/another/path/vol2" in str(call) for call in calls)
+
+
+class TestPrepareStagingDir:
+    """Tests for _prepare_staging_dir() helper method."""
+
+    def test_creates_directory_structure(self):
+        """Test that _prepare_staging_dir creates the correct directory structure."""
+        manager = make_backup_manager()
+
+        with patch("kopi_docka.cores.backup_manager.STAGING_BASE_DIR", Path("/var/cache/kopi-docka/staging")):
+            with patch("pathlib.Path.mkdir") as mock_mkdir, \
+                 patch("pathlib.Path.iterdir", return_value=[]):
+                result = manager._prepare_staging_dir("recipes", "myproject")
+
+                # Verify directory creation
+                mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
+
+                # Verify correct path returned
+                assert result == Path("/var/cache/kopi-docka/staging/recipes/myproject")
+
+    def test_clears_existing_files(self):
+        """Test that existing files are cleared from staging directory."""
+        manager = make_backup_manager()
+
+        # Mock existing files
+        mock_file1 = Mock(spec=Path)
+        mock_file1.is_file.return_value = True
+        mock_file1.is_dir.return_value = False
+        mock_file2 = Mock(spec=Path)
+        mock_file2.is_file.return_value = True
+        mock_file2.is_dir.return_value = False
+
+        with patch("kopi_docka.cores.backup_manager.STAGING_BASE_DIR", Path("/test/staging")):
+            with patch("pathlib.Path.mkdir"), \
+                 patch("pathlib.Path.iterdir", return_value=[mock_file1, mock_file2]):
+                manager._prepare_staging_dir("networks", "testunit")
+
+                # Verify files were deleted
+                mock_file1.unlink.assert_called_once()
+                mock_file2.unlink.assert_called_once()
+
+    def test_clears_existing_directories(self):
+        """Test that existing directories are cleared from staging directory."""
+        manager = make_backup_manager()
+
+        # Mock existing directory
+        mock_dir = Mock(spec=Path)
+        mock_dir.is_file.return_value = False
+        mock_dir.is_dir.return_value = True
+
+        with patch("kopi_docka.cores.backup_manager.STAGING_BASE_DIR", Path("/test/staging")):
+            with patch("pathlib.Path.mkdir"), \
+                 patch("pathlib.Path.iterdir", return_value=[mock_dir]), \
+                 patch("shutil.rmtree") as mock_rmtree:
+                manager._prepare_staging_dir("recipes", "myapp")
+
+                # Verify directory was removed
+                mock_rmtree.assert_called_once_with(mock_dir)
+
+    def test_clears_mixed_content(self):
+        """Test that both files and directories are cleared."""
+        manager = make_backup_manager()
+
+        # Mock mixed content
+        mock_file = Mock(spec=Path)
+        mock_file.is_file.return_value = True
+        mock_file.is_dir.return_value = False
+
+        mock_dir = Mock(spec=Path)
+        mock_dir.is_file.return_value = False
+        mock_dir.is_dir.return_value = True
+
+        with patch("kopi_docka.cores.backup_manager.STAGING_BASE_DIR", Path("/test/staging")):
+            with patch("pathlib.Path.mkdir"), \
+                 patch("pathlib.Path.iterdir", return_value=[mock_file, mock_dir]), \
+                 patch("shutil.rmtree") as mock_rmtree:
+                manager._prepare_staging_dir("networks", "webapp")
+
+                # Verify both were cleared
+                mock_file.unlink.assert_called_once()
+                mock_rmtree.assert_called_once_with(mock_dir)
+
+    def test_handles_empty_directory(self):
+        """Test that method works correctly when directory is already empty."""
+        manager = make_backup_manager()
+
+        with patch("kopi_docka.cores.backup_manager.STAGING_BASE_DIR", Path("/test/staging")):
+            with patch("pathlib.Path.mkdir") as mock_mkdir, \
+                 patch("pathlib.Path.iterdir", return_value=[]):
+                result = manager._prepare_staging_dir("recipes", "emptyunit")
+
+                # Verify directory was created
+                mock_mkdir.assert_called_once()
+
+                # Verify correct path returned
+                assert result == Path("/test/staging/recipes/emptyunit")
+
+    def test_different_subdirectories(self):
+        """Test that method works with different subdir values."""
+        manager = make_backup_manager()
+
+        subdirs = ["recipes", "networks", "configs"]
+
+        for subdir in subdirs:
+            with patch("kopi_docka.cores.backup_manager.STAGING_BASE_DIR", Path("/cache/staging")):
+                with patch("pathlib.Path.mkdir"), \
+                     patch("pathlib.Path.iterdir", return_value=[]):
+                    result = manager._prepare_staging_dir(subdir, "testunit")
+
+                    assert result == Path(f"/cache/staging/{subdir}/testunit")
+
+    def test_backup_recipes_uses_stable_path(self):
+        """Test that _backup_recipes uses _prepare_staging_dir and stable path."""
+        manager = make_backup_manager()
+
+        # Create minimal unit
+        unit = BackupUnit(
+            name="testapp",
+            type="stack",
+            compose_files=[],
+            containers=[],
+            volumes=[],
+        )
+
+        staging_path = Path("/var/cache/kopi-docka/staging/recipes/testapp")
+
+        with patch.object(manager, "_prepare_staging_dir", return_value=staging_path) as mock_prepare:
+            with patch("pathlib.Path.mkdir"), \
+                 patch("pathlib.Path.write_text"):
+                result = manager._backup_recipes(unit, "backup123")
+
+                # Verify _prepare_staging_dir was called with correct args
+                mock_prepare.assert_called_once_with("recipes", "testapp")
+
+                # Verify snapshot was created with stable path
+                manager.repo.create_snapshot.assert_called_once()
+                call_args = manager.repo.create_snapshot.call_args
+                assert call_args[0][0] == str(staging_path)
+
+                # Verify snapshot ID returned
+                assert result == "snap123"
+
+    def test_backup_networks_uses_stable_path(self):
+        """Test that _backup_networks uses _prepare_staging_dir and stable path."""
+        manager = make_backup_manager()
+
+        # Create unit with custom network
+        container = ContainerInfo(
+            id="abc123",
+            name="web",
+            image="nginx:latest",
+            status="running",
+            compose_files=[Path("/app/docker-compose.yml")],
+            inspect_data={
+                "NetworkSettings": {
+                    "Networks": {
+                        "custom_network": {"NetworkID": "net123"}
+                    }
+                }
+            },
+        )
+
+        unit = BackupUnit(
+            name="myapp",
+            type="stack",
+            compose_files=[Path("/app/docker-compose.yml")],
+            containers=[container],
+            volumes=[],
+        )
+
+        staging_path = Path("/var/cache/kopi-docka/staging/networks/myapp")
+
+        # Mock run_command to return network inspect data
+        mock_result = Mock()
+        mock_result.stdout = json.dumps([{"Name": "custom_network", "Driver": "bridge", "Scope": "local"}])
+
+        with patch.object(manager, "_prepare_staging_dir", return_value=staging_path) as mock_prepare:
+            with patch("kopi_docka.cores.backup_manager.run_command", return_value=mock_result), \
+                 patch("pathlib.Path.write_text"):
+                snapshot_id, network_count = manager._backup_networks(unit, "backup456")
+
+                # Verify _prepare_staging_dir was called with correct args
+                mock_prepare.assert_called_once_with("networks", "myapp")
+
+                # Verify snapshot was created with stable path
+                manager.repo.create_snapshot.assert_called_once()
+                call_args = manager.repo.create_snapshot.call_args
+                assert call_args[0][0] == str(staging_path)
+
+                # Verify return values
+                assert snapshot_id == "snap123"
+                assert network_count == 1

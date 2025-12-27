@@ -56,6 +56,7 @@ from ..helpers.constants import (
     BACKUP_FORMAT_TAR,
     BACKUP_FORMAT_DIRECT,
     BACKUP_FORMAT_DEFAULT,
+    STAGING_BASE_DIR,
 )
 
 logger = get_logger(__name__)
@@ -332,123 +333,155 @@ class BackupManager:
             )
             time.sleep(2)
 
+    def _prepare_staging_dir(self, subdir: str, unit_name: str) -> Path:
+        """
+        Prepare a clean staging directory for backup operations.
+
+        Creates the staging directory structure and clears any previous content
+        to ensure a clean state for each backup. This enables stable paths for
+        Kopia snapshots, allowing retention policies to work correctly.
+
+        Args:
+            subdir: Subdirectory type ("recipes", "networks", or "configs")
+            unit_name: Name of the backup unit
+
+        Returns:
+            Path object for the prepared staging directory
+        """
+        import shutil
+
+        staging_dir = STAGING_BASE_DIR / subdir / unit_name
+
+        # Create staging directory (idempotent)
+        staging_dir.mkdir(parents=True, exist_ok=True)
+
+        # Clear any previous content to ensure clean state
+        for item in staging_dir.iterdir():
+            if item.is_file():
+                item.unlink()
+            elif item.is_dir():
+                shutil.rmtree(item)
+
+        return staging_dir
+
     def _backup_recipes(self, unit: BackupUnit, backup_id: str) -> Optional[str]:
         """Backup compose files and container inspect data (with secret redaction)."""
+        import shutil
+
         try:
-            import tempfile
-            import shutil
+            # Prepare clean staging directory with stable path
+            staging_dir = self._prepare_staging_dir("recipes", unit.name)
 
-            with tempfile.TemporaryDirectory() as tmpdir:
-                tmpdir = Path(tmpdir)
+            # Compose files (all from label, including overrides)
+            compose_files_saved = []
+            compose_dirs_processed = set()
 
-                # Compose files (all from label, including overrides)
-                compose_files_saved = []
-                compose_dirs_processed = set()
+            for compose_file in unit.compose_files:
+                if compose_file.exists():
+                    # Save with original filename
+                    dest = staging_dir / compose_file.name
+                    shutil.copy2(compose_file, dest)
+                    compose_files_saved.append(compose_file.name)
+                    compose_dirs_processed.add(compose_file.parent)
 
-                for compose_file in unit.compose_files:
-                    if compose_file.exists():
-                        # Save with original filename
-                        dest = tmpdir / compose_file.name
-                        shutil.copy2(compose_file, dest)
-                        compose_files_saved.append(compose_file.name)
-                        compose_dirs_processed.add(compose_file.parent)
-
-                # Save compose order for restore (critical for override precedence)
-                if compose_files_saved:
-                    import json as _json
-
-                    (tmpdir / "compose_order.json").write_text(
-                        _json.dumps(compose_files_saved, indent=2)
-                    )
-                    logger.info(
-                        f"Backed up {len(compose_files_saved)} compose file(s): {', '.join(compose_files_saved)}",
-                        extra={"unit_name": unit.name},
-                    )
-
-                # Save related project files from ALL compose directories
-                project_files_dir = tmpdir / "project-files"
-                project_files_dir.mkdir(exist_ok=True)
-
-                config_patterns = [
-                    ".env*",  # Environment files (critical!)
-                    "*.conf",
-                    "*.config",  # Config files
-                    "*.toml",  # TOML configs
-                ]
-
-                backed_up_files = []
-                for compose_dir in compose_dirs_processed:
-                    for pattern in config_patterns:
-                        for config_file in compose_dir.glob(pattern):
-                            # Skip compose files (already saved above)
-                            if (
-                                config_file.is_file()
-                                and config_file.name not in compose_files_saved
-                            ):
-                                try:
-                                    dest = project_files_dir / config_file.name
-                                    if not dest.exists():  # Avoid duplicates
-                                        shutil.copy2(config_file, dest)
-                                        backed_up_files.append(config_file.name)
-                                except Exception as e:
-                                    logger.warning(
-                                        f"Could not backup config file {config_file.name}: {e}",
-                                        extra={"unit_name": unit.name},
-                                    )
-
-                if backed_up_files:
-                    logger.info(
-                        f"Backed up {len(backed_up_files)} project files: {', '.join(backed_up_files[:5])}{'...' if len(backed_up_files) > 5 else ''}",
-                        extra={"unit_name": unit.name},
-                    )
-
-                # Inspect (redact env secrets)
+            # Save compose order for restore (critical for override precedence)
+            if compose_files_saved:
                 import json as _json
 
-                SENSITIVE = (
-                    "PASS",
-                    "SECRET",
-                    "KEY",
-                    "TOKEN",
-                    "CREDENTIAL",
-                    "API",
-                    "AUTH",
+                (staging_dir / "compose_order.json").write_text(
+                    _json.dumps(compose_files_saved, indent=2)
                 )
-                for c in unit.containers:
-                    result = run_command(
-                        ["docker", "inspect", c.id],
-                        f"Inspecting {c.name}",
-                        timeout=10,
-                    )
-                    data = _json.loads(result.stdout)
-                    if isinstance(data, list) and data:
-                        cfg = data[0].get("Config", {})
-                        if cfg and "Env" in cfg and isinstance(cfg["Env"], list):
-                            red = []
-                            for e in cfg["Env"]:
-                                k, _, v = e.partition("=")
-                                if any(s in k.upper() for s in SENSITIVE):
-                                    red.append(f"{k}=***REDACTED***")
-                                else:
-                                    red.append(e)
-                            data[0]["Config"]["Env"] = red
-                    (tmpdir / f"{c.name}_inspect.json").write_text(_json.dumps(data, indent=2))
+                logger.info(
+                    f"Backed up {len(compose_files_saved)} compose file(s): {', '.join(compose_files_saved)}",
+                    extra={"unit_name": unit.name},
+                )
 
-                # Snapshot
-                return self.repo.create_snapshot(
-                    str(tmpdir),
-                    tags={
-                        "type": "recipe",
-                        "unit": unit.name,
-                        "backup_id": backup_id,
-                        "timestamp": datetime.now().isoformat(),
-                    },
+            # Save related project files from ALL compose directories
+            project_files_dir = staging_dir / "project-files"
+            project_files_dir.mkdir(exist_ok=True)
+
+            config_patterns = [
+                ".env*",  # Environment files (critical!)
+                "*.conf",
+                "*.config",  # Config files
+                "*.toml",  # TOML configs
+            ]
+
+            backed_up_files = []
+            for compose_dir in compose_dirs_processed:
+                for pattern in config_patterns:
+                    for config_file in compose_dir.glob(pattern):
+                        # Skip compose files (already saved above)
+                        if config_file.is_file() and config_file.name not in compose_files_saved:
+                            try:
+                                dest = project_files_dir / config_file.name
+                                if not dest.exists():  # Avoid duplicates
+                                    shutil.copy2(config_file, dest)
+                                    backed_up_files.append(config_file.name)
+                            except Exception as e:
+                                logger.warning(
+                                    f"Could not backup config file {config_file.name}: {e}",
+                                    extra={"unit_name": unit.name},
+                                )
+
+            if backed_up_files:
+                logger.info(
+                    f"Backed up {len(backed_up_files)} project files: {', '.join(backed_up_files[:5])}{'...' if len(backed_up_files) > 5 else ''}",
+                    extra={"unit_name": unit.name},
                 )
+
+            # Inspect (redact env secrets)
+            import json as _json
+
+            SENSITIVE = (
+                "PASS",
+                "SECRET",
+                "KEY",
+                "TOKEN",
+                "CREDENTIAL",
+                "API",
+                "AUTH",
+            )
+            for c in unit.containers:
+                result = run_command(
+                    ["docker", "inspect", c.id],
+                    f"Inspecting {c.name}",
+                    timeout=10,
+                )
+                data = _json.loads(result.stdout)
+                if isinstance(data, list) and data:
+                    cfg = data[0].get("Config", {})
+                    if cfg and "Env" in cfg and isinstance(cfg["Env"], list):
+                        red = []
+                        for e in cfg["Env"]:
+                            k, _, v = e.partition("=")
+                            if any(s in k.upper() for s in SENSITIVE):
+                                red.append(f"{k}=***REDACTED***")
+                            else:
+                                red.append(e)
+                        data[0]["Config"]["Env"] = red
+                (staging_dir / f"{c.name}_inspect.json").write_text(_json.dumps(data, indent=2))
+
+            # Snapshot with stable path (enables Kopia retention policies)
+            logger.debug(
+                f"Creating recipe snapshot from stable staging path: {staging_dir}",
+                extra={"unit_name": unit.name},
+            )
+            return self.repo.create_snapshot(
+                str(staging_dir),
+                tags={
+                    "type": "recipe",
+                    "unit": unit.name,
+                    "backup_id": backup_id,
+                    "timestamp": datetime.now().isoformat(),
+                },
+            )
         except Exception as e:
             logger.error(
                 f"Failed to backup recipes for {unit.name}: {e}",
                 extra={"unit_name": unit.name},
             )
+            # Note: Keep staging directory on error for debugging
             return None
 
     def _backup_networks(self, unit: BackupUnit, backup_id: str) -> Tuple[Optional[str], int]:
@@ -458,10 +491,9 @@ class BackupManager:
         Returns:
             Tuple of (snapshot_id, network_count)
         """
-        try:
-            import tempfile
-            import json as _json
+        import json as _json
 
+        try:
             # Collect all networks from unit's containers
             networks_to_backup = set()
             default_networks = {"bridge", "host", "none"}
@@ -518,47 +550,51 @@ class BackupManager:
                 )
                 return None, 0
 
-            # Save to temporary directory and create snapshot
-            with tempfile.TemporaryDirectory() as tmpdir:
-                tmpdir = Path(tmpdir)
+            # Prepare clean staging directory with stable path
+            staging_dir = self._prepare_staging_dir("networks", unit.name)
 
-                # Save network configurations
-                networks_file = tmpdir / "networks.json"
-                networks_file.write_text(_json.dumps(network_configs, indent=2))
+            # Save network configurations
+            networks_file = staging_dir / "networks.json"
+            networks_file.write_text(_json.dumps(network_configs, indent=2))
 
-                # Create metadata file with additional info
-                metadata_file = tmpdir / "networks_metadata.json"
-                metadata = {
-                    "unit_name": unit.name,
-                    "backup_timestamp": datetime.now().isoformat(),
-                    "network_count": len(network_configs),
-                    "network_names": [nc.get("Name") for nc in network_configs],
-                }
-                metadata_file.write_text(_json.dumps(metadata, indent=2))
+            # Create metadata file with additional info
+            metadata_file = staging_dir / "networks_metadata.json"
+            metadata = {
+                "unit_name": unit.name,
+                "backup_timestamp": datetime.now().isoformat(),
+                "network_count": len(network_configs),
+                "network_names": [nc.get("Name") for nc in network_configs],
+            }
+            metadata_file.write_text(_json.dumps(metadata, indent=2))
 
-                # Create snapshot
-                snapshot_id = self.repo.create_snapshot(
-                    str(tmpdir),
-                    tags={
-                        "type": "networks",
-                        "unit": unit.name,
-                        "backup_id": backup_id,
-                        "timestamp": datetime.now().isoformat(),
-                        "network_count": str(len(network_configs)),
-                    },
-                )
+            # Create snapshot with stable path (enables Kopia retention policies)
+            logger.debug(
+                f"Creating networks snapshot from stable staging path: {staging_dir}",
+                extra={"unit_name": unit.name},
+            )
+            snapshot_id = self.repo.create_snapshot(
+                str(staging_dir),
+                tags={
+                    "type": "networks",
+                    "unit": unit.name,
+                    "backup_id": backup_id,
+                    "timestamp": datetime.now().isoformat(),
+                    "network_count": str(len(network_configs)),
+                },
+            )
 
-                logger.info(
-                    f"Successfully backed up {len(network_configs)} networks for {unit.name}",
-                    extra={"unit_name": unit.name, "network_count": len(network_configs)},
-                )
+            logger.info(
+                f"Successfully backed up {len(network_configs)} networks for {unit.name}",
+                extra={"unit_name": unit.name, "network_count": len(network_configs)},
+            )
 
-                return snapshot_id, len(network_configs)
+            return snapshot_id, len(network_configs)
 
         except Exception as e:
             logger.error(
                 f"Failed to backup networks for {unit.name}: {e}", extra={"unit_name": unit.name}
             )
+            # Note: Keep staging directory on error for debugging
             return None, 0
 
     def _backup_volume(self, volume: VolumeInfo, unit: BackupUnit, backup_id: str) -> Optional[str]:
@@ -761,14 +797,76 @@ class BackupManager:
         )
 
     def _ensure_policies(self, unit: BackupUnit):
-        """Set Kopia retention policies for this unit (volumes + recipes + networks)."""
-        targets = [
-            f"{VOLUME_BACKUP_DIR}/{unit.name}",
+        """Set Kopia retention policies for this unit (volumes + recipes + networks).
+
+        Note: In Direct Mode, policies are applied to actual volume mountpoints
+        (e.g., /var/lib/docker/volumes/...) to match snapshot paths.
+        In TAR Mode, policies are applied to virtual paths (e.g., volumes/unit_name).
+        """
+        # Static targets: recipes and networks (same path in both modes)
+        static_targets = [
             f"{RECIPE_BACKUP_DIR}/{unit.name}",
             f"{NETWORK_BACKUP_DIR}/{unit.name}",
         ]
 
-        for target in targets:
+        # Apply policies to static targets
+        for target in static_targets:
+            try:
+                self.policy_manager.set_retention_for_target(
+                    target,
+                    keep_latest=self.config.getint("retention", "latest", 10),
+                    keep_hourly=self.config.getint("retention", "hourly", 0),
+                    keep_daily=self.config.getint("retention", "daily", 7),
+                    keep_weekly=self.config.getint("retention", "weekly", 4),
+                    keep_monthly=self.config.getint("retention", "monthly", 12),
+                    keep_annual=self.config.getint("retention", "annual", 3),
+                )
+                logger.debug(
+                    f"Applied Kopia retention policy on {target}",
+                    extra={"unit_name": unit.name, "target": target},
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Could not apply Kopia policy on {target}: {e}",
+                    extra={"unit_name": unit.name, "target": target},
+                )
+
+        # Volume targets depend on backup format
+        if BACKUP_FORMAT_DEFAULT == BACKUP_FORMAT_DIRECT:
+            # Direct Mode: apply policies to actual volume mountpoints
+            for volume in unit.volumes:
+                try:
+                    self.policy_manager.set_retention_for_target(
+                        volume.mountpoint,
+                        keep_latest=self.config.getint("retention", "latest", 10),
+                        keep_hourly=self.config.getint("retention", "hourly", 0),
+                        keep_daily=self.config.getint("retention", "daily", 7),
+                        keep_weekly=self.config.getint("retention", "weekly", 4),
+                        keep_monthly=self.config.getint("retention", "monthly", 12),
+                        keep_annual=self.config.getint("retention", "annual", 3),
+                    )
+                    logger.debug(
+                        f"Applied Kopia retention policy on volume {volume.name} "
+                        f"at {volume.mountpoint}",
+                        extra={
+                            "unit_name": unit.name,
+                            "volume": volume.name,
+                            "target": volume.mountpoint,
+                        },
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Could not apply Kopia policy on volume {volume.name} "
+                        f"at {volume.mountpoint}: {e}",
+                        extra={
+                            "unit_name": unit.name,
+                            "volume": volume.name,
+                            "target": volume.mountpoint,
+                        },
+                    )
+        else:
+            # TAR Mode: apply policy to virtual path (legacy behavior)
+            target = f"{VOLUME_BACKUP_DIR}/{unit.name}"
             try:
                 self.policy_manager.set_retention_for_target(
                     target,

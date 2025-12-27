@@ -4,6 +4,7 @@ Unit tests for rclone backend configuration detection.
 Tests the enhanced config detection with permission error handling and status reporting.
 Related to GitHub issue #29: Rclone Config Detection & User Experience Fix
 """
+
 import os
 from pathlib import Path
 from unittest import mock
@@ -132,9 +133,11 @@ class TestConfigureMethod:
         """Test that configure shows warning with workarounds for PERMISSION_DENIED."""
         user_config_path = "/home/testuser/.config/rclone/rclone.conf"
 
-        with mock.patch("shutil.which") as mock_which, \
-             mock.patch.object(rclone_backend, "_detect_rclone_config_with_status") as mock_detect, \
-             mock.patch("typer.confirm") as mock_confirm:
+        with (
+            mock.patch("shutil.which") as mock_which,
+            mock.patch.object(rclone_backend, "_detect_rclone_config_with_status") as mock_detect,
+            mock.patch("typer.confirm") as mock_confirm,
+        ):
 
             # Mock rclone is installed
             mock_which.return_value = "/usr/bin/rclone"
@@ -143,7 +146,7 @@ class TestConfigureMethod:
             mock_detect.return_value = ConfigDetectionResult(
                 path=user_config_path,
                 status=ConfigStatus.PERMISSION_DENIED,
-                checked_paths=[user_config_path]
+                checked_paths=[user_config_path],
             )
 
             # Mock user declines to proceed without existing config
@@ -162,9 +165,11 @@ class TestConfigureMethod:
         user_config_path = "/home/testuser/.config/rclone/rclone.conf"
         root_config_path = "/root/.config/rclone/rclone.conf"
 
-        with mock.patch("shutil.which") as mock_which, \
-             mock.patch.object(rclone_backend, "_detect_rclone_config_with_status") as mock_detect, \
-             mock.patch("typer.confirm") as mock_confirm:
+        with (
+            mock.patch("shutil.which") as mock_which,
+            mock.patch.object(rclone_backend, "_detect_rclone_config_with_status") as mock_detect,
+            mock.patch("typer.confirm") as mock_confirm,
+        ):
 
             # Mock rclone is installed
             mock_which.return_value = "/usr/bin/rclone"
@@ -173,7 +178,7 @@ class TestConfigureMethod:
             mock_detect.return_value = ConfigDetectionResult(
                 path=None,
                 status=ConfigStatus.NOT_FOUND,
-                checked_paths=[user_config_path, root_config_path]
+                checked_paths=[user_config_path, root_config_path],
             )
 
             # Mock user declines to create new config

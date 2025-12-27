@@ -137,9 +137,7 @@ class TestDryRunReport:
         assert "Total Containers: 5" in output
         assert "Total Volumes: 3" in output
 
-    def test_unit_analysis_shows_stop_start_order(
-        self, backup_unit_factory, tmp_path, capsys
-    ):
+    def test_unit_analysis_shows_stop_start_order(self, backup_unit_factory, tmp_path, capsys):
         """Each unit shows planned stop/start sequence."""
         config = make_mock_config(tmp_path)
         report = DryRunReport(config)
@@ -291,11 +289,7 @@ class TestDryRunEstimates:
         unit = BackupUnit(
             name="empty-unit",
             type="standalone",
-            containers=[
-                ContainerInfo(
-                    id="c1", name="test", image="nginx", status="running"
-                )
-            ],
+            containers=[ContainerInfo(id="c1", name="test", image="nginx", status="running")],
             volumes=[],
             compose_files=[],
         )
@@ -327,9 +321,7 @@ class TestDryRunEstimates:
         assert large_duration > small_duration
         assert large_duration > small_duration * 2  # At least 2x longer
 
-    def test_parallel_workers_affect_estimate(
-        self, backup_unit_factory, tmp_path, capsys
-    ):
+    def test_parallel_workers_affect_estimate(self, backup_unit_factory, tmp_path, capsys):
         """More workers reduce estimated time (implicit in report generation)."""
         config = make_mock_config(tmp_path)
         config.parallel_workers = 4  # More workers
@@ -583,11 +575,7 @@ class TestDryRunEdgeCases:
         unit = BackupUnit(
             name="stopped-unit",
             type="standalone",
-            containers=[
-                ContainerInfo(
-                    id="c1", name="stopped", image="nginx", status="exited"
-                )
-            ],
+            containers=[ContainerInfo(id="c1", name="stopped", image="nginx", status="exited")],
             volumes=[],
             compose_files=[],
         )
@@ -630,11 +618,7 @@ class TestDryRunEdgeCases:
         stack = BackupUnit(
             name="mystack",
             type="stack",
-            containers=[
-                ContainerInfo(
-                    id="c1", name="web", image="nginx", status="running"
-                )
-            ],
+            containers=[ContainerInfo(id="c1", name="web", image="nginx", status="running")],
             volumes=[],
             compose_files=[],
         )
@@ -642,11 +626,7 @@ class TestDryRunEdgeCases:
         standalone = BackupUnit(
             name="standalone",
             type="standalone",
-            containers=[
-                ContainerInfo(
-                    id="c2", name="redis", image="redis", status="running"
-                )
-            ],
+            containers=[ContainerInfo(id="c2", name="redis", image="redis", status="running")],
             volumes=[],
             compose_files=[],
         )

@@ -334,9 +334,7 @@ class TestLogMethods:
     @patch("kopi_docka.cores.service_helper.run_command")
     def test_get_logs_last(self, mock_run, helper):
         """Test getting last N log lines."""
-        mock_run.return_value = Mock(
-            returncode=0, stdout="Log line 1\nLog line 2\nLog line 3"
-        )
+        mock_run.return_value = Mock(returncode=0, stdout="Log line 1\nLog line 2\nLog line 3")
 
         logs = helper.get_logs(mode="last", lines=3)
 

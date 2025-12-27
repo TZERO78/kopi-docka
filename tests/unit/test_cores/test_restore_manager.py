@@ -611,7 +611,9 @@ class TestVolumeRestoreDirect:
 
         # Verify steps were executed
         assert any("docker" in cmd and "stop" in cmd for cmd in commands)  # Stop containers
-        assert any("docker" in cmd and "run" in cmd and "alpine" in cmd for cmd in commands)  # Safety backup
+        assert any(
+            "docker" in cmd and "run" in cmd and "alpine" in cmd for cmd in commands
+        )  # Safety backup
         assert any("kopia" in cmd and "restore" in cmd for cmd in commands)  # Kopia restore
         assert any("rsync" in cmd for cmd in commands)  # Rsync to volume
         assert any("docker" in cmd and "start" in cmd for cmd in commands)  # Start containers
@@ -816,6 +818,7 @@ class TestVolumeRestoreDirect:
 
         assert result is True
 
+
 # =============================================================================
 # Network Recreation Conflict Tests
 # =============================================================================
@@ -1010,16 +1013,12 @@ class TestNetworkRecreationConflicts:
                 return subprocess.CompletedProcess(cmd, 0, stdout="mynetwork\n", stderr="")
             elif "network" in cmd and "rm" in cmd:
                 # Removal fails
-                raise restore_manager.SubprocessError(
-                    cmd, 1, "network has active endpoints"
-                )
+                raise restore_manager.SubprocessError(cmd, 1, "network has active endpoints")
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
         monkeypatch.setattr(restore_manager, "run_command", fake_run)
         monkeypatch.setattr(rm.repo, "restore_snapshot", Mock())
-        monkeypatch.setattr(
-            rm, "_list_containers_on_network", Mock(return_value=[("c1", "web")])
-        )
+        monkeypatch.setattr(rm, "_list_containers_on_network", Mock(return_value=[("c1", "web")]))
         monkeypatch.setattr(rm, "_stop_containers", Mock(return_value=["c1"]))
         monkeypatch.setattr(rm, "_disconnect_containers_from_network", Mock(return_value=True))
         monkeypatch.setattr(rm, "_reconnect_containers_to_network", mock_reconnect)
@@ -1064,9 +1063,7 @@ class TestNetworkRecreationConflicts:
 
         monkeypatch.setattr(restore_manager, "run_command", fake_run)
         monkeypatch.setattr(rm.repo, "restore_snapshot", Mock())
-        monkeypatch.setattr(
-            rm, "_list_containers_on_network", Mock(return_value=[("c1", "web")])
-        )
+        monkeypatch.setattr(rm, "_list_containers_on_network", Mock(return_value=[("c1", "web")]))
         # Stop fails - returns empty list
         monkeypatch.setattr(rm, "_stop_containers", Mock(return_value=[]))
 
@@ -1222,6 +1219,7 @@ class TestNetworkRecreationConflicts:
         count = rm._restore_networks(rp, tmp_path)
 
         assert count == 0
+
 
 # =============================================================================
 # Interactive Restore Flow Tests
@@ -2003,9 +2001,7 @@ class TestVolumeRestoreTar:
                 CompletedProcess([], 0, stdout="", stderr=""),  # docker ps -q
                 CompletedProcess([], 0, stdout="", stderr=""),  # safety backup
                 CompletedProcess([], 0, stdout="", stderr=""),  # kopia restore
-                CompletedProcess(
-                    [], 0, stdout="tar archive", stderr=""
-                ),  # file type check
+                CompletedProcess([], 0, stdout="tar archive", stderr=""),  # file type check
                 CompletedProcess([], 0, stdout="", stderr=""),  # docker run (tar extract)
                 CompletedProcess([], 0, stdout="c1\nc2", stderr=""),  # docker ps -q (restart)
                 CompletedProcess([], 0, stdout="", stderr=""),  # docker start
@@ -2134,9 +2130,7 @@ class TestVolumeRestoreTar:
                 CompletedProcess([], 0, stdout="", stderr=""),  # docker ps -q
                 CompletedProcess([], 0, stdout="", stderr=""),  # safety backup
                 CompletedProcess([], 0, stdout="", stderr=""),  # kopia restore
-                CompletedProcess(
-                    [], 0, stdout="tar archive", stderr=""
-                ),  # file type check
+                CompletedProcess([], 0, stdout="tar archive", stderr=""),  # file type check
                 CompletedProcess(
                     [], 1, stdout="", stderr="tar: Error extracting"
                 ),  # docker run FAILS
@@ -2183,13 +2177,9 @@ class TestVolumeRestoreTar:
                 CompletedProcess([], 0, stdout="", stderr=""),  # docker stop
                 CompletedProcess([], 0, stdout="", stderr=""),  # safety backup
                 CompletedProcess([], 0, stdout="", stderr=""),  # kopia restore
-                CompletedProcess(
-                    [], 0, stdout="tar archive", stderr=""
-                ),  # file type check
+                CompletedProcess([], 0, stdout="tar archive", stderr=""),  # file type check
                 CompletedProcess([], 0, stdout="", stderr=""),  # docker run (extract)
-                CompletedProcess(
-                    [], 0, stdout="c1\nc2", stderr=""
-                ),  # docker ps -q (restart)
+                CompletedProcess([], 0, stdout="c1\nc2", stderr=""),  # docker ps -q (restart)
                 CompletedProcess([], 0, stdout="", stderr=""),  # docker start
             ]
 
@@ -2239,9 +2229,7 @@ class TestVolumeRestoreTar:
                 CompletedProcess([], 0, stdout="", stderr=""),  # docker ps -q
                 CompletedProcess([], 0, stdout="", stderr=""),  # safety backup (tar -czf)
                 CompletedProcess([], 0, stdout="", stderr=""),  # kopia restore
-                CompletedProcess(
-                    [], 0, stdout="tar archive", stderr=""
-                ),  # file type check
+                CompletedProcess([], 0, stdout="tar archive", stderr=""),  # file type check
                 CompletedProcess([], 0, stdout="", stderr=""),  # docker run (extract)
                 CompletedProcess([], 0, stdout="", stderr=""),  # docker ps -q (restart)
             ]
@@ -2258,5 +2246,3 @@ class TestVolumeRestoreTar:
                 import shutil
 
                 shutil.rmtree(real_temp_dir)
-
-

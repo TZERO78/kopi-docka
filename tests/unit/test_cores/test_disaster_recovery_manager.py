@@ -149,9 +149,7 @@ class TestBundleCreation:
         (tmp_path / "config.json").write_text(json.dumps({"test": "config"}))
 
         repo_status = {"storage": {"type": "filesystem", "config": {"path": "/test/repo"}}}
-        mock_subprocess.return_value = Mock(
-            returncode=0, stdout=json.dumps(repo_status), stderr=""
-        )
+        mock_subprocess.return_value = Mock(returncode=0, stdout=json.dumps(repo_status), stderr="")
 
         mock_repo = Mock()
         mock_repo._get_env.return_value = {"KOPIA_PASSWORD": "test-password"}
@@ -194,9 +192,7 @@ class TestBundleCreation:
         (tmp_path / "config.json").write_text(json.dumps({"test": "config"}))
 
         repo_status = {"storage": {"type": "filesystem", "config": {"path": "/test/repo"}}}
-        mock_subprocess.return_value = Mock(
-            returncode=0, stdout=json.dumps(repo_status), stderr=""
-        )
+        mock_subprocess.return_value = Mock(returncode=0, stdout=json.dumps(repo_status), stderr="")
 
         mock_repo = Mock()
         mock_repo._get_env.return_value = {"KOPIA_PASSWORD": "test-password"}
@@ -516,9 +512,7 @@ class TestKopiaConfigExport:
     def test_export_kopia_config_success(self, mock_subprocess, tmp_path):
         """Kopia config and password are exported successfully."""
         repo_status = {"storage": {"type": "filesystem", "config": {"path": "/test"}}}
-        mock_subprocess.return_value = Mock(
-            returncode=0, stdout=json.dumps(repo_status), stderr=""
-        )
+        mock_subprocess.return_value = Mock(returncode=0, stdout=json.dumps(repo_status), stderr="")
 
         config = make_mock_config(kopia_password="secret123")
         manager = DisasterRecoveryManager(config)
@@ -696,7 +690,10 @@ class TestRecoveryScriptGeneration:
         script_content = script_file.read_text()
 
         assert "Ensure rclone.conf is restored" in script_content
-        assert 'kopia repository connect rclone --remote-path="myremote:backup/kopia"' in script_content
+        assert (
+            'kopia repository connect rclone --remote-path="myremote:backup/kopia"'
+            in script_content
+        )
 
     def test_create_recovery_script_unknown_backend(self, tmp_path):
         """Recovery script for unknown backend shows manual connect message."""
