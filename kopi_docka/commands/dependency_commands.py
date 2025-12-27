@@ -136,10 +136,10 @@ def cmd_deps():
 # -------------------------
 
 
-def register(app: typer.Typer):
+def register(app: typer.Typer, hidden: bool = False):
     """Register all dependency commands."""
 
-    @app.command("check")
+    @app.command("check", hidden=hidden)
     def _check_cmd(
         ctx: typer.Context,
         verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed information"),
@@ -152,7 +152,7 @@ def register(app: typer.Typer):
         """Check system requirements and dependencies."""
         cmd_check(ctx, verbose, config)
 
-    @app.command("install-deps")
+    @app.command("install-deps", hidden=hidden)
     def _install_deps_cmd(
         force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt"),
         dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be installed"),
@@ -160,7 +160,7 @@ def register(app: typer.Typer):
         """Install missing system dependencies."""
         cmd_install_deps(force, dry_run)
 
-    @app.command("show-deps")
+    @app.command("show-deps", hidden=hidden)
     def _deps_cmd():
         """Show dependency installation guide."""
         cmd_deps()

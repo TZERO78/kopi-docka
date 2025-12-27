@@ -911,17 +911,17 @@ def cmd_change_password(
 # -------------------------
 
 
-def register(app: typer.Typer):
+def register(app: typer.Typer, hidden: bool = False):
     """Register all repository commands."""
 
-    # Simple commands without parameters
-    app.command("init")(cmd_init)
-    app.command("repo-status")(cmd_repo_status)
-    app.command("repo-which-config")(cmd_repo_which_config)
-    app.command("repo-set-default")(cmd_repo_set_default)
-    app.command("repo-maintenance")(cmd_repo_maintenance)
+    # Simple commands without parameters - add hidden parameter
+    app.command("init", hidden=hidden)(cmd_init)
+    app.command("repo-status", hidden=hidden)(cmd_repo_status)
+    app.command("repo-which-config", hidden=hidden)(cmd_repo_which_config)
+    app.command("repo-set-default", hidden=hidden)(cmd_repo_set_default)
+    app.command("repo-maintenance", hidden=hidden)(cmd_repo_maintenance)
 
-    @app.command("repo-prune-empty-sessions")
+    @app.command("repo-prune-empty-sessions", hidden=hidden)
     def _repo_prune_empty_sessions_cmd(
         ctx: typer.Context,
         config: Optional[Path] = typer.Option(
@@ -938,7 +938,7 @@ def register(app: typer.Typer):
         """Clean up empty backup sessions (ghost sessions) from repository."""
         cmd_prune_empty_sessions(ctx, config, dry_run)
 
-    @app.command("repo-init-path")
+    @app.command("repo-init-path", hidden=hidden)
     def _repo_init_path_cmd(
         ctx: typer.Context,
         path: Path = typer.Argument(..., help="Repository path"),
@@ -954,7 +954,7 @@ def register(app: typer.Typer):
         """Create a Kopia filesystem repository at PATH."""
         cmd_repo_init_path(ctx, path, profile, set_default, password, config)
 
-    @app.command("repo-selftest")
+    @app.command("repo-selftest", hidden=hidden)
     def _repo_selftest_cmd(
         tmpdir: Path = typer.Option(Path("/tmp"), "--tmpdir"),
         keep: bool = typer.Option(False, "--keep/--no-keep"),
@@ -963,7 +963,7 @@ def register(app: typer.Typer):
         """Create ephemeral test repository."""
         cmd_repo_selftest(tmpdir, keep, password)
 
-    @app.command("change-password")
+    @app.command("change-password", hidden=hidden)
     def _change_password_cmd(
         ctx: typer.Context,
         new_password: Optional[str] = typer.Option(

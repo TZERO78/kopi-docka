@@ -71,6 +71,9 @@ err_console = Console(stderr=True)
 from .helpers import Config, get_logger, log_manager
 from .helpers.constants import VERSION
 
+# Import version for dynamic help header
+from . import __version__
+
 # Import top-level command modules
 from .commands import (
     setup_commands,
@@ -87,13 +90,14 @@ from .commands.service_commands import cmd_daemon
 from .commands.advanced import admin_app
 
 app = typer.Typer(
-    add_completion=False, help="Kopi-Docka – Backup & Restore for Docker using Kopia."
+    add_completion=False,
+    help=f"Kopi-Docka v{__version__} – Backup & Restore for Docker using Kopia.",
 )
 logger = get_logger(__name__)
 
 # Commands that can run without root privileges
 # Note: 'admin' is a group, so we check individual subcommands via ctx.invoked_subcommand
-SAFE_COMMANDS = {"version", "doctor", "admin", "check", "show-deps"}
+SAFE_COMMANDS = {"version", "doctor", "admin", "advanced", "check", "show-deps"}
 
 
 # -------------------------
@@ -173,15 +177,17 @@ backup_commands.register(app)  # 2. backup, 3. restore
 dry_run_commands.register(app)  # 4. dry-run
 disaster_recovery_commands.register(app)  # 5. disaster-recovery
 doctor_commands.register(app)  # 6. doctor
-dependency_commands.register(app)  # Dependency management (check/install/show)
-repository_commands.register(app)  # Repository management (init/status/etc.)
+dependency_commands.register(app, hidden=True)  # Dependency management (hidden wrappers)
+repository_commands.register(app, hidden=True)  # Repository management (hidden wrappers)
 
 
 # -------------------------
 # Mount Admin Subcommand
 # -------------------------
 
-app.add_typer(admin_app, name="admin", help="Advanced administration tools for power users.")
+app.add_typer(admin_app, name="advanced", help="Advanced tools (Config, Repo, System).")
+# Legacy alias for backward compatibility (hidden from help)
+app.add_typer(admin_app, name="admin", hidden=True)
 
 
 # -------------------------
@@ -195,7 +201,7 @@ def cmd_version():
     console.print(f"[bold cyan]Kopi-Docka[/bold cyan] [green]{VERSION}[/green] " "(compat 1.0.0)")
 
 
-@app.command("daemon")
+@app.command("daemon", hidden=True)
 def cmd_daemon_alias(
     interval_minutes: int = typer.Option(
         60, "--interval-minutes", "-i", help="Run backups every N minutes"
@@ -211,7 +217,7 @@ def cmd_daemon_alias(
         help="Log level for daemon (DEBUG, INFO, WARNING, ERROR)",
     ),
 ):
-    """Run the systemd-friendly daemon (alias for admin service daemon)."""
+    """Run the systemd-friendly daemon (alias for advanced service daemon)."""
     cmd_daemon(interval_minutes, backup_cmd, log_level)
 
 
