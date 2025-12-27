@@ -106,7 +106,7 @@ def cmd_manage():
                 "[red]Root privileges required[/red]\n\n"
                 "This command requires root privileges for systemctl operations.\n"
                 "Please run with sudo:\n\n"
-                "[cyan]sudo kopi-docka admin service manage[/cyan]",
+                "[cyan]sudo kopi-docka advanced service manage[/cyan]",
                 title="[bold red]Permission Denied[/bold red]",
                 border_style="red",
             )

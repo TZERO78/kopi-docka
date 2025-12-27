@@ -79,7 +79,8 @@ def ensure_config(ctx: typer.Context) -> Config:
     cfg = get_config(ctx)
     if not cfg:
         print_error_panel(
-            "No configuration found\n\n" "[dim]Run:[/dim] [cyan]kopi-docka admin config new[/cyan]"
+            "No configuration found\n\n"
+            "[dim]Run:[/dim] [cyan]kopi-docka advanced config new[/cyan]"
         )
         raise typer.Exit(code=1)
     return cfg
@@ -127,13 +128,13 @@ def cmd_new_config(
         if not force:
             console.print("[bold]Use one of these options:[/bold]")
             console.print(
-                "  [cyan]kopi-docka admin config edit[/cyan]       - Modify existing config"
+                "  [cyan]kopi-docka advanced config edit[/cyan]       - Modify existing config"
             )
             console.print(
-                "  [cyan]kopi-docka admin config new --force[/cyan] - Overwrite with warnings"
+                "  [cyan]kopi-docka advanced config new --force[/cyan] - Overwrite with warnings"
             )
             console.print(
-                "  [cyan]kopi-docka admin config reset[/cyan]      - Complete reset (DANGEROUS)"
+                "  [cyan]kopi-docka advanced config reset[/cyan]      - Complete reset (DANGEROUS)"
             )
             console.print()
             raise typer.Exit(code=1)
@@ -157,10 +158,10 @@ def cmd_new_config(
             console.print()
             console.print("[bold]Safer alternatives:[/bold]")
             console.print(
-                "  [cyan]kopi-docka admin config edit[/cyan]        - Edit existing config"
+                "  [cyan]kopi-docka advanced config edit[/cyan]        - Edit existing config"
             )
             console.print(
-                "  [cyan]kopi-docka admin repo change-password[/cyan] - Change password safely"
+                "  [cyan]kopi-docka advanced repo change-password[/cyan] - Change password safely"
             )
             raise typer.Exit(code=0)
 
@@ -314,8 +315,8 @@ def cmd_new_config(
 
     print_next_steps(
         [
-            "Initialize repository:\n   [cyan]sudo kopi-docka admin repo init[/cyan]",
-            "List Docker containers:\n   [cyan]sudo kopi-docka admin snapshot list[/cyan]",
+            "Initialize repository:\n   [cyan]sudo kopi-docka advanced repo init[/cyan]",
+            "List Docker containers:\n   [cyan]sudo kopi-docka advanced snapshot list[/cyan]",
             "Test backup (dry-run):\n   [cyan]sudo kopi-docka dry-run[/cyan]",
             "Create first backup:\n   [cyan]sudo kopi-docka backup[/cyan]",
         ]
@@ -812,7 +813,7 @@ def _display_generic_status(console, status, backend_type):
     if not status.get("configured"):
         console.print(
             Panel(
-                f"[yellow]⚠️  Repository not configured![/yellow]\nRun: [cyan]kopi-docka admin config new[/cyan]",
+                f"[yellow]⚠️  Repository not configured![/yellow]\nRun: [cyan]kopi-docka advanced config new[/cyan]",
                 title="Warning",
                 border_style="yellow",
             )

@@ -57,7 +57,8 @@ def ensure_config(ctx: typer.Context) -> Config:
     cfg = get_config(ctx)
     if not cfg:
         print_error_panel(
-            "No configuration found\n\n" "[dim]Run:[/dim] [cyan]kopi-docka admin config new[/cyan]"
+            "No configuration found\n\n"
+            "[dim]Run:[/dim] [cyan]kopi-docka advanced config new[/cyan]"
         )
         raise typer.Exit(code=1)
     return cfg

@@ -86,10 +86,10 @@ def cmd_check(
                 console.print("  [dim]Run:[/dim] [cyan]kopi-docka init[/cyan]")
         except Exception:
             print_error("No configuration found")
-            console.print("  [dim]Run:[/dim] [cyan]kopi-docka admin config new[/cyan]")
+            console.print("  [dim]Run:[/dim] [cyan]kopi-docka advanced config new[/cyan]")
     else:
         print_error("No configuration found")
-        console.print("  [dim]Run:[/dim] [cyan]kopi-docka admin config new[/cyan]")
+        console.print("  [dim]Run:[/dim] [cyan]kopi-docka advanced config new[/cyan]")
 
 
 def cmd_install_deps(force: bool = False, dry_run: bool = False):
@@ -121,7 +121,7 @@ def cmd_install_deps(force: bool = False, dry_run: bool = False):
     ):
         console.print()
         console.print(
-            "[dim]Tip:[/dim] Create config with: [cyan]kopi-docka admin config new[/cyan]"
+            "[dim]Tip:[/dim] Create config with: [cyan]kopi-docka advanced config new[/cyan]"
         )
 
 

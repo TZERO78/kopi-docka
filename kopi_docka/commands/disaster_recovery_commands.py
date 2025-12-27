@@ -40,7 +40,7 @@ def ensure_config(ctx: typer.Context) -> Config:
     cfg = get_config(ctx)
     if not cfg:
         typer.echo("❌ No configuration found")
-        typer.echo("Run: kopi-docka admin config new")
+        typer.echo("Run: kopi-docka advanced config new")
         raise typer.Exit(code=1)
     return cfg
 
