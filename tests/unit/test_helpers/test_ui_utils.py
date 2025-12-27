@@ -137,10 +137,13 @@ class TestCreateTable:
 
     def test_create_table_structure(self):
         """Test table is created with correct columns."""
-        table = create_table("Test Table", [
-            ("Name", "cyan", 20),
-            ("Value", "white", 30),
-        ])
+        table = create_table(
+            "Test Table",
+            [
+                ("Name", "cyan", 20),
+                ("Value", "white", 30),
+            ],
+        )
         assert len(table.columns) == 2
         assert table.title == "Test Table"
 
@@ -159,42 +162,42 @@ class TestCreateTable:
 class TestConfirmAction:
     """Test confirm action function."""
 
-    @patch('kopi_docka.helpers.ui_utils.console')
+    @patch("kopi_docka.helpers.ui_utils.console")
     def test_confirm_yes(self, mock_console):
         """Test confirmation with 'y' response."""
         mock_console.input.return_value = "y"
         result = confirm_action("Proceed?")
         assert result is True
 
-    @patch('kopi_docka.helpers.ui_utils.console')
+    @patch("kopi_docka.helpers.ui_utils.console")
     def test_confirm_yes_full(self, mock_console):
         """Test confirmation with 'yes' response."""
         mock_console.input.return_value = "yes"
         result = confirm_action("Proceed?")
         assert result is True
 
-    @patch('kopi_docka.helpers.ui_utils.console')
+    @patch("kopi_docka.helpers.ui_utils.console")
     def test_confirm_no(self, mock_console):
         """Test confirmation with 'n' response."""
         mock_console.input.return_value = "n"
         result = confirm_action("Proceed?")
         assert result is False
 
-    @patch('kopi_docka.helpers.ui_utils.console')
+    @patch("kopi_docka.helpers.ui_utils.console")
     def test_confirm_no_full(self, mock_console):
         """Test confirmation with 'no' response."""
         mock_console.input.return_value = "no"
         result = confirm_action("Proceed?")
         assert result is False
 
-    @patch('kopi_docka.helpers.ui_utils.console')
+    @patch("kopi_docka.helpers.ui_utils.console")
     def test_confirm_default_no(self, mock_console):
         """Test confirmation with empty response (default no)."""
         mock_console.input.return_value = ""
         result = confirm_action("Proceed?", default_no=True)
         assert result is False
 
-    @patch('kopi_docka.helpers.ui_utils.console')
+    @patch("kopi_docka.helpers.ui_utils.console")
     def test_confirm_default_yes(self, mock_console):
         """Test confirmation with empty response (default yes)."""
         mock_console.input.return_value = ""
@@ -266,14 +269,14 @@ class TestPrintNextSteps:
 class TestGetMenuChoice:
     """Test menu choice input function."""
 
-    @patch('kopi_docka.helpers.ui_utils.console')
+    @patch("kopi_docka.helpers.ui_utils.console")
     def test_get_menu_choice_valid(self, mock_console):
         """Test getting valid menu choice."""
         mock_console.input.return_value = "1"
         result = get_menu_choice("Select", valid_choices=["1", "2", "3"])
         assert result == "1"
 
-    @patch('kopi_docka.helpers.ui_utils.console')
+    @patch("kopi_docka.helpers.ui_utils.console")
     def test_get_menu_choice_no_validation(self, mock_console):
         """Test getting menu choice without validation."""
         mock_console.input.return_value = "anything"

@@ -9,7 +9,7 @@
 # @repository:  https://github.com/TZERO78/kopi-docka
 # @version:     2.0.0
 #
-# ------------------------------------------------------------------------------ 
+# ------------------------------------------------------------------------------
 # MIT-Lizenz: siehe LICENSE oder https://opensource.org/licenses/MIT
 # ==============================================================================
 # Changelog v2.0.0:
@@ -89,40 +89,35 @@ class RestoreManager:
         self.config = config
         self.repo = KopiaRepository(config)
         self.hooks_manager = HooksManager(config)
-        self.start_timeout = self.config.getint(
-            "backup", "start_timeout", CONTAINER_START_TIMEOUT
-        )
+        self.start_timeout = self.config.getint("backup", "start_timeout", CONTAINER_START_TIMEOUT)
         self.non_interactive = non_interactive
         self.force_recreate_networks = force_recreate_networks
         self.skip_network_recreation = skip_network_recreation
 
         if self.force_recreate_networks and self.skip_network_recreation:
-            raise ValueError(
-                "Cannot force and skip network recreation at the same time"
-            )
+            raise ValueError("Cannot force and skip network recreation at the same time")
 
     def interactive_restore(self):
         """Run interactive wizard."""
-        print_header("Kopi-Docka Restore Wizard", "(Non-interactive: --yes)" if self.non_interactive else "")
-
-        logger.info(
-            "Starting restore wizard",
-            extra={"non_interactive": self.non_interactive}
+        print_header(
+            "Kopi-Docka Restore Wizard", "(Non-interactive: --yes)" if self.non_interactive else ""
         )
+
+        logger.info("Starting restore wizard", extra={"non_interactive": self.non_interactive})
 
         # Check dependencies FIRST
         from ..cores.dependency_manager import DependencyManager
-        
+
         deps = DependencyManager()
         missing = []
-        
+
         if not deps.check_docker():
             missing.append("Docker")
         if not deps.check_tar():
             missing.append("tar")
         if not deps.check_kopia():
             missing.append("Kopia")
-        
+
         if missing:
             print_error("Missing required dependencies:")
             for dep in missing:
@@ -162,37 +157,31 @@ class RestoreManager:
         # Gruppiere nach Zeitfenstern (5 Min Toleranz)
         sessions = []
         current_session = None
-        
+
         for p in sorted_points:
             if current_session is None:
                 # Erste Session starten
-                current_session = {
-                    'timestamp': p.timestamp,
-                    'units': [p]
-                }
+                current_session = {"timestamp": p.timestamp, "units": [p]}
             else:
                 # Check ob innerhalb 5 Min vom neuesten in aktueller Session
-                time_diff = current_session['timestamp'] - p.timestamp
+                time_diff = current_session["timestamp"] - p.timestamp
                 if time_diff <= timedelta(minutes=5):
                     # Gehört zur aktuellen Session
-                    current_session['units'].append(p)
+                    current_session["units"].append(p)
                 else:
                     # Neue Session starten
                     sessions.append(current_session)
-                    current_session = {
-                        'timestamp': p.timestamp,
-                        'units': [p]
-                    }
-        
+                    current_session = {"timestamp": p.timestamp, "units": [p]}
+
         # Letzte Session hinzufügen
         if current_session:
             sessions.append(current_session)
 
         print_info("\n📋 Available backup sessions:\n")
         for idx, session in enumerate(sessions, 1):
-            ts = session['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
-            units = session['units']
-            
+            ts = session["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
+            units = session["units"]
+
             # Zeitspanne der Session
             if len(units) > 1:
                 oldest = min(u.timestamp for u in units)
@@ -201,10 +190,10 @@ class RestoreManager:
                 time_range = f" (span: {int(duration/60)}min)" if duration > 60 else ""
             else:
                 time_range = ""
-            
-            unit_names = ', '.join([u.unit_name for u in units])
+
+            unit_names = ", ".join([u.unit_name for u in units])
             total_volumes = sum(len(u.volume_snapshots) for u in units)
-            
+
             print(f"{idx}. 📅 {ts}{time_range}")
             print(f"   Units: {unit_names}")
             print(f"   Total volumes: {total_volumes}\n")
@@ -218,9 +207,11 @@ class RestoreManager:
         else:
             while True:
                 try:
-                    choice = input("🎯 Select backup session (number, or 'q' to quit): ").strip().lower()
+                    choice = (
+                        input("🎯 Select backup session (number, or 'q' to quit): ").strip().lower()
+                    )
 
-                    if choice == 'q':
+                    if choice == "q":
                         print("\n⚠️ Restore cancelled.")
                         logger.info("Restore cancelled by user (quit)")
                         return
@@ -237,7 +228,7 @@ class RestoreManager:
                     return
 
         selected_session = sessions[session_idx]
-        units = selected_session['units']
+        units = selected_session["units"]
 
         # Wenn nur 1 Unit in Session → direkt nehmen
         if len(units) == 1:
@@ -251,14 +242,18 @@ class RestoreManager:
             # Mehrere Units → User wählen lassen
             print("\n📦 Units in this backup session:\n")
             for idx, u in enumerate(units, 1):
-                ts = u.timestamp.strftime('%H:%M:%S')
+                ts = u.timestamp.strftime("%H:%M:%S")
                 print(f"{idx}. {u.unit_name} ({len(u.volume_snapshots)} volumes) - {ts}")
 
             while True:
                 try:
-                    choice = input("\n🎯 Select unit to restore (number, or 'q' to quit): ").strip().lower()
+                    choice = (
+                        input("\n🎯 Select unit to restore (number, or 'q' to quit): ")
+                        .strip()
+                        .lower()
+                    )
 
-                    if choice == 'q':
+                    if choice == "q":
                         print("\n⚠️ Restore cancelled.")
                         logger.info("Restore cancelled by user (quit)")
                         return
@@ -292,7 +287,7 @@ class RestoreManager:
             logger.info("Auto-confirmed restore (non-interactive)")
         else:
             confirm = input("\n⚠️ Proceed with restore? (yes/no/q): ").strip().lower()
-            if confirm not in ('yes', 'y'):
+            if confirm not in ("yes", "y"):
                 print("❌ Restore cancelled.")
                 logger.info("Restore cancelled at confirmation")
                 return
@@ -315,8 +310,7 @@ class RestoreManager:
         print("=" * 60)
 
         logger.info(
-            "Starting advanced restore wizard",
-            extra={"non_interactive": self.non_interactive}
+            "Starting advanced restore wizard", extra={"non_interactive": self.non_interactive}
         )
 
         # Check dependencies
@@ -365,12 +359,16 @@ class RestoreManager:
         print("\n📋 Machines with backups in repository:\n")
         for idx, m in enumerate(machines, 1):
             is_current = "⭐" if m.hostname == current_hostname else "  "
-            last_backup_str = m.last_backup.strftime('%Y-%m-%d %H:%M:%S') if m.last_backup.year > 1 else "unknown"
+            last_backup_str = (
+                m.last_backup.strftime("%Y-%m-%d %H:%M:%S") if m.last_backup.year > 1 else "unknown"
+            )
             size_mb = m.total_size / 1024 / 1024
 
             print(f"{idx}. {is_current} 🖥️  {m.hostname}")
             print(f"      Last backup: {last_backup_str}")
-            print(f"      Units: {', '.join(m.units[:5])}{' ...' if len(m.units) > 5 else ''} ({len(m.units)} total)")
+            print(
+                f"      Units: {', '.join(m.units[:5])}{' ...' if len(m.units) > 5 else ''} ({len(m.units)} total)"
+            )
             print(f"      Snapshots: {m.backup_count} ({size_mb:.1f} MB)")
             print()
 
@@ -382,9 +380,11 @@ class RestoreManager:
         else:
             while True:
                 try:
-                    choice = input("🎯 Select source machine (number, or 'q' to quit): ").strip().lower()
+                    choice = (
+                        input("🎯 Select source machine (number, or 'q' to quit): ").strip().lower()
+                    )
 
-                    if choice == 'q':
+                    if choice == "q":
                         print("\n⚠️ Restore cancelled.")
                         logger.info("Restore cancelled by user")
                         return
@@ -416,8 +416,10 @@ class RestoreManager:
             print("   • Paths in configs may need adjustment")
 
             if not self.non_interactive:
-                confirm = input("\n⚠️  Proceed with cross-machine restore? (yes/no): ").strip().lower()
-                if confirm not in ('yes', 'y'):
+                confirm = (
+                    input("\n⚠️  Proceed with cross-machine restore? (yes/no): ").strip().lower()
+                )
+                if confirm not in ("yes", "y"):
                     print("❌ Restore cancelled.")
                     logger.info("Cross-machine restore cancelled by user")
                     return
@@ -438,23 +440,23 @@ class RestoreManager:
 
         for p in sorted_points:
             if current_session is None:
-                current_session = {'timestamp': p.timestamp, 'units': [p]}
+                current_session = {"timestamp": p.timestamp, "units": [p]}
             else:
-                time_diff = current_session['timestamp'] - p.timestamp
+                time_diff = current_session["timestamp"] - p.timestamp
                 if time_diff <= timedelta(minutes=5):
-                    current_session['units'].append(p)
+                    current_session["units"].append(p)
                 else:
                     sessions.append(current_session)
-                    current_session = {'timestamp': p.timestamp, 'units': [p]}
+                    current_session = {"timestamp": p.timestamp, "units": [p]}
 
         if current_session:
             sessions.append(current_session)
 
         print(f"\n📋 Backup sessions for {selected_machine.hostname}:\n")
         for idx, session in enumerate(sessions, 1):
-            ts = session['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
-            units = session['units']
-            unit_names = ', '.join([u.unit_name for u in units])
+            ts = session["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
+            units = session["units"]
+            unit_names = ", ".join([u.unit_name for u in units])
             total_volumes = sum(len(u.volume_snapshots) for u in units)
 
             print(f"{idx}. 📅 {ts}")
@@ -468,9 +470,11 @@ class RestoreManager:
         else:
             while True:
                 try:
-                    choice = input("🎯 Select backup session (number, or 'q' to quit): ").strip().lower()
+                    choice = (
+                        input("🎯 Select backup session (number, or 'q' to quit): ").strip().lower()
+                    )
 
-                    if choice == 'q':
+                    if choice == "q":
                         print("\n⚠️ Restore cancelled.")
                         return
 
@@ -485,7 +489,7 @@ class RestoreManager:
                     return
 
         selected_session = sessions[session_idx]
-        units = selected_session['units']
+        units = selected_session["units"]
 
         # Select unit if multiple
         if len(units) == 1:
@@ -496,14 +500,18 @@ class RestoreManager:
         else:
             print("\n📦 Units in this backup session:\n")
             for idx, u in enumerate(units, 1):
-                ts = u.timestamp.strftime('%H:%M:%S')
+                ts = u.timestamp.strftime("%H:%M:%S")
                 print(f"{idx}. {u.unit_name} ({len(u.volume_snapshots)} volumes) - {ts}")
 
             while True:
                 try:
-                    choice = input("\n🎯 Select unit to restore (number, or 'q' to quit): ").strip().lower()
+                    choice = (
+                        input("\n🎯 Select unit to restore (number, or 'q' to quit): ")
+                        .strip()
+                        .lower()
+                    )
 
-                    if choice == 'q':
+                    if choice == "q":
                         print("\n⚠️ Restore cancelled.")
                         return
 
@@ -533,7 +541,7 @@ class RestoreManager:
 
         if not self.non_interactive:
             confirm = input("\n⚠️ Proceed with restore? (yes/no/q): ").strip().lower()
-            if confirm not in ('yes', 'y'):
+            if confirm not in ("yes", "y"):
                 print("❌ Restore cancelled.")
                 return
 
@@ -572,7 +580,9 @@ class RestoreManager:
                 try:
                     # Handle ISO format with timezone (Z suffix)
                     ts_clean = ts_str.replace("Z", "+00:00") if ts_str else None
-                    ts = datetime.fromisoformat(ts_clean) if ts_clean else datetime.now(timezone.utc)
+                    ts = (
+                        datetime.fromisoformat(ts_clean) if ts_clean else datetime.now(timezone.utc)
+                    )
                 except ValueError:
                     ts = datetime.now(timezone.utc)
 
@@ -623,7 +633,9 @@ class RestoreManager:
                 try:
                     # Handle ISO format with timezone (Z suffix)
                     ts_clean = ts_str.replace("Z", "+00:00") if ts_str else None
-                    ts = datetime.fromisoformat(ts_clean) if ts_clean else datetime.now(timezone.utc)
+                    ts = (
+                        datetime.fromisoformat(ts_clean) if ts_clean else datetime.now(timezone.utc)
+                    )
                 except ValueError:
                     ts = datetime.now(timezone.utc)
 
@@ -670,8 +682,7 @@ class RestoreManager:
         if not self.hooks_manager.execute_pre_restore(rp.unit_name):
             print_error("Pre-restore hook failed")
             logger.error(
-                "Pre-restore hook failed, aborting restore",
-                extra={"unit_name": rp.unit_name}
+                "Pre-restore hook failed, aborting restore", extra={"unit_name": rp.unit_name}
             )
             return
 
@@ -711,10 +722,7 @@ class RestoreManager:
             print("\n🔧 Executing post-restore hook...")
             if not self.hooks_manager.execute_post_restore(rp.unit_name):
                 print("⚠️ Post-restore hook failed")
-                logger.warning(
-                    "Post-restore hook failed",
-                    extra={"unit_name": rp.unit_name}
-                )
+                logger.warning("Post-restore hook failed", extra={"unit_name": rp.unit_name})
 
             print_separator()
             print_success("Restoration guide complete!")
@@ -740,16 +748,14 @@ class RestoreManager:
             except Exception as cleanup_error:
                 logger.warning(
                     f"Could not clean up restore directory {restore_dir}: {cleanup_error}",
-                    extra={"unit_name": rp.unit_name}
+                    extra={"unit_name": rp.unit_name},
                 )
                 print(f"\n⚠️  Could not clean up {restore_dir}: {cleanup_error}")
 
     def _restore_recipe(self, rp: RestorePoint, restore_dir: Path) -> Path:
         """Restore recipe snapshots into a folder."""
         if not rp.recipe_snapshots:
-            logger.warning(
-                "No recipe snapshots found", extra={"unit_name": rp.unit_name}
-            )
+            logger.warning("No recipe snapshots found", extra={"unit_name": rp.unit_name})
             return restore_dir
 
         recipe_dir = restore_dir / "recipes"
@@ -788,9 +794,7 @@ class RestoreManager:
             Number of networks restored
         """
         if not rp.network_snapshots:
-            logger.debug(
-                "No network snapshots found", extra={"unit_name": rp.unit_name}
-            )
+            logger.debug("No network snapshots found", extra={"unit_name": rp.unit_name})
             return 0
 
         networks_dir = restore_dir / "networks"
@@ -820,9 +824,7 @@ class RestoreManager:
                     "Listing existing networks",
                     timeout=10,
                 )
-                existing_networks = {
-                    n for n in result.stdout.strip().split("\n") if n
-                }
+                existing_networks = {n for n in result.stdout.strip().split("\n") if n}
 
                 # Restore each network
                 for net_config in network_configs:
@@ -837,28 +839,26 @@ class RestoreManager:
                         print(f"   ⚠️ Network '{net_name}' already exists")
 
                         if self.skip_network_recreation:
-                            print(
-                                f"      ↷ Skipping '{net_name}' (--no-recreate-networks)"
-                            )
+                            print(f"      ↷ Skipping '{net_name}' (--no-recreate-networks)")
                             continue
 
                         if self.force_recreate_networks:
                             choice = "yes"
                         elif self.non_interactive:
-                            print(
-                                f"      ✓ Auto-recreating '{net_name}' (--yes mode)"
-                            )
-                            choice = 'yes'
+                            print(f"      ✓ Auto-recreating '{net_name}' (--yes mode)")
+                            choice = "yes"
                         else:
-                            choice = input(
-                                f"      Recreate network '{net_name}'? (yes/no/q): "
-                            ).strip().lower()
+                            choice = (
+                                input(f"      Recreate network '{net_name}'? (yes/no/q): ")
+                                .strip()
+                                .lower()
+                            )
 
-                            if choice == 'q':
+                            if choice == "q":
                                 print("\n   ⚠️ Network restore cancelled.")
                                 return restored_count
 
-                        if choice not in ('yes', 'y'):
+                        if choice not in ("yes", "y"):
                             print(f"      ↷ Skipping '{net_name}'")
                             continue
 
@@ -900,13 +900,9 @@ class RestoreManager:
                             print(f"      ❌ Failed to remove network: {e.stderr}")
                             print("         Network may still have attached containers.")
                             if disconnected:
-                                self._reconnect_containers_to_network(
-                                    net_name, attached_containers
-                                )
+                                self._reconnect_containers_to_network(net_name, attached_containers)
                             if stopped_container_ids:
-                                self._restart_containers(
-                                    stopped_container_ids, net_name
-                                )
+                                self._restart_containers(stopped_container_ids, net_name)
                             continue
 
                     # Create network
@@ -955,31 +951,26 @@ class RestoreManager:
                         restored_count += 1
 
                         if attached_containers:
-                            self._reconnect_containers_to_network(
-                                net_name, attached_containers
-                            )
+                            self._reconnect_containers_to_network(net_name, attached_containers)
 
                         if stopped_container_ids:
-                            self._restart_containers(
-                                stopped_container_ids, net_name
-                            )
+                            self._restart_containers(stopped_container_ids, net_name)
 
                         logger.info(
                             f"Network {net_name} restored",
-                            extra={"unit_name": rp.unit_name, "network": net_name}
+                            extra={"unit_name": rp.unit_name, "network": net_name},
                         )
 
                     except SubprocessError as e:
                         print(f"      ❌ Failed to create network: {e.stderr}")
                         logger.error(
                             f"Network creation failed: {e.stderr}",
-                            extra={"unit_name": rp.unit_name, "network": net_name}
+                            extra={"unit_name": rp.unit_name, "network": net_name},
                         )
 
             except Exception as e:
                 logger.error(
-                    f"Failed to restore network snapshot: {e}",
-                    extra={"unit_name": rp.unit_name}
+                    f"Failed to restore network snapshot: {e}", extra={"unit_name": rp.unit_name}
                 )
                 print(f"   ⚠️ Warning: Could not restore networks: {e}")
 
@@ -997,9 +988,7 @@ class RestoreManager:
             cmd.append("-a")
         cmd.extend(["--filter", f"network={net_name}"])
         if compose_project:
-            cmd.extend(
-                ["--filter", f"label={DOCKER_COMPOSE_PROJECT_LABEL}={compose_project}"]
-            )
+            cmd.extend(["--filter", f"label={DOCKER_COMPOSE_PROJECT_LABEL}={compose_project}"])
         cmd.extend(["--format", "{{.ID}};{{.Names}}"])
 
         result = run_command(
@@ -1016,9 +1005,7 @@ class RestoreManager:
                 containers.append((parts[0], parts[1]))
         return containers
 
-    def _stop_containers(
-        self, containers: List[Tuple[str, str]], net_name: str
-    ) -> List[str]:
+    def _stop_containers(self, containers: List[Tuple[str, str]], net_name: str) -> List[str]:
         """Stop running containers connected to a network."""
         ids = [cid for cid, _ in containers]
         if not ids:
@@ -1060,10 +1047,7 @@ class RestoreManager:
             if result.returncode == 0:
                 disconnected.append(cid)
             else:
-                print(
-                    f"      ⚠️ Could not disconnect {name} "
-                    f"(exit {result.returncode})"
-                )
+                print(f"      ⚠️ Could not disconnect {name} " f"(exit {result.returncode})")
 
         return disconnected
 
@@ -1085,10 +1069,7 @@ class RestoreManager:
                 check=False,
             )
             if result.returncode != 0:
-                print(
-                    f"      ⚠️ Could not re-attach {name} "
-                    f"(exit {result.returncode})"
-                )
+                print(f"      ⚠️ Could not re-attach {name} " f"(exit {result.returncode})")
 
     def _restart_containers(self, container_ids: List[str], net_name: str) -> None:
         """Restart containers that were running before network recreation."""
@@ -1101,10 +1082,7 @@ class RestoreManager:
                 f"Starting {len(container_ids)} container(s)",
                 timeout=60,
             )
-            print(
-                f"      🔁 Restarted {len(container_ids)} "
-                f"container(s) on '{net_name}'"
-            )
+            print(f"      🔁 Restarted {len(container_ids)} " f"container(s) on '{net_name}'")
         except SubprocessError as e:
             print(f"      ⚠️ Failed to restart containers: {e.stderr}")
 
@@ -1116,9 +1094,7 @@ class RestoreManager:
                 if "***REDACTED***" in content:
                     print(f"   ⚠ Note: {f.name} contains redacted secrets")
                     print("     Restore actual values manually if needed.")
-                    logger.info(
-                        "Found redacted secrets in restore", extra={"file": f.name}
-                    )
+                    logger.info("Found redacted secrets in restore", extra={"file": f.name})
             except Exception:
                 pass
 
@@ -1141,23 +1117,25 @@ class RestoreManager:
             # User fragen oder auto-bestätigen
             if self.non_interactive:
                 print(f"\n   ✓ Auto-restoring '{vol}' (--yes mode)")
-                choice = 'yes'
+                choice = "yes"
             else:
                 choice = input(f"\n   ⚠️  Restore '{vol}' NOW? (yes/no/q): ").strip().lower()
 
-                if choice == 'q':
+                if choice == "q":
                     print("\n   ⚠️ Restore cancelled.")
                     logger.info("Volume restore cancelled by user")
                     return
 
-            if choice in ('yes', 'y'):
+            if choice in ("yes", "y"):
                 # Python führt direkt aus - MIT UNIT!
                 print(f"\n   🚀 Restoring volume '{vol}'...")
                 print("   " + "=" * 50)
 
                 try:
-                    success = self._execute_volume_restore(vol, unit, snap_id, config_file, snapshot=snap)  # Pass snapshot for format detection
-                    
+                    success = self._execute_volume_restore(
+                        vol, unit, snap_id, config_file, snapshot=snap
+                    )  # Pass snapshot for format detection
+
                     if success:
                         print("   " + "=" * 50)
                         print(f"   ✅ Volume '{vol}' restored successfully!\n")
@@ -1166,7 +1144,7 @@ class RestoreManager:
                         print("   " + "=" * 50)
                         print(f"   ❌ Restore failed for '{vol}'\n")
                         logger.error(f"Volume restore failed for {vol}")
-                        
+
                 except Exception as e:
                     print(f"   ❌ Error: {e}\n")
                     logger.error(f"Volume restore error: {e}", extra={"volume": vol})
@@ -1183,17 +1161,27 @@ class RestoreManager:
                 print(f"")
                 print(f"   # 2. Safety backup")
                 print(f"   docker run --rm -v {vol}:/src -v /tmp:/backup alpine \\")
-                print(f"     sh -c 'tar -czf /backup/{vol}-backup-$(date +%Y%m%d-%H%M%S).tar.gz -C /src .'")
+                print(
+                    f"     sh -c 'tar -czf /backup/{vol}-backup-$(date +%Y%m%d-%H%M%S).tar.gz -C /src .'"
+                )
                 print(f"")
                 print(f"   # 3. Restore from Kopia")
                 print(f"   RESTORE_DIR=$(mktemp -d)")
-                print(f"   kopia snapshot restore {snap_id} --config-file {config_file} $RESTORE_DIR")
+                print(
+                    f"   kopia snapshot restore {snap_id} --config-file {config_file} $RESTORE_DIR"
+                )
                 print(f"   TAR_FILE=$(find $RESTORE_DIR -name '{vol}' -type f)")
                 print(f"")
                 print(f"   # 4. Extract into volume")
-                print(f"   docker run --rm -v {vol}:/target -v $TAR_FILE:/backup.tar:ro debian:bookworm-slim \\")
-                print(f"     bash -c 'rm -rf /target/* /target/..?* /target/.[!.]* 2>/dev/null || true; \\")
-                print(f"              tar -xpf /backup.tar --numeric-owner --xattrs --acls -C /target'")
+                print(
+                    f"   docker run --rm -v {vol}:/target -v $TAR_FILE:/backup.tar:ro debian:bookworm-slim \\"
+                )
+                print(
+                    f"     bash -c 'rm -rf /target/* /target/..?* /target/.[!.]* 2>/dev/null || true; \\"
+                )
+                print(
+                    f"              tar -xpf /backup.tar --numeric-owner --xattrs --acls -C /target'"
+                )
                 print(f"")
                 print(f"   # 5. Cleanup and restart")
                 print(f"   rm -rf $RESTORE_DIR")
@@ -1234,7 +1222,9 @@ class RestoreManager:
         # Legacy backups (before v5.0) don't have backup_format tag
         return BACKUP_FORMAT_TAR
 
-    def _execute_volume_restore(self, vol: str, unit: str, snap_id: str, config_file: str, snapshot: dict = None) -> bool:
+    def _execute_volume_restore(
+        self, vol: str, unit: str, snap_id: str, config_file: str, snapshot: dict = None
+    ) -> bool:
         """Execute volume restore with automatic format detection.
 
         Dispatcher that routes to the appropriate restore method based on
@@ -1259,7 +1249,7 @@ class RestoreManager:
 
         logger.info(
             f"Restoring volume {vol} using {backup_format} format",
-            extra={"volume": vol, "backup_format": backup_format}
+            extra={"volume": vol, "backup_format": backup_format},
         )
 
         if backup_format == BACKUP_FORMAT_DIRECT:
@@ -1267,7 +1257,9 @@ class RestoreManager:
         else:
             return self._execute_volume_restore_tar(vol, unit, snap_id, config_file)
 
-    def _execute_volume_restore_direct(self, vol: str, unit: str, snap_id: str, config_file: str) -> bool:
+    def _execute_volume_restore_direct(
+        self, vol: str, unit: str, snap_id: str, config_file: str
+    ) -> bool:
         """Execute volume restore for direct Kopia snapshots (v5.0+).
 
         Direct snapshots contain the actual file structure, not a TAR archive.
@@ -1282,6 +1274,7 @@ class RestoreManager:
         Returns:
             True if restore successful, False otherwise
         """
+
         @contextmanager
         def temp_restore_dir():
             """Context manager for guaranteed cleanup."""
@@ -1319,13 +1312,24 @@ class RestoreManager:
             print("\n   2️⃣ Creating safety backup...")
             backup_name = f"{vol}-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.tar.gz"
 
-            run_command([
-                "docker", "run", "--rm",
-                "-v", f"{vol}:/src",
-                "-v", "/tmp:/backup",
-                "alpine",
-                "sh", "-c", f"tar -czf /backup/{backup_name} -C /src . 2>/dev/null || true"
-            ], "Creating safety backup", timeout=300, check=False)
+            run_command(
+                [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "-v",
+                    f"{vol}:/src",
+                    "-v",
+                    "/tmp:/backup",
+                    "alpine",
+                    "sh",
+                    "-c",
+                    f"tar -czf /backup/{backup_name} -C /src . 2>/dev/null || true",
+                ],
+                "Creating safety backup",
+                timeout=300,
+                check=False,
+            )
 
             backup_path = Path(f"/tmp/{backup_name}")
             if backup_path.exists():
@@ -1340,11 +1344,19 @@ class RestoreManager:
 
             with temp_restore_dir() as restore_dir:
                 # Restore snapshot directly
-                run_command([
-                    "kopia", "snapshot", "restore", snap_id,
-                    "--config-file", config_file,
-                    str(restore_dir)
-                ], "Restoring snapshot from Kopia", show_output=True)
+                run_command(
+                    [
+                        "kopia",
+                        "snapshot",
+                        "restore",
+                        snap_id,
+                        "--config-file",
+                        config_file,
+                        str(restore_dir),
+                    ],
+                    "Restoring snapshot from Kopia",
+                    show_output=True,
+                )
 
                 # Count restored files
                 file_count = sum(1 for _ in restore_dir.rglob("*") if _.is_file())
@@ -1366,12 +1378,19 @@ class RestoreManager:
                 print("      ℹ Copying files to volume...")
 
                 # Use rsync for efficient copy with permissions preserved
-                rsync_result = run_command([
-                    "rsync", "-a", "--delete",
-                    "--numeric-ids",
-                    f"{restore_dir}/",
-                    f"{volume_mountpoint}/"
-                ], "Syncing files to volume", timeout=600, check=False)
+                rsync_result = run_command(
+                    [
+                        "rsync",
+                        "-a",
+                        "--delete",
+                        "--numeric-ids",
+                        f"{restore_dir}/",
+                        f"{volume_mountpoint}/",
+                    ],
+                    "Syncing files to volume",
+                    timeout=600,
+                    check=False,
+                )
 
                 if rsync_result.returncode != 0:
                     # Fallback to cp if rsync not available
@@ -1379,13 +1398,13 @@ class RestoreManager:
                     # shell=True required for glob patterns - see Phase 0 analysis
                     subprocess.run(
                         f"rm -rf {volume_mountpoint}/* {volume_mountpoint}/.[!.]* {volume_mountpoint}/..?* 2>/dev/null || true",
-                        shell=True
+                        shell=True,
                     )
-                    run_command([
-                        "cp", "-a",
-                        f"{restore_dir}/.",
-                        f"{volume_mountpoint}/"
-                    ], "Copying files to volume", timeout=600)
+                    run_command(
+                        ["cp", "-a", f"{restore_dir}/.", f"{volume_mountpoint}/"],
+                        "Copying files to volume",
+                        timeout=600,
+                    )
 
                 print("      ✓ Volume restored (direct format)")
 
@@ -1425,7 +1444,9 @@ class RestoreManager:
             logger.error(f"Restore error: {e}", extra={"volume": vol})
             return False
 
-    def _execute_volume_restore_tar(self, vol: str, unit: str, snap_id: str, config_file: str) -> bool:
+    def _execute_volume_restore_tar(
+        self, vol: str, unit: str, snap_id: str, config_file: str
+    ) -> bool:
         """Execute volume restore for TAR-based backups (legacy).
 
         TAR backups contain a single TAR archive that needs to be extracted.
@@ -1439,6 +1460,7 @@ class RestoreManager:
         Returns:
             True if restore successful, False otherwise
         """
+
         @contextmanager
         def temp_restore_dir():
             """Context manager for guaranteed cleanup."""
@@ -1476,13 +1498,24 @@ class RestoreManager:
             print("\n   2️⃣ Creating safety backup...")
             backup_name = f"{vol}-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.tar.gz"
 
-            run_command([
-                "docker", "run", "--rm",
-                "-v", f"{vol}:/src",
-                "-v", "/tmp:/backup",
-                "alpine",
-                "sh", "-c", f"tar -czf /backup/{backup_name} -C /src . 2>/dev/null || true"
-            ], "Creating safety backup", timeout=300, check=False)
+            run_command(
+                [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "-v",
+                    f"{vol}:/src",
+                    "-v",
+                    "/tmp:/backup",
+                    "alpine",
+                    "sh",
+                    "-c",
+                    f"tar -czf /backup/{backup_name} -C /src . 2>/dev/null || true",
+                ],
+                "Creating safety backup",
+                timeout=300,
+                check=False,
+            )
 
             backup_path = Path(f"/tmp/{backup_name}")
             if backup_path.exists():
@@ -1501,11 +1534,19 @@ class RestoreManager:
                 volume_path.mkdir(parents=True, exist_ok=True)
 
                 # Restore snapshot
-                run_command([
-                    "kopia", "snapshot", "restore", snap_id,
-                    "--config-file", config_file,
-                    str(restore_dir)
-                ], "Restoring snapshot from Kopia", show_output=True)
+                run_command(
+                    [
+                        "kopia",
+                        "snapshot",
+                        "restore",
+                        snap_id,
+                        "--config-file",
+                        config_file,
+                        str(restore_dir),
+                    ],
+                    "Restoring snapshot from Kopia",
+                    show_output=True,
+                )
 
                 # Find tar file
                 tar_file = restore_dir / "volumes" / unit / vol
@@ -1531,15 +1572,25 @@ class RestoreManager:
 
                 # Extract tar into volume
                 print("      ℹ Extracting into volume...")
-                docker_proc = run_command([
-                    "docker", "run", "--rm",
-                    "-v", f"{vol}:/target",
-                    "-v", f"{tar_file}:/backup.tar:ro",
-                    "debian:bookworm-slim",
-                    "bash", "-c",
-                    "rm -rf /target/* /target/..?* /target/.[!.]* 2>/dev/null || true; "
-                    "tar -xpf /backup.tar --numeric-owner --xattrs --acls -C /target"
-                ], "Extracting tar to volume", timeout=600, check=False)
+                docker_proc = run_command(
+                    [
+                        "docker",
+                        "run",
+                        "--rm",
+                        "-v",
+                        f"{vol}:/target",
+                        "-v",
+                        f"{tar_file}:/backup.tar:ro",
+                        "debian:bookworm-slim",
+                        "bash",
+                        "-c",
+                        "rm -rf /target/* /target/..?* /target/.[!.]* 2>/dev/null || true; "
+                        "tar -xpf /backup.tar --numeric-owner --xattrs --acls -C /target",
+                    ],
+                    "Extracting tar to volume",
+                    timeout=600,
+                    check=False,
+                )
 
                 if docker_proc.returncode != 0:
                     print(f"      ❌ Tar extract failed: {docker_proc.stderr}")
@@ -1596,7 +1647,7 @@ class RestoreManager:
                         removed_count += 1
                     except Exception as e:
                         logger.warning(f"Could not remove {old}: {e}")
-                
+
                 if removed_count > 0:
                     print(f"\n   🧹 Cleaned up {removed_count} old safety backups")
         except Exception as e:
@@ -1605,30 +1656,32 @@ class RestoreManager:
     def _get_real_user_ids(self) -> tuple:
         """
         Get real user IDs when running with sudo.
-        
+
         Returns:
             (uid, gid, username) tuple
         """
-        uid = int(os.environ.get('SUDO_UID', os.getuid()))
-        gid = int(os.environ.get('SUDO_GID', os.getgid()))
-        user = os.environ.get('SUDO_USER', 'root')
+        uid = int(os.environ.get("SUDO_UID", os.getuid()))
+        gid = int(os.environ.get("SUDO_GID", os.getgid()))
+        user = os.environ.get("SUDO_USER", "root")
         return uid, gid, user
 
-    def _copy_with_permissions(self, source_path: Path, target_dir: Path, uid: int, gid: int) -> int:
+    def _copy_with_permissions(
+        self, source_path: Path, target_dir: Path, uid: int, gid: int
+    ) -> int:
         """
         Copy files from source to target with proper permissions.
-        
+
         Args:
             source_path: Source file or directory
             target_dir: Target directory
             uid: User ID for ownership
             gid: Group ID for ownership
-            
+
         Returns:
             Number of files copied
         """
         count = 0
-        
+
         if source_path.is_file():
             # Copy single file
             target_file = target_dir / source_path.name
@@ -1636,7 +1689,9 @@ class RestoreManager:
             os.chown(target_file, uid, gid)
             os.chmod(target_file, 0o644)
             count = 1
-            logger.debug(f"Copied {source_path.name} with permissions", extra={"target": str(target_file)})
+            logger.debug(
+                f"Copied {source_path.name} with permissions", extra={"target": str(target_file)}
+            )
         elif source_path.is_dir():
             # Copy all files from directory
             for item in source_path.iterdir():
@@ -1646,21 +1701,23 @@ class RestoreManager:
                     os.chown(target_file, uid, gid)
                     os.chmod(target_file, 0o644)
                     count += 1
-                    logger.debug(f"Copied {item.name} with permissions", extra={"target": str(target_file)})
-        
+                    logger.debug(
+                        f"Copied {item.name} with permissions", extra={"target": str(target_file)}
+                    )
+
         return count
 
     def _interactive_copy_configs(self, recipe_dir: Path, unit_name: str) -> None:
         """
         Interactively copy configuration files to deployment directory.
         With conflict handling and VPS-optimized backups (Phase 2).
-        
+
         Args:
             recipe_dir: Path to recipes directory
             unit_name: Name of the backup unit
         """
         console = Console()
-        
+
         # Step 1: Collect files
         compose_order_file = recipe_dir / "compose_order.json"
         project_files_dir = recipe_dir / "project-files"
@@ -1687,23 +1744,27 @@ class RestoreManager:
         # Add project files (.env, configs, etc.)
         if project_files_dir.exists():
             files_to_copy.extend([f for f in project_files_dir.glob("*") if f.is_file()])
-        
+
         if not files_to_copy:
             logger.debug("No config files to copy")
             return
-        
+
         # Step 2: Display files
         console.print("\n📁 [bold]Restored configuration files:[/bold]")
         for file in files_to_copy:
             console.print(f"   • {file.name}")
-        
+
         # Step 3: Ask user - Copy?
         if self.non_interactive:
             copy = "yes"
             console.print("\n✓ Auto-copying files to deployment directory (--yes mode)")
         else:
             while True:
-                copy = input("\n🎯 Copy files to deployment directory? [yes/no/q] (yes): ").strip().lower()
+                copy = (
+                    input("\n🎯 Copy files to deployment directory? [yes/no/q] (yes): ")
+                    .strip()
+                    .lower()
+                )
                 if not copy:
                     copy = "yes"
                 # Normalize input
@@ -1724,7 +1785,7 @@ class RestoreManager:
             if copy == "no":
                 self._show_manual_instructions(recipe_dir)
                 return
-        
+
         # Step 4: Loop for directory selection with conflict handling
         default_target = f"/opt/stacks/{unit_name}"
 
@@ -1734,25 +1795,28 @@ class RestoreManager:
                 target = default_target
                 console.print(f"\n📂 Using default target: {target} (--yes mode)")
             else:
-                target = Prompt.ask(
-                    f"\n📂 Target directory",
-                    default=default_target
-                )
+                target = Prompt.ask(f"\n📂 Target directory", default=default_target)
             target_path = Path(target).expanduser()
 
             # Check write permissions (skip if running with sudo)
-            running_with_sudo = os.environ.get('SUDO_USER') is not None
+            running_with_sudo = os.environ.get("SUDO_USER") is not None
 
             if not running_with_sudo:
                 parent_dir = target_path.parent if not target_path.exists() else target_path
                 if not os.access(parent_dir, os.W_OK):
                     console.print(f"[red]✗ No write permission for {parent_dir}[/red]")
                     if self.non_interactive:
-                        console.print("[red]✗ Cannot continue in non-interactive mode without write permission[/red]")
-                        logger.error(f"No write permission for {parent_dir} in non-interactive mode")
+                        console.print(
+                            "[red]✗ Cannot continue in non-interactive mode without write permission[/red]"
+                        )
+                        logger.error(
+                            f"No write permission for {parent_dir} in non-interactive mode"
+                        )
                         return
                     console.print("Try running with sudo or choose different directory.")
-                    retry = Prompt.ask("Try different directory?", choices=["yes", "no"], default="yes")
+                    retry = Prompt.ask(
+                        "Try different directory?", choices=["yes", "no"], default="yes"
+                    )
                     if retry == "no":
                         return
                     continue
@@ -1825,26 +1889,31 @@ class RestoreManager:
                 console.print("\n[yellow]Skipping copy operation.[/yellow]")
                 self._show_manual_instructions(recipe_dir)
                 return
-        
+
         # Step 5: Copy with rollback using helper function
         success, copied_files = copy_with_rollback(files_to_copy, target_path, console)
-        
+
         if success:
             console.print(f"\n✓ [bold green]Files copied to: {target_path}[/bold green]")
-            
+
             # Step 6: Fix ownership (wenn mit sudo gestartet)
             uid, gid, username = self._get_real_user_ids()
             if uid != 0:  # Nur wenn mit sudo gestartet (nicht als root direkt)
                 try:
-                    run_command([
-                        "chown", "-R", f"{username}:{username}", str(target_path)
-                    ], f"Fixing ownership to {username}", timeout=60)
+                    run_command(
+                        ["chown", "-R", f"{username}:{username}", str(target_path)],
+                        f"Fixing ownership to {username}",
+                        timeout=60,
+                    )
                     console.print(f"✓ Fixed ownership: [cyan]{username}:{username}[/cyan]")
-                    logger.info(f"Changed ownership to {username}:{username}", extra={"path": str(target_path)})
+                    logger.info(
+                        f"Changed ownership to {username}:{username}",
+                        extra={"path": str(target_path)},
+                    )
                 except SubprocessError as e:
                     console.print(f"[yellow]⚠️  Could not fix ownership: {e.stderr}[/yellow]")
                     logger.warning(f"Ownership change failed: {e}")
-            
+
             console.print(f"\n📄 Copied files:")
             for file in files_to_copy:
                 console.print(f"   • {file.name}")
@@ -1856,7 +1925,7 @@ class RestoreManager:
     def _show_manual_instructions(self, recipe_dir: Path) -> None:
         """
         Show manual copy instructions when user declines or copy fails.
-        
+
         Args:
             recipe_dir: Path to recipes directory
         """

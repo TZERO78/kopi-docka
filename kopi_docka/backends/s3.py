@@ -10,28 +10,28 @@ from .base import BackendBase
 
 class S3Backend(BackendBase):
     """AWS S3 and S3-compatible storage backend"""
-    
+
     @property
     def name(self) -> str:
         return "s3"
-    
+
     @property
     def display_name(self) -> str:
         return "AWS S3"
-    
+
     @property
     def description(self) -> str:
         return "AWS S3 or compatible (Wasabi, MinIO, DigitalOcean)"
-    
+
     def configure(self) -> dict:
         """
-        Interactive S3 configuration wizard.
-    
-    Returns:
-        dict with:
-        - repository_path: S3 URL
-        - env_vars: Required environment variables
-        - instructions: Setup instructions
+            Interactive S3 configuration wizard.
+
+        Returns:
+            dict with:
+            - repository_path: S3 URL
+            - env_vars: Required environment variables
+            - instructions: Setup instructions
         """
         typer.echo("AWS S3 or S3-compatible storage selected.")
         typer.echo("")
@@ -42,14 +42,16 @@ class S3Backend(BackendBase):
         typer.echo("  • DigitalOcean Spaces")
         typer.echo("  • Any S3-compatible service")
         typer.echo("")
-        
+
         # Get bucket info
         bucket = typer.prompt("Bucket name")
         prefix = typer.prompt("Path prefix (optional)", default="kopia", show_default=True)
         region = typer.prompt("Region (optional, e.g. us-east-1)", default="", show_default=False)
-        
+
         # Ask for custom endpoint (for non-AWS services)
-        use_custom_endpoint = typer.confirm("Using non-AWS S3-compatible service (Wasabi, MinIO, etc.)?", default=False)
+        use_custom_endpoint = typer.confirm(
+            "Using non-AWS S3-compatible service (Wasabi, MinIO, etc.)?", default=False
+        )
         endpoint = ""
         if use_custom_endpoint:
             typer.echo("")
@@ -58,7 +60,7 @@ class S3Backend(BackendBase):
             typer.echo("  • MinIO:      minio.example.com:9000")
             typer.echo("  • DO Spaces:  nyc3.digitaloceanspaces.com")
             endpoint = typer.prompt("Endpoint URL")
-        
+
         # Build Kopia command parameters
         kopia_params = f"s3 --bucket {bucket}"
         if prefix:
@@ -67,19 +69,19 @@ class S3Backend(BackendBase):
             kopia_params += f" --endpoint {endpoint}"
         if region:
             kopia_params += f" --region {region}"
-        
+
         # Environment variables needed
         env_vars = {
-            'AWS_ACCESS_KEY_ID': '<your-access-key-id>',
-            'AWS_SECRET_ACCESS_KEY': '<your-secret-access-key>',
+            "AWS_ACCESS_KEY_ID": "<your-access-key-id>",
+            "AWS_SECRET_ACCESS_KEY": "<your-secret-access-key>",
         }
-        
+
         if region:
-            env_vars['AWS_REGION'] = region
-        
+            env_vars["AWS_REGION"] = region
+
         if endpoint:
-            env_vars['AWS_ENDPOINT'] = f"https://{endpoint}"
-        
+            env_vars["AWS_ENDPOINT"] = f"https://{endpoint}"
+
         # Build instructions
         instructions = f"""
 ⚠️  Set these environment variables before running init:
@@ -95,11 +97,11 @@ Get credentials from:
   • Wasabi: https://console.wasabisys.com/#/access_keys
   • MinIO: Your MinIO admin panel
 """
-        
+
         return {
-            'kopia_params': kopia_params,
-            'env_vars': env_vars,
-            'instructions': instructions,
+            "kopia_params": kopia_params,
+            "env_vars": env_vars,
+            "instructions": instructions,
         }
 
     def get_status(self) -> dict:
@@ -115,11 +117,11 @@ Get credentials from:
                 "prefix": None,
                 "endpoint": None,
                 "region": None,
-            }
+            },
         }
 
         # Parse kopia_params to extract S3 details
-        kopia_params = self.config.get('kopia_params', '')
+        kopia_params = self.config.get("kopia_params", "")
         if not kopia_params:
             return status
 
@@ -127,26 +129,26 @@ Get credentials from:
             parts = shlex.split(kopia_params)
 
             # Extract bucket
-            if '--bucket' in parts:
-                idx = parts.index('--bucket')
+            if "--bucket" in parts:
+                idx = parts.index("--bucket")
                 if idx + 1 < len(parts):
                     status["details"]["bucket"] = parts[idx + 1]
 
             # Extract prefix
-            if '--prefix' in parts:
-                idx = parts.index('--prefix')
+            if "--prefix" in parts:
+                idx = parts.index("--prefix")
                 if idx + 1 < len(parts):
                     status["details"]["prefix"] = parts[idx + 1]
 
             # Extract endpoint
-            if '--endpoint' in parts:
-                idx = parts.index('--endpoint')
+            if "--endpoint" in parts:
+                idx = parts.index("--endpoint")
                 if idx + 1 < len(parts):
                     status["details"]["endpoint"] = parts[idx + 1]
 
             # Extract region
-            if '--region' in parts:
-                idx = parts.index('--region')
+            if "--region" in parts:
+                idx = parts.index("--region")
                 if idx + 1 < len(parts):
                     status["details"]["region"] = parts[idx + 1]
 
@@ -183,7 +185,8 @@ Get credentials from:
     def get_kopia_args(self) -> list:
         """Get Kopia arguments from kopia_params."""
         import shlex
-        kopia_params = self.config.get('kopia_params', '')
+
+        kopia_params = self.config.get("kopia_params", "")
         return shlex.split(kopia_params) if kopia_params else []
 
 

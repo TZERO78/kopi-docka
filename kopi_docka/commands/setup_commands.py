@@ -64,15 +64,17 @@ def cmd_setup_wizard(
     """
     # Display wizard header
     console.print()
-    console.print(Panel.fit(
-        "[bold cyan]Kopi-Docka Complete Setup Wizard[/bold cyan]\n\n"
-        "This wizard will guide you through:\n"
-        "  [1] Dependency verification\n"
-        "  [2] Repository storage selection\n"
-        "  [3] Configuration\n"
-        "  [4] Repository initialization",
-        border_style="cyan"
-    ))
+    console.print(
+        Panel.fit(
+            "[bold cyan]Kopi-Docka Complete Setup Wizard[/bold cyan]\n\n"
+            "This wizard will guide you through:\n"
+            "  [1] Dependency verification\n"
+            "  [2] Repository storage selection\n"
+            "  [3] Configuration\n"
+            "  [4] Repository initialization",
+            border_style="cyan",
+        )
+    )
     console.print()
 
     if not prompt_confirm("Continue?", default=True):
@@ -87,11 +89,12 @@ def cmd_setup_wizard(
         dep_mgr = DependencyManager()
         status = dep_mgr.check_all()
 
-        if not status.get('kopia', False):
+        if not status.get("kopia", False):
             print_warning("Kopia not found!")
             if prompt_confirm("Install Kopia automatically?", default=True):
                 from ..commands.dependency_commands import cmd_install_deps
-                cmd_install_deps(dry_run=False, tools=['kopia'])
+
+                cmd_install_deps(dry_run=False, tools=["kopia"])
             else:
                 print_error("Kopia is required")
                 console.print("   [dim]Install manually: https://kopia.io/docs/installation/[/dim]")
@@ -99,7 +102,7 @@ def cmd_setup_wizard(
         else:
             print_success("Kopia found")
 
-        if not status.get('docker', False):
+        if not status.get("docker", False):
             print_warning("Docker not found - required for backups!")
             console.print("   [dim]Install: https://docs.docker.com/engine/install/[/dim]")
         else:
@@ -112,9 +115,10 @@ def cmd_setup_wizard(
 
     # Use cmd_new_config for configuration - DRY!
     from ..commands.config_commands import cmd_new_config
+
     cfg = cmd_new_config(force=force, edit=False)
 
-    kopia_params = cfg.get('kopia', 'kopia_params')
+    kopia_params = cfg.get("kopia", "kopia_params")
 
     # ═══════════════════════════════════════════
     # Step 4: Repository Init (Optional)
@@ -125,16 +129,20 @@ def cmd_setup_wizard(
         if prompt_confirm("Initialize repository now?", default=True):
             console.print("[cyan]Initializing repository...[/cyan]")
             from ..commands.repository_commands import cmd_init
+
             try:
                 # Create mock context
                 import types
+
                 ctx = types.SimpleNamespace()
                 ctx.obj = {"config": cfg}
                 cmd_init(ctx)
                 print_success("Repository initialized!")
             except Exception as e:
                 print_warning(f"Repository initialization failed: {e}")
-                console.print("   [dim]You can initialize later with: kopi-docka admin repo init[/dim]")
+                console.print(
+                    "   [dim]You can initialize later with: kopi-docka admin repo init[/dim]"
+                )
         else:
             console.print("[dim]Skipped repository initialization[/dim]")
 
@@ -142,29 +150,34 @@ def cmd_setup_wizard(
     # Success Summary
     # ═══════════════════════════════════════════
     console.print()
-    console.print(Panel.fit(
-        "[green]✓ Setup Complete![/green]\n\n"
-        "[bold]Configuration:[/bold]\n"
-        f"  [cyan]Kopia params:[/cyan] {kopia_params}\n"
-        f"  [cyan]Config file:[/cyan] {cfg.config_file}",
-        title="[bold green]Success[/bold green]",
-        border_style="green"
-    ))
+    console.print(
+        Panel.fit(
+            "[green]✓ Setup Complete![/green]\n\n"
+            "[bold]Configuration:[/bold]\n"
+            f"  [cyan]Kopia params:[/cyan] {kopia_params}\n"
+            f"  [cyan]Config file:[/cyan] {cfg.config_file}",
+            title="[bold green]Success[/bold green]",
+            border_style="green",
+        )
+    )
 
-    print_next_steps([
-        "List Docker containers:\n   [cyan]sudo kopi-docka admin snapshot list[/cyan]",
-        "Test backup (dry-run):\n   [cyan]sudo kopi-docka dry-run[/cyan]",
-        "Create first backup:\n   [cyan]sudo kopi-docka backup[/cyan]",
-    ])
+    print_next_steps(
+        [
+            "List Docker containers:\n   [cyan]sudo kopi-docka admin snapshot list[/cyan]",
+            "Test backup (dry-run):\n   [cyan]sudo kopi-docka dry-run[/cyan]",
+            "Create first backup:\n   [cyan]sudo kopi-docka backup[/cyan]",
+        ]
+    )
 
 
 # -------------------------
 # Registration
 # -------------------------
 
+
 def register(app: typer.Typer):
     """Register setup commands."""
-    
+
     @app.command("setup")
     def _setup_cmd(
         force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing config"),

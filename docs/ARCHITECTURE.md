@@ -86,7 +86,8 @@ sequenceDiagram
     CLI->>Backup: BackupManager(cfg)
     Backup->>Hooks: execute_pre_backup(unit)
     Backup->>Docker: stop containers
-    Backup->>Backup: _backup_recipes() → Repo.create_snapshot(tmpdir, tags)
+    Backup->>Backup: _backup_recipes() → Repo.create_snapshot(staging_dir, tags)
+    Note over Backup: Stable path: /var/cache/kopi-docka/staging/recipes/<unit>/
     Backup->>Backup: _backup_volume(...) [parallel workers]
     Backup->>Repo: create_snapshot/create_snapshot_from_stdin
     Backup->>Docker: start containers
@@ -147,6 +148,7 @@ graph LR
   - Public: `backup_unit(unit: BackupUnit, backup_scope, update_recovery_bundle)` ⇒ returns `BackupMetadata`.
   - Steps inside: _ensure_policies(), execute pre-hook, stop containers, backup recipes, backup networks, backup volumes (parallel with ThreadPoolExecutor), start containers, execute post-hook, save metadata, optionally update DR bundle.
   - Volume backup modes: `create_snapshot` (direct directory snapshot / best) or `create_snapshot_from_stdin` (tar stream, deprecated).
+  - **Stable staging paths (v5.3.0+):** Recipe and network backups use fixed staging directories (`/var/cache/kopi-docka/staging/recipes/<unit>/` and `/var/cache/kopi-docka/staging/networks/<unit>/`) instead of random temp dirs. This enables Kopia retention policies to work correctly by ensuring consistent snapshot source paths across backups.
 
 - KopiaRepository
   - Core methods: `connect()`, `initialize()`, `create_snapshot(path, tags, exclude_patterns)`, `create_snapshot_from_stdin(stdin, dest_virtual_path, tags)`, `list_snapshots()`, `list_all_snapshots()`, `restore_snapshot()`, `verify_snapshot()`.
@@ -216,8 +218,8 @@ Below are compact, AI-friendly class → method tables and short notes for the m
 | backup_unit | (unit: BackupUnit, backup_scope: str = 'standard', update_recovery_bundle: bool = None) -> BackupMetadata | Orchestrate full cold backup and return metadata.
 | _stop_containers | (containers: List[ContainerInfo]) -> None | Stop containers gracefully with timeout.
 | _start_containers | (containers: List[ContainerInfo]) -> None | Start containers and wait for healthchecks.
-| _backup_recipes | (unit: BackupUnit, backup_id: str) -> Optional[str] | Save compose files + container inspect (redact env) and snapshot via Repo.
-| _backup_networks | (unit: BackupUnit, backup_id: str) -> (Optional[str], int) | Inspect and snapshot custom Docker networks.
+| _backup_recipes | (unit: BackupUnit, backup_id: str) -> Optional[str] | Save compose files + container inspect (redact env) to stable staging dir and snapshot via Repo. Uses `/var/cache/kopi-docka/staging/recipes/<unit-name>/` (v5.3.0+).
+| _backup_networks | (unit: BackupUnit, backup_id: str) -> (Optional[str], int) | Inspect and snapshot custom Docker networks to stable staging dir. Uses `/var/cache/kopi-docka/staging/networks/<unit-name>/` (v5.3.0+).
 | _backup_volume | (volume: VolumeInfo, unit: BackupUnit, backup_id: str) -> Optional[str] | Dispatcher to _backup_volume_direct/_backup_volume_tar.
 | _backup_volume_direct | (volume, unit, backup_id) -> Optional[str] | Preferred direct Kopia snapshot of filesystem path.
 | _backup_volume_tar | (volume, unit, backup_id) -> Optional[str] | Legacy tar → Kopia stdin snapshot (deprecated).
@@ -301,9 +303,13 @@ sequenceDiagram
   CLI->>Discovery: discover_backup_units()
   CLI->>Backup: backup_unit(unit)
   Backup->>Policy: _ensure_policies(unit)
+  Note over Policy: Direct Mode: policies on actual mountpoints<br/>TAR Mode: policies on virtual paths
   Backup->>Hooks: execute_pre_backup(unit)
   Backup->>Docker: stop containers
-  Backup->>Backup: _backup_recipes() -> Repo.create_snapshot(tmpdir, tags)
+  Backup->>Backup: _backup_recipes() -> Repo.create_snapshot(staging_dir, tags)
+  Note over Backup: Stable staging: /var/cache/kopi-docka/staging/recipes/<unit>/
+  Backup->>Backup: _backup_networks() -> Repo.create_snapshot(staging_dir, tags)
+  Note over Backup: Stable staging: /var/cache/kopi-docka/staging/networks/<unit>/
   Backup->>Backup: Start parallel _backup_volume() tasks
   Backup->>Repo: create_snapshot/create_snapshot_from_stdin (per volume)
   Backup->>Docker: start containers

@@ -170,7 +170,7 @@ Daemon implementation with:
 - **[Hooks](docs/HOOKS.md)** - Pre/post backup hooks, examples
 - **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues, FAQ
 - **[Development](docs/DEVELOPMENT.md)** - Project structure, contributing
-- **[Architecture](ARCHITECTURE.md)** - Code-driven architecture overview (authoritative)
+- **[Architecture](docs/ARCHITECTURE.md)** - Code-driven architecture overview (authoritative)
 
 
 📁 **Examples:**

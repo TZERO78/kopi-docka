@@ -94,15 +94,11 @@ class DisasterRecoveryManager:
         work_dir.mkdir(parents=True, exist_ok=True)
 
         try:
-            logger.info(
-                "Creating disaster recovery bundle...", extra={"bundle": bundle_name}
-            )
+            logger.info("Creating disaster recovery bundle...", extra={"bundle": bundle_name})
 
             # 1) recovery info
             recovery_info = self._create_recovery_info()
-            (work_dir / "recovery-info.json").write_text(
-                json.dumps(recovery_info, indent=2)
-            )
+            (work_dir / "recovery-info.json").write_text(json.dumps(recovery_info, indent=2))
 
             # 2) kopia repo status + password
             self._export_kopia_config(work_dir)
@@ -117,6 +113,7 @@ class DisasterRecoveryManager:
             rclone_conf_path = self._find_rclone_config()
             if rclone_conf_path and rclone_conf_path.exists():
                 import shutil
+
                 shutil.copy(rclone_conf_path, work_dir / "rclone.conf")
                 logger.info(f"Added rclone.conf to recovery bundle from {rclone_conf_path}")
 
@@ -128,18 +125,14 @@ class DisasterRecoveryManager:
 
             # 6) last backup status
             backup_status = self._get_backup_status()
-            (work_dir / "backup-status.json").write_text(
-                json.dumps(backup_status, indent=2)
-            )
+            (work_dir / "backup-status.json").write_text(json.dumps(backup_status, indent=2))
 
             # 7) archive + encrypt
             archive_path = output_dir / f"{bundle_name}.tar.gz.enc"
             password = self._create_encrypted_archive(work_dir, archive_path)
 
             # 8) sidecar README (+ optional PASSWORD)
-            self._create_companion_files(
-                archive_path, password, recovery_info, write_password_file
-            )
+            self._create_companion_files(archive_path, password, recovery_info, write_password_file)
 
             logger.info(
                 "Recovery bundle created",
@@ -169,37 +162,39 @@ class DisasterRecoveryManager:
     def _find_rclone_config(self) -> Optional[Path]:
         """
         Find rclone.conf path from config or fallback locations.
-        
+
         Returns:
             Path to rclone.conf if found, None otherwise
         """
         # 1. Check kopia_params for --rclone-args='--config=PATH'
-        kopia_params = self.config.get('kopia', 'kopia_params', fallback='')
-        if '--rclone-args=' in kopia_params:
+        kopia_params = self.config.get("kopia", "kopia_params", fallback="")
+        if "--rclone-args=" in kopia_params:
             # Extract path from --rclone-args='--config=/path/to/rclone.conf'
             import re
+
             match = re.search(r"--rclone-args=['\"]?--config=([^'\"\\s]+)", kopia_params)
             if match:
                 path = Path(match.group(1))
                 if path.exists():
                     return path
-        
+
         # 2. Fallback: Standard locations
         import os
+
         candidates = [
             Path("/root/.config/rclone/rclone.conf"),
         ]
-        sudo_user = os.environ.get('SUDO_USER')
+        sudo_user = os.environ.get("SUDO_USER")
         if sudo_user:
             candidates.append(Path(f"/home/{sudo_user}/.config/rclone/rclone.conf"))
-        
+
         for candidate in candidates:
             try:
                 if candidate.exists():
                     return candidate
             except PermissionError:
                 pass
-        
+
         return None
 
     def _create_recovery_info(self) -> Dict[str, Any]:
@@ -222,16 +217,16 @@ class DisasterRecoveryManager:
 
         # Collect file paths for smart restore
         paths = {}
-        
+
         # Config file
         if self.config.config_file:
             paths["config"] = str(Path(self.config.config_file).resolve())
-        
+
         # Rclone config
         rclone_path = self._find_rclone_config()
         if rclone_path:
             paths["rclone"] = str(rclone_path)
-        
+
         # Password file (if configured)
         password_file = self.config.get("kopia", "password_file", fallback=None)
         if password_file:
@@ -242,9 +237,7 @@ class DisasterRecoveryManager:
         return {
             "created_at": datetime.now().isoformat(),
             "kopi_docka_version": VERSION,
-            "hostname": subprocess.run(
-                ["hostname"], capture_output=True, text=True
-            ).stdout.strip(),
+            "hostname": subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip(),
             "repository": {
                 "type": repo_type,
                 "connection": connection,
@@ -261,43 +254,43 @@ class DisasterRecoveryManager:
     def _extract_repo_from_status(self, repo_status: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
         """
         Extract repository type and connection info from Kopia status JSON.
-        
+
         This is more reliable than parsing kopia_params string.
         """
         storage = repo_status.get("storage", {})
         storage_type = storage.get("type", "unknown")
         storage_config = storage.get("config", {})
-        
+
         # Map Kopia storage types to our naming
         if storage_type == "filesystem":
             path = storage_config.get("path", "")
             return "filesystem", {"path": path}
-        
+
         elif storage_type == "s3":
             bucket = storage_config.get("bucket", "")
             return "s3", {"bucket": bucket}
-        
+
         elif storage_type == "b2":
             bucket = storage_config.get("bucket", "")
             return "b2", {"bucket": bucket}
-        
+
         elif storage_type == "azure":
             container = storage_config.get("container", "")
             return "azure", {"container": container}
-        
+
         elif storage_type == "gcs":
             bucket = storage_config.get("bucket", "")
             return "gcs", {"bucket": bucket}
-        
+
         elif storage_type == "sftp":
             host = storage_config.get("host", "")
             path = storage_config.get("path", "")
             return "sftp", {"host": host, "path": path}
-        
+
         elif storage_type == "rclone":
             remote_path = storage_config.get("remotePath", "")
             return "rclone", {"remotePath": remote_path}
-        
+
         else:
             # Fallback for unknown types
             return storage_type, storage_config
@@ -315,9 +308,7 @@ class DisasterRecoveryManager:
                 (out_dir / "kopia-repository.json").write_text(result.stdout)
 
             # Save password (the bundle gets encrypted afterward)
-            (out_dir / "kopia-password.txt").write_text(
-                self.config.kopia_password or ""
-            )
+            (out_dir / "kopia-password.txt").write_text(self.config.kopia_password or "")
         except Exception as e:
             logger.error(f"Could not export Kopia config: {e}")
 
@@ -353,7 +344,7 @@ class DisasterRecoveryManager:
             "",
             "# Helper: Get path from recovery-info.json",
             "get_path() {",
-            '    python3 -c "import json, sys; d=json.load(open(\'$(dirname \\"$0\\")/recovery-info.json\')); print(d.get(\'paths\', {}).get(\'$1\', \'\'))" 2>/dev/null || echo ""',
+            "    python3 -c \"import json, sys; d=json.load(open('$(dirname \\\"$0\\\")/recovery-info.json')); print(d.get('paths', {}).get('$1', ''))\" 2>/dev/null || echo \"\"",
             "}",
             "",
             "# Helper: Safe restore with interactive backup",
@@ -387,7 +378,7 @@ class DisasterRecoveryManager:
             '    read -p "  Overwrite (backup will be created)? [y/N]: " -n 1 -r',
             "    echo",
             "    ",
-            '    if [[ $REPLY =~ ^[Yy]$ ]]; then',
+            "    if [[ $REPLY =~ ^[Yy]$ ]]; then",
             '        local BACKUP="${DEST}.bak.$(date +%s)"',
             '        cp "$DEST" "$BACKUP"',
             '        echo "  📦 Backup: $BACKUP"',
@@ -463,7 +454,7 @@ class DisasterRecoveryManager:
             # Rclone requires special handling
             remote_path = conn.get("remotePath", "")
             lines += [
-                f'# Rclone repository: {remote_path}',
+                f"# Rclone repository: {remote_path}",
                 'echo "Ensure rclone.conf is restored above and rclone remote is configured."',
                 f'kopia repository connect rclone --remote-path="{remote_path}"',
             ]
@@ -508,9 +499,7 @@ class DisasterRecoveryManager:
         path.write_text(script)
         path.chmod(0o755)
 
-    def _create_recovery_instructions(
-        self, out_dir: Path, info: Dict[str, Any]
-    ) -> None:
+    def _create_recovery_instructions(self, out_dir: Path, info: Dict[str, Any]) -> None:
         rpt = info["repository"]
         lines = [
             "KOPI-DOCKA DISASTER RECOVERY INSTRUCTIONS",
@@ -637,9 +626,7 @@ Generated by Kopi-Docka v{VERSION}
             )
         else:
             # Log a reminder without exposing the password
-            logger.warning(
-                "Recovery password NOT written to disk. Store it securely NOW."
-            )
+            logger.warning("Recovery password NOT written to disk. Store it securely NOW.")
 
     def _rotate_bundles(self, directory: Path, keep: int) -> None:
         try:

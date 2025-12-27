@@ -99,7 +99,7 @@ class DryRunReport:
         print(f"Parallel Workers: {self.config.parallel_workers}")
         print(f"Backup Path: {self.config.backup_base_path}")
         # Show kopia_params
-        kopia_params = self.config.get('kopia', 'kopia_params', fallback='')
+        kopia_params = self.config.get("kopia", "kopia_params", fallback="")
         print(f"Kopia Params: {kopia_params}")
 
         # Determine a local path to check space against
@@ -109,6 +109,7 @@ class DryRunReport:
         repo_path = extract_filesystem_path(kopia_params)
         if repo_path:
             from pathlib import Path
+
             repo_parent_path_str = str(Path(repo_path).parent)
 
         # Fallback: Use backup base path disk as proxy for remote repos
@@ -226,9 +227,7 @@ class DryRunReport:
             base_time = timedelta(seconds=30)  # overhead per unit
             # Assume ~100 MB/s effective throughput per worker (conservative)
             volume_gb = unit.total_volume_size / (1024**3)
-            stream_time = timedelta(
-                seconds=max(0.0, volume_gb) * (1024 / 100)
-            )  # ~10.24 s per GB
+            stream_time = timedelta(seconds=max(0.0, volume_gb) * (1024 / 100))  # ~10.24 s per GB
             estimated_total += base_time + stream_time
 
         print(
@@ -241,19 +240,18 @@ class DryRunReport:
         required_space = int(total_size * compression_ratio)
 
         if required_space > 0:
-            print(
-                f"Estimated Repository Space Required: {self.utils.format_bytes(required_space)}"
-            )
+            print(f"Estimated Repository Space Required: {self.utils.format_bytes(required_space)}")
 
         # Check if enough local space (proxy for remote: use backup base path)
         # Get kopia_params
-        kopia_params = self.config.get('kopia', 'kopia_params', fallback='')
+        kopia_params = self.config.get("kopia", "kopia_params", fallback="")
 
         # Extract filesystem path if available
         repo_parent_path_str = None
         repo_path = extract_filesystem_path(kopia_params)
         if repo_path:
             from pathlib import Path
+
             repo_parent_path_str = str(Path(repo_path).parent)
 
         if not repo_parent_path_str:
@@ -268,8 +266,8 @@ class DryRunReport:
         print("\n### CONFIGURATION REVIEW ###")
 
         # Get kopia_params from config
-        kopia_params = self.config.get('kopia', 'kopia_params', fallback='')
-        
+        kopia_params = self.config.get("kopia", "kopia_params", fallback="")
+
         config_items = [
             ("Kopia Params", kopia_params),
             ("Backup Base Path", self.config.backup_base_path),
@@ -277,7 +275,7 @@ class DryRunReport:
             ("Stop Timeout", f"{self.config.get('backup', 'stop_timeout')}s"),
             ("Start Timeout", f"{self.config.get('backup', 'start_timeout')}s"),
             ("Compression", self.config.get("kopia", "compression")),
-            ("Encryption", self.config.get("kopia", "encryption")),        
+            ("Encryption", self.config.get("kopia", "encryption")),
         ]
 
         for name, value in config_items:
@@ -305,9 +303,7 @@ class DryRunReport:
             bundle_path = self.config.get(
                 "backup", "recovery_bundle_path", fallback="/backup/recovery"
             )
-            retention = self.config.getint(
-                "backup", "recovery_bundle_retention", fallback=3
-            )
+            retention = self.config.getint("backup", "recovery_bundle_retention", fallback=3)
 
             print(f"  Location: {bundle_path}")
             print(f"  Retention: Keep last {retention} bundles")
@@ -316,9 +312,7 @@ class DryRunReport:
 
             bundle_dir = Path(bundle_path)
             if bundle_dir.exists():
-                existing_bundles = list(
-                    bundle_dir.glob("kopi-docka-recovery-*.tar.gz.enc")
-                )
+                existing_bundles = list(bundle_dir.glob("kopi-docka-recovery-*.tar.gz.enc"))
                 print(f"  Existing Bundles: {len(existing_bundles)}")
 
                 if existing_bundles:
@@ -334,9 +328,7 @@ class DryRunReport:
 
                     if len(existing_bundles) >= retention:
                         will_remove = len(existing_bundles) - retention + 1
-                        print(
-                            f"  ⚠ Rotation: {will_remove} old bundle(s) will be removed"
-                        )
+                        print(f"  ⚠ Rotation: {will_remove} old bundle(s) will be removed")
             else:
                 print(f"  ⚠ Bundle directory does not exist: {bundle_dir}")
                 print(f"    Will be created during backup")
@@ -350,22 +342,20 @@ class DryRunReport:
             print("    - Current backup status")
 
             # Check for cloud repository (non-filesystem)
-            kopia_params = self.config.get('kopia', 'kopia_params', fallback='')
-            
+            kopia_params = self.config.get("kopia", "kopia_params", fallback="")
+
             # Check if it's a cloud backend (not filesystem)
             is_cloud = any(
                 backend in kopia_params
                 for backend in ("s3", "b2", "azure", "gcs", "sftp", "rclone")
             )
-            
+
             if is_cloud:
                 print(f"\n  ✓ Cloud Repository Detected")
                 print("    Bundle will include reconnection guidance")
         else:
             print("Recovery Bundle: WILL NOT BE UPDATED")
-            print(
-                "  To enable: --update-recovery or set update_recovery_bundle=true in config"
-            )
+            print("  To enable: --update-recovery or set update_recovery_bundle=true in config")
 
             print("\n  Manual Creation:")
             print("    kopi-docka disaster-recovery")

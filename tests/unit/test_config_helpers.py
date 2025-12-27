@@ -3,6 +3,7 @@ Unit tests for config helper functions.
 
 Tests the detect_repository_type and extract_filesystem_path functions.
 """
+
 import pytest
 from kopi_docka.helpers.config import detect_repository_type, extract_filesystem_path
 
@@ -18,7 +19,12 @@ class TestDetectRepositoryType:
     def test_rclone_type(self):
         """Test detection of rclone repository type."""
         assert detect_repository_type("rclone --remote-path=gdrive:kopia-backup") == "rclone"
-        assert detect_repository_type("rclone --remote-path gdrive:backup --rclone-args='--config=/root/.config/rclone/rclone.conf'") == "rclone"
+        assert (
+            detect_repository_type(
+                "rclone --remote-path gdrive:backup --rclone-args='--config=/root/.config/rclone/rclone.conf'"
+            )
+            == "rclone"
+        )
 
     def test_s3_type(self):
         """Test detection of S3 repository type."""
@@ -106,7 +112,10 @@ class TestExtractFilesystemPath:
 
     def test_path_with_spaces(self):
         """Test path with spaces (quoted)."""
-        assert extract_filesystem_path('filesystem --path "/backup/my backups"') == "/backup/my backups"
+        assert (
+            extract_filesystem_path('filesystem --path "/backup/my backups"')
+            == "/backup/my backups"
+        )
 
     def test_complex_filesystem_params(self):
         """Test extraction from complex filesystem params."""

@@ -263,6 +263,29 @@ sudo journalctl -u kopi-docka.service -f
 5. `kopi-docka restore` → interactive wizard restores everything
 6. `docker compose up -d` → services online!
 
+### 4. Retention Policies (Direct Mode vs TAR Mode)
+
+**Since v5.0,** Kopi-Docka uses **Direct Mode** by default for volume backups (faster, more efficient). This affects how retention policies are applied.
+
+**Direct Mode (Default since v5.0):**
+- Volume snapshots are created from actual Docker mountpoints
+- Example path: `/var/lib/docker/volumes/myproject_data/_data`
+- Retention policies are applied to these **actual mountpoints**
+- Recipe and network snapshots use stable staging paths: `/var/cache/kopi-docka/staging/recipes/<unit-name>/`
+
+**TAR Mode (Legacy):**
+- Volume snapshots are created via tar streams
+- Uses virtual paths like `volumes/myproject`
+- Retention policies are applied to these **virtual paths**
+
+**Why this matters:**
+- ✅ Retention policies (e.g., `latest: 3`) work correctly in both modes
+- ✅ Old volume backups are automatically deleted per your retention settings
+- ✅ Recipe and network metadata retention works correctly (fixed in v5.3.0)
+- ⚠️ Mixed repositories (old TAR + new Direct backups) maintain both snapshot types
+
+**No action required** - retention policies are automatically applied to the correct paths based on your backup format setting. This was a critical bug fix in v5.3.0.
+
 ---
 
 ## Kopia Integration
