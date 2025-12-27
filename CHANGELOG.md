@@ -5,6 +5,52 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.4.0] - 2025-12-27
+
+### Added
+
+- **Notification System** 🔔
+  - Automatic notifications for backup success/failure via popular messaging platforms
+  - **Supported Services:**
+    - Telegram - Free messaging app with bot integration
+    - Discord - Webhook-based notifications
+    - Email - SMTP-based email alerts
+    - Webhook - JSON POST to custom endpoints (n8n, Make, Zapier)
+    - Custom - Any Apprise-compatible service (100+ services supported)
+  - **Interactive Setup Wizard:**
+    - `kopi-docka advanced notification setup` - Step-by-step configuration
+    - Service-specific handlers for easy setup
+    - Secure secret storage (file-based or config-based)
+  - **Management Commands:**
+    - `kopi-docka advanced notification test` - Send test notification
+    - `kopi-docka advanced notification status` - Show current configuration
+    - `kopi-docka advanced notification enable/disable` - Toggle notifications
+  - **Key Features:**
+    - Fire-and-forget pattern - notifications never block backups
+    - 10-second timeout protection
+    - 3-way secret management (file > config > none)
+    - Environment variable substitution in URLs (`${VAR_NAME}`)
+    - Separate control for success/failure notifications (`on_success`, `on_failure`)
+    - Comprehensive error handling and logging
+  - **Implementation:**
+    - New `NotificationManager` core class
+    - New `BackupStats` dataclass for structured notification data
+    - Integration in `BackupManager` - sends notification at end of each backup unit
+    - 40 unit tests with full coverage
+    - Uses Apprise library for multi-service support
+  - **Documentation:**
+    - New `docs/NOTIFICATIONS.md` with complete setup guides
+    - Service-specific examples (Telegram, Discord, Email, Webhook)
+    - Troubleshooting section
+    - Security best practices
+
+### Technical
+
+- Added `apprise>=1.6.0` dependency for notification support
+- Extended config schema with `notifications` section
+- Exported `NotificationManager` and `BackupStats` in `cores/__init__.py`
+- Registered notification commands under `advanced notification` subgroup
+
 ## [5.3.2] - 2025-12-27
 
 ### Fixed

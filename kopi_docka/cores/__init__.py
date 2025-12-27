@@ -29,6 +29,7 @@ from .service_manager import (
 )
 from .service_helper import ServiceHelper
 from .kopia_policy_manager import KopiaPolicyManager
+from .notification_manager import NotificationManager, BackupStats
 
 __all__ = [
     "BackupManager",
@@ -43,4 +44,6 @@ __all__ = [
     "write_systemd_units",  # ← Diese Zeile hinzufügen
     "ServiceHelper",
     "KopiaPolicyManager",
+    "NotificationManager",
+    "BackupStats",
 ]
