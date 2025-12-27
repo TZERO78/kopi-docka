@@ -58,8 +58,7 @@ def ensure_config(ctx: typer.Context) -> Config:
     cfg = get_config(ctx)
     if not cfg:
         print_error_panel(
-            "No configuration found\n\n"
-            "[dim]Run:[/dim] [cyan]kopi-docka admin config new[/cyan]"
+            "No configuration found\n\n" "[dim]Run:[/dim] [cyan]kopi-docka admin config new[/cyan]"
         )
         raise typer.Exit(code=1)
     return cfg
@@ -122,15 +121,19 @@ def _override_config(ctx: typer.Context, config_path: Optional[Path]):
 def _print_kopia_native_status(repo: KopiaRepository) -> None:
     """Print Kopia native status with raw output."""
     console.print()
-    console.print(Panel.fit(
-        "[bold]Kopia Native Status - Debug Output[/bold]",
-        border_style="dim"
-    ))
+    console.print(Panel.fit("[bold]Kopia Native Status - Debug Output[/bold]", border_style="dim"))
 
     cfg_file = repo._get_config_file()
     env = repo._get_env()
 
-    cmd_json_verbose = ["kopia", "repository", "status", "--json-verbose", "--config-file", cfg_file]
+    cmd_json_verbose = [
+        "kopia",
+        "repository",
+        "status",
+        "--json-verbose",
+        "--config-file",
+        cfg_file,
+    ]
     cmd_json = ["kopia", "repository", "status", "--json", "--config-file", cfg_file]
     cmd_plain = ["kopia", "repository", "status", "--config-file", cfg_file]
 
@@ -153,9 +156,13 @@ def _print_kopia_native_status(repo: KopiaRepository) -> None:
 
     debug_table.add_row("Command used", " ".join(used_cmd))
     debug_table.add_row("Config file", cfg_file)
-    debug_table.add_row("KOPIA_PASSWORD", "[green]set[/green]" if env.get("KOPIA_PASSWORD") else "[red]unset[/red]")
+    debug_table.add_row(
+        "KOPIA_PASSWORD", "[green]set[/green]" if env.get("KOPIA_PASSWORD") else "[red]unset[/red]"
+    )
     debug_table.add_row("KOPIA_CACHE", env.get("KOPIA_CACHE_DIRECTORY") or "-")
-    debug_table.add_row("Connected (by RC)", "[green]Yes[/green]" if rc_connected else "[red]No[/red]")
+    debug_table.add_row(
+        "Connected (by RC)", "[green]Yes[/green]" if rc_connected else "[red]No[/red]"
+    )
 
     console.print(debug_table)
 
@@ -183,6 +190,7 @@ def _print_kopia_native_status(repo: KopiaRepository) -> None:
 # Commands
 # -------------------------
 
+
 def cmd_init(ctx: typer.Context, config: Optional[Path] = None):
     """Initialize (or connect to) the Kopia repository."""
     import getpass
@@ -204,21 +212,23 @@ def cmd_init(ctx: typer.Context, config: Optional[Path] = None):
         current_password = cfg.get_password()
     except ValueError as e:
         print_warning(f"Password issue: {e}")
-        current_password = ''
+        current_password = ""
 
     # Check for default/placeholder passwords
-    if current_password in ('kopia-docka', 'CHANGE_ME_TO_A_SECURE_PASSWORD', ''):
+    if current_password in ("kopia-docka", "CHANGE_ME_TO_A_SECURE_PASSWORD", ""):
         console.print()
-        console.print(Panel.fit(
-            "[bold yellow]Default or missing password detected![/bold yellow]\n\n"
-            "You need to set a secure password before initialization.\n\n"
-            "[bold]This password will:[/bold]\n"
-            "  [dim]•[/dim] Encrypt your backups\n"
-            "  [dim]•[/dim] Be required for ALL future operations\n"
-            "  [dim]•[/dim] Be UNRECOVERABLE if lost!",
-            title="[bold]Repository Password Setup[/bold]",
-            border_style="yellow"
-        ))
+        console.print(
+            Panel.fit(
+                "[bold yellow]Default or missing password detected![/bold yellow]\n\n"
+                "You need to set a secure password before initialization.\n\n"
+                "[bold]This password will:[/bold]\n"
+                "  [dim]•[/dim] Encrypt your backups\n"
+                "  [dim]•[/dim] Be required for ALL future operations\n"
+                "  [dim]•[/dim] Be UNRECOVERABLE if lost!",
+                title="[bold]Repository Password Setup[/bold]",
+                border_style="yellow",
+            )
+        )
         console.print()
 
         use_generated = typer.confirm("Generate secure random password?", default=True)
@@ -226,16 +236,18 @@ def cmd_init(ctx: typer.Context, config: Optional[Path] = None):
 
         if use_generated:
             new_password = generate_secure_password()
-            console.print(Panel.fit(
-                f"[bold]GENERATED PASSWORD (save this NOW!):[/bold]\n\n"
-                f"   [bold cyan]{new_password}[/bold cyan]\n\n"
-                "[yellow]Copy this to:[/yellow]\n"
-                "  [dim]•[/dim] Password manager (recommended)\n"
-                "  [dim]•[/dim] Encrypted USB drive\n"
-                "  [dim]•[/dim] Secure physical location",
-                title="[bold yellow]Important[/bold yellow]",
-                border_style="yellow"
-            ))
+            console.print(
+                Panel.fit(
+                    f"[bold]GENERATED PASSWORD (save this NOW!):[/bold]\n\n"
+                    f"   [bold cyan]{new_password}[/bold cyan]\n\n"
+                    "[yellow]Copy this to:[/yellow]\n"
+                    "  [dim]•[/dim] Password manager (recommended)\n"
+                    "  [dim]•[/dim] Encrypted USB drive\n"
+                    "  [dim]•[/dim] Secure physical location",
+                    title="[bold yellow]Important[/bold yellow]",
+                    border_style="yellow",
+                )
+            )
             console.print()
             input("Press Enter to continue...")
         else:
@@ -247,7 +259,9 @@ def cmd_init(ctx: typer.Context, config: Optional[Path] = None):
                 raise typer.Exit(1)
 
             if len(new_password) < 12:
-                print_warning(f"Password is short ({len(new_password)} chars). Recommended: 12+ characters")
+                print_warning(
+                    f"Password is short ({len(new_password)} chars). Recommended: 12+ characters"
+                )
                 if not typer.confirm("Continue with this password?", default=False):
                     console.print("[dim]Aborted.[/dim]")
                     raise typer.Exit(0)
@@ -267,12 +281,14 @@ def cmd_init(ctx: typer.Context, config: Optional[Path] = None):
     # ═══════════════════════════════════════════
     repo = KopiaRepository(cfg)
 
-    console.print(Panel.fit(
-        f"[bold]Profile:[/bold]      {repo.profile_name}\n"
-        f"[bold]Kopia Params:[/bold] {repo.kopia_params}",
-        title="[bold cyan]Repository Initialization[/bold cyan]",
-        border_style="cyan"
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold]Profile:[/bold]      {repo.profile_name}\n"
+            f"[bold]Kopia Params:[/bold] {repo.kopia_params}",
+            title="[bold cyan]Repository Initialization[/bold cyan]",
+            border_style="cyan",
+        )
+    )
     console.print()
 
     try:
@@ -288,11 +304,13 @@ def cmd_init(ctx: typer.Context, config: Optional[Path] = None):
         console.print()
         print_success_panel("Repository initialized successfully!")
 
-        print_next_steps([
-            "List Docker containers: [cyan]kopi-docka list --units[/cyan]",
-            "Test backup: [cyan]kopi-docka dry-run[/cyan]",
-            "Create first backup: [cyan]kopi-docka backup[/cyan]",
-        ])
+        print_next_steps(
+            [
+                "List Docker containers: [cyan]kopi-docka list --units[/cyan]",
+                "Test backup: [cyan]kopi-docka dry-run[/cyan]",
+                "Create first backup: [cyan]kopi-docka backup[/cyan]",
+            ]
+        )
 
     except Exception as e:
         print_error_panel(
@@ -335,7 +353,7 @@ def cmd_repo_status(ctx: typer.Context, config: Optional[Path] = None):
             show_header=True,
             header_style="bold cyan",
             box=box.ROUNDED,
-            border_style="cyan"
+            border_style="cyan",
         )
         table.add_column("Property", style="cyan")
         table.add_column("Value")
@@ -351,7 +369,7 @@ def cmd_repo_status(ctx: typer.Context, config: Optional[Path] = None):
         console.print()
 
         # Show detailed Kopia status if requested (debug)
-        if ctx.obj.get('verbose'):
+        if ctx.obj.get("verbose"):
             _print_kopia_native_status(repo)
 
     except Exception as e:
@@ -370,7 +388,7 @@ def cmd_repo_which_config(ctx: typer.Context, config: Optional[Path] = None):
 
     table.add_row("Profile", repo.profile_name)
     table.add_row("Profile config", repo._get_config_file())
-    table.add_row("Default config", str(Path.home() / '.config' / 'kopia' / 'repository.config'))
+    table.add_row("Default config", str(Path.home() / ".config" / "kopia" / "repository.config"))
 
     console.print()
     console.print(table)
@@ -401,6 +419,7 @@ def cmd_repo_set_default(ctx: typer.Context, config: Optional[Path] = None):
         if not created:
             with contextlib.suppress(Exception):
                 from shutil import copy2
+
                 copy2(src, dst)
                 created = True
 
@@ -427,8 +446,10 @@ def cmd_repo_init_path(
     if password:
         env["KOPIA_PASSWORD"] = password
 
-    cfg_file = repo._get_config_file() if not profile else str(
-        Path.home() / ".config" / "kopia" / f"repository-{profile}.config"
+    cfg_file = (
+        repo._get_config_file()
+        if not profile
+        else str(Path.home() / ".config" / "kopia" / f"repository-{profile}.config")
     )
     Path(cfg_file).parent.mkdir(parents=True, exist_ok=True)
 
@@ -437,10 +458,16 @@ def cmd_repo_init_path(
 
     # Create
     cmd_create = [
-        "kopia", "repository", "create", "filesystem",
-        "--path", str(path),
-        "--description", f"Kopi-Docka Backup Repository ({profile or repo.profile_name})",
-        "--config-file", cfg_file,
+        "kopia",
+        "repository",
+        "create",
+        "filesystem",
+        "--path",
+        str(path),
+        "--description",
+        f"Kopi-Docka Backup Repository ({profile or repo.profile_name})",
+        "--config-file",
+        cfg_file,
     ]
     p = run_command(cmd_create, "Creating repository", check=False, env=env)
     if p.returncode != 0 and "existing data in storage location" not in (p.stderr or ""):
@@ -450,9 +477,14 @@ def cmd_repo_init_path(
 
     # Connect
     cmd_connect = [
-        "kopia", "repository", "connect", "filesystem",
-        "--path", str(path),
-        "--config-file", cfg_file,
+        "kopia",
+        "repository",
+        "connect",
+        "filesystem",
+        "--path",
+        str(path),
+        "--config-file",
+        cfg_file,
     ]
     pc = run_command(cmd_connect, "Connecting repository", check=False, env=env)
     if pc.returncode != 0:
@@ -463,7 +495,9 @@ def cmd_repo_init_path(
             env=env,
         )
         print_error("Connect failed:")
-        console.print(f"[dim]{pc.stderr.strip() or pc.stdout.strip() or ps.stderr.strip() or ps.stdout.strip()}[/dim]")
+        console.print(
+            f"[dim]{pc.stderr.strip() or pc.stdout.strip() or ps.stderr.strip() or ps.stdout.strip()}[/dim]"
+        )
         raise typer.Exit(code=1)
 
     # Verify
@@ -493,6 +527,7 @@ def cmd_repo_init_path(
                 dst.symlink_to(src)
             except Exception:
                 from shutil import copy2
+
                 copy2(src, dst)
             print_success("Set as default Kopia config.")
         except Exception as e:
@@ -586,6 +621,7 @@ def cmd_repo_selftest(
             pass
         try:
             import shutil as _shutil
+
             _shutil.rmtree(repo_dir, ignore_errors=True)
         except Exception:
             pass
@@ -613,6 +649,149 @@ def cmd_repo_maintenance(ctx: typer.Context, config: Optional[Path] = None):
         raise typer.Exit(code=1)
 
 
+def cmd_prune_empty_sessions(
+    ctx: typer.Context, config: Optional[Path] = None, dry_run: bool = True
+):
+    """
+    Prune empty backup sessions (ghost sessions) from the repository.
+
+    Scans for backup sessions that contain only recipe/network snapshots
+    but no volume data. These "ghost sessions" can accumulate in legacy
+    repositories that used random temporary directories for metadata backups.
+
+    Args:
+        ctx: Typer context
+        config: Optional config file path
+        dry_run: If True, only show what would be deleted (default)
+    """
+    _override_config(ctx, config)
+    ensure_config(ctx)
+    repo = ensure_repository(ctx)
+
+    console.print("\n[cyan]Scanning for empty backup sessions...[/cyan]\n")
+
+    try:
+        # Get all snapshots
+        all_snapshots = repo.list_all_snapshots()
+
+        if not all_snapshots:
+            print_success("No snapshots found in repository")
+            return
+
+        # Group snapshots by backup_id
+        sessions = {}
+        for snapshot in all_snapshots:
+            tags = snapshot.get("tags", {})
+            backup_id = tags.get("backup_id")
+            snap_type = tags.get("type")
+
+            if not backup_id:
+                continue  # Skip snapshots without backup_id
+
+            if backup_id not in sessions:
+                sessions[backup_id] = {"volume": [], "recipe": [], "networks": []}
+
+            if snap_type == "volume":
+                sessions[backup_id]["volume"].append(snapshot)
+            elif snap_type == "recipe":
+                sessions[backup_id]["recipe"].append(snapshot)
+            elif snap_type == "networks":
+                sessions[backup_id]["networks"].append(snapshot)
+
+        # Find empty sessions (no volume snapshots)
+        empty_sessions = {}
+        for backup_id, snapshots in sessions.items():
+            if len(snapshots["volume"]) == 0 and (
+                len(snapshots["recipe"]) > 0 or len(snapshots["networks"]) > 0
+            ):
+                empty_sessions[backup_id] = snapshots
+
+        if not empty_sessions:
+            print_success(
+                "No empty sessions found!\n\n"
+                "All backup sessions contain volume data. Repository is clean."
+            )
+            return
+
+        # Display results
+        table = Table(title="Empty Backup Sessions Found", box=box.ROUNDED)
+        table.add_column("Backup ID", style="cyan")
+        table.add_column("Recipes", justify="right", style="yellow")
+        table.add_column("Networks", justify="right", style="yellow")
+        table.add_column("Total Snapshots", justify="right", style="red")
+
+        total_snapshots_to_delete = 0
+        for backup_id, snapshots in empty_sessions.items():
+            recipe_count = len(snapshots["recipe"])
+            network_count = len(snapshots["networks"])
+            total = recipe_count + network_count
+            total_snapshots_to_delete += total
+
+            table.add_row(
+                backup_id[:16] + "...",
+                str(recipe_count),
+                str(network_count),
+                str(total),
+            )
+
+        console.print(table)
+        console.print(
+            f"\n[yellow]Found {len(empty_sessions)} empty session(s) "
+            f"with {total_snapshots_to_delete} snapshot(s) to delete[/yellow]\n"
+        )
+
+        if dry_run:
+            print_warning(
+                "DRY RUN MODE - No changes made\n\n"
+                "To actually delete these snapshots, run:\n"
+                "[cyan]kopi-docka repo-prune-empty-sessions --no-dry-run[/cyan]"
+            )
+            return
+
+        # Confirm deletion
+        console.print("[yellow]⚠️  This will permanently delete these snapshots![/yellow]\n")
+        confirm = typer.confirm("Do you want to proceed with deletion?", default=False)
+
+        if not confirm:
+            console.print("[dim]Operation cancelled[/dim]")
+            return
+
+        # Delete snapshots
+        console.print("\n[cyan]Deleting empty session snapshots...[/cyan]\n")
+        deleted_count = 0
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Deleting snapshots...", total=total_snapshots_to_delete)
+
+            for backup_id, snapshots in empty_sessions.items():
+                all_session_snapshots = snapshots["recipe"] + snapshots["networks"]
+
+                for snapshot in all_session_snapshots:
+                    snapshot_id = snapshot.get("id")
+                    if snapshot_id:
+                        try:
+                            repo.delete_snapshot(snapshot_id)
+                            deleted_count += 1
+                            progress.update(task, advance=1)
+                        except Exception as e:
+                            print_error(f"Failed to delete snapshot {snapshot_id}: {e}")
+
+        # Success message
+        print_success_panel(
+            f"Deleted {deleted_count} snapshot(s) from {len(empty_sessions)} empty session(s)\n\n"
+            "[dim]Tip: Run repository maintenance to reclaim disk space:[/dim]\n"
+            "[cyan]kopi-docka repo-maintenance[/cyan]"
+        )
+
+    except Exception as e:
+        print_error_panel(f"Failed to prune empty sessions: {e}")
+        raise typer.Exit(code=1)
+
+
 def cmd_change_password(
     ctx: typer.Context,
     new_password: Optional[str] = None,
@@ -636,12 +815,14 @@ def cmd_change_password(
         raise typer.Exit(code=1)
 
     console.print()
-    console.print(Panel.fit(
-        f"[bold]Repository:[/bold] {repo.repo_path}\n"
-        f"[bold]Profile:[/bold]    {repo.profile_name}",
-        title="[bold cyan]Change Repository Password[/bold cyan]",
-        border_style="cyan"
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold]Repository:[/bold] {repo.repo_path}\n"
+            f"[bold]Profile:[/bold]    {repo.profile_name}",
+            title="[bold cyan]Change Repository Password[/bold cyan]",
+            border_style="cyan",
+        )
+    )
     console.print()
 
     # Verify current password first
@@ -670,12 +851,14 @@ def cmd_change_password(
         if not new_password:
             new_password = generate_secure_password()
             console.print()
-            console.print(Panel.fit(
-                f"[bold]GENERATED PASSWORD:[/bold]\n\n"
-                f"   [bold cyan]{new_password}[/bold cyan]",
-                title="[bold yellow]Save This Password[/bold yellow]",
-                border_style="yellow"
-            ))
+            console.print(
+                Panel.fit(
+                    f"[bold]GENERATED PASSWORD:[/bold]\n\n"
+                    f"   [bold cyan]{new_password}[/bold cyan]",
+                    title="[bold yellow]Save This Password[/bold yellow]",
+                    border_style="yellow",
+                )
+            )
             console.print()
             if not typer.confirm("Use this password?"):
                 console.print("[dim]Aborted.[/dim]")
@@ -727,16 +910,34 @@ def cmd_change_password(
 # Registration
 # -------------------------
 
+
 def register(app: typer.Typer):
     """Register all repository commands."""
-    
+
     # Simple commands without parameters
     app.command("init")(cmd_init)
     app.command("repo-status")(cmd_repo_status)
     app.command("repo-which-config")(cmd_repo_which_config)
     app.command("repo-set-default")(cmd_repo_set_default)
     app.command("repo-maintenance")(cmd_repo_maintenance)
-    
+
+    @app.command("repo-prune-empty-sessions")
+    def _repo_prune_empty_sessions_cmd(
+        ctx: typer.Context,
+        config: Optional[Path] = typer.Option(
+            None,
+            "--config",
+            help="Path to configuration file",
+        ),
+        dry_run: bool = typer.Option(
+            True,
+            "--dry-run/--no-dry-run",
+            help="Preview changes without deleting (default: dry-run)",
+        ),
+    ):
+        """Clean up empty backup sessions (ghost sessions) from repository."""
+        cmd_prune_empty_sessions(ctx, config, dry_run)
+
     @app.command("repo-init-path")
     def _repo_init_path_cmd(
         ctx: typer.Context,
@@ -752,7 +953,7 @@ def register(app: typer.Typer):
     ):
         """Create a Kopia filesystem repository at PATH."""
         cmd_repo_init_path(ctx, path, profile, set_default, password, config)
-    
+
     @app.command("repo-selftest")
     def _repo_selftest_cmd(
         tmpdir: Path = typer.Option(Path("/tmp"), "--tmpdir"),
@@ -765,8 +966,12 @@ def register(app: typer.Typer):
     @app.command("change-password")
     def _change_password_cmd(
         ctx: typer.Context,
-        new_password: Optional[str] = typer.Option(None, "--new-password", help="New password (will prompt if not provided)"),
-        use_file: bool = typer.Option(True, "--file/--inline", help="Store in external file (default) or inline in config"),
+        new_password: Optional[str] = typer.Option(
+            None, "--new-password", help="New password (will prompt if not provided)"
+        ),
+        use_file: bool = typer.Option(
+            True, "--file/--inline", help="Store in external file (default) or inline in config"
+        ),
     ):
         """Change Kopia repository password."""
         cmd_change_password(ctx, new_password, use_file)

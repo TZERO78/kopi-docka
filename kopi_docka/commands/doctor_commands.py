@@ -70,43 +70,43 @@ def _extract_storage_info(kopia_params: str, repo_type: str) -> dict:
     try:
         parts = shlex.split(kopia_params)
 
-        if repo_type == 'filesystem':
+        if repo_type == "filesystem":
             # Extract --path
             for i, part in enumerate(parts):
-                if part == '--path' and i + 1 < len(parts):
-                    info['path'] = parts[i + 1]
-                elif part.startswith('--path='):
-                    info['path'] = part.split('=', 1)[1]
+                if part == "--path" and i + 1 < len(parts):
+                    info["path"] = parts[i + 1]
+                elif part.startswith("--path="):
+                    info["path"] = part.split("=", 1)[1]
 
-        elif repo_type == 'rclone':
+        elif repo_type == "rclone":
             # Extract --remote-path
             for part in parts:
-                if part.startswith('--remote-path='):
-                    info['remote'] = part.split('=', 1)[1]
+                if part.startswith("--remote-path="):
+                    info["remote"] = part.split("=", 1)[1]
 
-        elif repo_type in ('s3', 'b2', 'gcs'):
+        elif repo_type in ("s3", "b2", "gcs"):
             # Extract --bucket
             for i, part in enumerate(parts):
-                if part == '--bucket' and i + 1 < len(parts):
-                    info['bucket'] = parts[i + 1]
-                elif part.startswith('--bucket='):
-                    info['bucket'] = part.split('=', 1)[1]
+                if part == "--bucket" and i + 1 < len(parts):
+                    info["bucket"] = parts[i + 1]
+                elif part.startswith("--bucket="):
+                    info["bucket"] = part.split("=", 1)[1]
 
-        elif repo_type == 'azure':
+        elif repo_type == "azure":
             # Extract --container
             for i, part in enumerate(parts):
-                if part == '--container' and i + 1 < len(parts):
-                    info['container'] = parts[i + 1]
-                elif part.startswith('--container='):
-                    info['container'] = part.split('=', 1)[1]
+                if part == "--container" and i + 1 < len(parts):
+                    info["container"] = parts[i + 1]
+                elif part.startswith("--container="):
+                    info["container"] = part.split("=", 1)[1]
 
-        elif repo_type == 'sftp':
+        elif repo_type == "sftp":
             # Extract --path (contains user@host:path)
             for i, part in enumerate(parts):
-                if part == '--path' and i + 1 < len(parts):
-                    info['target'] = parts[i + 1]
-                elif part.startswith('--path='):
-                    info['target'] = part.split('=', 1)[1]
+                if part == "--path" and i + 1 < len(parts):
+                    info["target"] = parts[i + 1]
+                elif part.startswith("--path="):
+                    info["target"] = part.split("=", 1)[1]
 
     except Exception:
         pass
@@ -118,6 +118,7 @@ def _extract_storage_info(kopia_params: str, repo_type: str) -> dict:
 # Commands
 # -------------------------
 
+
 def cmd_doctor(ctx: typer.Context, verbose: bool = False):
     """
     Run comprehensive system health check.
@@ -128,10 +129,9 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
     3. Repository status (connection is the single source of truth)
     """
     console.print()
-    console.print(Panel.fit(
-        "[bold cyan]Kopi-Docka System Health Check[/bold cyan]",
-        border_style="cyan"
-    ))
+    console.print(
+        Panel.fit("[bold cyan]Kopi-Docka System Health Check[/bold cyan]", border_style="cyan")
+    )
     console.print()
 
     issues = []
@@ -152,14 +152,16 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
     deps_table.add_column("Details", style="dim")
 
     # Kopia
-    if dep_status.get('kopia', False):
+    if dep_status.get("kopia", False):
         deps_table.add_row("Kopia", "[green]Installed[/green]", "")
     else:
-        deps_table.add_row("Kopia", "[red]Missing[/red]", "Run: kopi-docka admin system install-deps")
+        deps_table.add_row(
+            "Kopia", "[red]Missing[/red]", "Run: kopi-docka admin system install-deps"
+        )
         issues.append("Kopia is not installed")
 
     # Docker
-    if dep_status.get('docker', False):
+    if dep_status.get("docker", False):
         deps_table.add_row("Docker", "[green]Running[/green]", "")
     else:
         deps_table.add_row("Docker", "[red]Not Running[/red]", "Start Docker daemon")
@@ -181,7 +183,7 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
     config_table.add_column("Status", width=15)
     config_table.add_column("Details", style="dim")
 
-    kopia_params = ''
+    kopia_params = ""
 
     if cfg:
         config_table.add_row("Config File", "[green]Found[/green]", str(cfg.config_file))
@@ -189,24 +191,36 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
         # Check password
         try:
             password = cfg.get_password()
-            if password and password not in ('kopi-docka', 'CHANGE_ME_TO_A_SECURE_PASSWORD', ''):
+            if password and password not in ("kopi-docka", "CHANGE_ME_TO_A_SECURE_PASSWORD", ""):
                 config_table.add_row("Password", "[green]Configured[/green]", "")
             else:
-                config_table.add_row("Password", "[yellow]Default/Missing[/yellow]", "Run: kopi-docka admin repo init")
+                config_table.add_row(
+                    "Password",
+                    "[yellow]Default/Missing[/yellow]",
+                    "Run: kopi-docka admin repo init",
+                )
                 warnings.append("Password is default or missing")
         except Exception:
             config_table.add_row("Password", "[red]Error[/red]", "Could not read password")
             issues.append("Could not read password from config")
 
         # Check kopia_params
-        kopia_params = cfg.get('kopia', 'kopia_params', fallback='')
+        kopia_params = cfg.get("kopia", "kopia_params", fallback="")
         if kopia_params:
-            config_table.add_row("Kopia Params", "[green]Configured[/green]", kopia_params[:50] + "..." if len(kopia_params) > 50 else kopia_params)
+            config_table.add_row(
+                "Kopia Params",
+                "[green]Configured[/green]",
+                kopia_params[:50] + "..." if len(kopia_params) > 50 else kopia_params,
+            )
         else:
-            config_table.add_row("Kopia Params", "[red]Missing[/red]", "Run: kopi-docka admin config new")
+            config_table.add_row(
+                "Kopia Params", "[red]Missing[/red]", "Run: kopi-docka admin config new"
+            )
             issues.append("Kopia parameters not configured")
     else:
-        config_table.add_row("Config File", "[red]Not Found[/red]", "Run: kopi-docka admin config new")
+        config_table.add_row(
+            "Config File", "[red]Not Found[/red]", "Run: kopi-docka admin config new"
+        )
         issues.append("No configuration file found")
 
     console.print(config_table)
@@ -233,7 +247,7 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
         storage_info = _extract_storage_info(kopia_params, repo_type)
         if storage_info:
             for key, value in storage_info.items():
-                display_key = key.replace('_', ' ').title()
+                display_key = key.replace("_", " ").title()
                 repo_table.add_row(display_key, "", value)
 
         # THE ACTUAL CHECK: Kopia repository connection
@@ -262,7 +276,7 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
                 warnings.append("Repository not connected")
 
                 # Helpful message based on repo type
-                if repo_type == 'unknown':
+                if repo_type == "unknown":
                     repo_table.add_row("", "", "Run: kopi-docka admin config new")
                 else:
                     repo_table.add_row("", "", "Run: kopi-docka admin repo init")
@@ -280,12 +294,14 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
     console.print("-" * 40)
 
     if not issues and not warnings:
-        console.print(Panel.fit(
-            "[green]All systems operational![/green]\n\n"
-            "Kopi-Docka is ready to backup your Docker containers.",
-            title="[bold green]Health Check Passed[/bold green]",
-            border_style="green"
-        ))
+        console.print(
+            Panel.fit(
+                "[green]All systems operational![/green]\n\n"
+                "Kopi-Docka is ready to backup your Docker containers.",
+                title="[bold green]Health Check Passed[/bold green]",
+                border_style="green",
+            )
+        )
     elif issues:
         issue_list = "\n".join(f"  - {i}" for i in issues)
         warning_list = "\n".join(f"  - {w}" for w in warnings) if warnings else ""
@@ -294,19 +310,19 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
         if warnings:
             message += f"\n\n[yellow]Warnings ({len(warnings)}):[/yellow]\n{warning_list}"
 
-        console.print(Panel.fit(
-            message,
-            title="[bold red]Health Check Failed[/bold red]",
-            border_style="red"
-        ))
+        console.print(
+            Panel.fit(message, title="[bold red]Health Check Failed[/bold red]", border_style="red")
+        )
     else:
         warning_list = "\n".join(f"  - {w}" for w in warnings)
-        console.print(Panel.fit(
-            f"[yellow]Warnings ({len(warnings)}):[/yellow]\n{warning_list}\n\n"
-            "System is functional but may need attention.",
-            title="[bold yellow]Health Check Warnings[/bold yellow]",
-            border_style="yellow"
-        ))
+        console.print(
+            Panel.fit(
+                f"[yellow]Warnings ({len(warnings)}):[/yellow]\n{warning_list}\n\n"
+                "System is functional but may need attention.",
+                title="[bold yellow]Health Check Warnings[/bold yellow]",
+                border_style="yellow",
+            )
+        )
 
     console.print()
 
@@ -319,6 +335,7 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
 # -------------------------
 # Registration
 # -------------------------
+
 
 def register(app: typer.Typer):
     """Register doctor command."""

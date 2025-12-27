@@ -10,7 +10,7 @@
 # @repository:  https://github.com/TZERO78/kopi-docka
 # @version:     1.0.0
 #
-# ------------------------------------------------------------------------------ 
+# ------------------------------------------------------------------------------
 # MIT-Lizenz: siehe LICENSE oder https://opensource.org/licenses/MIT
 ################################################################################
 
@@ -36,7 +36,9 @@ class KopiaPolicyManager:
         """Apply global defaults (compression, retention) from Config. Best-effort."""
         try:
             compression = self.repo.config.get("kopia", "compression", fallback="zstd")
-            self._run(["kopia", "policy", "set", "--global", "--compression", compression], check=False)
+            self._run(
+                ["kopia", "policy", "set", "--global", "--compression", compression], check=False
+            )
         except Exception as e:
             logger.debug("Global compression policy skipped: %s", e)
 
@@ -47,15 +49,27 @@ class KopiaPolicyManager:
             weekly = str(self.repo.config.getint("retention", "weekly", fallback=4))
             monthly = str(self.repo.config.getint("retention", "monthly", fallback=12))
             annual = str(self.repo.config.getint("retention", "annual", fallback=3))
-            self._run([
-                "kopia", "policy", "set", "--global",
-                "--keep-latest", latest,
-                "--keep-hourly", hourly,
-                "--keep-daily", daily,
-                "--keep-weekly", weekly,
-                "--keep-monthly", monthly,
-                "--keep-annual", annual,
-            ], check=False)
+            self._run(
+                [
+                    "kopia",
+                    "policy",
+                    "set",
+                    "--global",
+                    "--keep-latest",
+                    latest,
+                    "--keep-hourly",
+                    hourly,
+                    "--keep-daily",
+                    daily,
+                    "--keep-weekly",
+                    weekly,
+                    "--keep-monthly",
+                    monthly,
+                    "--keep-annual",
+                    annual,
+                ],
+                check=False,
+            )
         except Exception as e:
             logger.debug("Global retention policy skipped: %s", e)
 

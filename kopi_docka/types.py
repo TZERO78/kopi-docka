@@ -32,6 +32,7 @@ from typing import List, Dict, Any, Optional
 @dataclass
 class ContainerInfo:
     """Container information."""
+
     id: str
     name: str
     image: str
@@ -51,7 +52,7 @@ class ContainerInfo:
     @property
     def is_running(self) -> bool:
         """Check if container is running."""
-        return self.status.lower().startswith('running')
+        return self.status.lower().startswith("running")
 
     @property
     def is_database(self) -> bool:
@@ -62,12 +63,14 @@ class ContainerInfo:
     def stack_name(self) -> Optional[str]:
         """Get stack name from labels."""
         from .helpers.constants import DOCKER_COMPOSE_PROJECT_LABEL
+
         return self.labels.get(DOCKER_COMPOSE_PROJECT_LABEL)
 
 
 @dataclass
 class VolumeInfo:
     """Volume information."""
+
     name: str
     driver: str
     mountpoint: str
@@ -83,6 +86,7 @@ class MachineInfo:
     Used by the advanced restore wizard to show all machines that have
     backups in the repository.
     """
+
     hostname: str
     last_backup: datetime
     backup_count: int = 0
@@ -107,20 +111,21 @@ class BackupUnit:
     def has_databases(self) -> bool:
         """Check if unit contains database containers."""
         return any(c.database_type for c in self.containers)
-    
+
     @property
     def running_containers(self) -> List[ContainerInfo]:
         """Get list of running containers."""
         return [c for c in self.containers if c.is_running]
-    
+
     @property
     def total_volume_size(self) -> int:
         """Get total size of all volumes."""
         return sum(v.size_bytes or 0 for v in self.volumes)
-    
+
     def get_database_containers(self) -> List[ContainerInfo]:
         """Get containers with database_type set."""
         return [c for c in self.containers if c.database_type]
+
 
 # ---- Metadata & Restore points ----
 

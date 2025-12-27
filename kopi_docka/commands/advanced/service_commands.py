@@ -48,6 +48,7 @@ service_app = typer.Typer(
 # Registration (wrappers)
 # -------------------------
 
+
 def register(app: typer.Typer):
     """Register service commands under 'admin service'."""
 
@@ -56,9 +57,7 @@ def register(app: typer.Typer):
         interval_minutes: Optional[int] = typer.Option(
             None, "--interval-minutes", help="Run backup every N minutes"
         ),
-        backup_cmd: str = typer.Option(
-            "/usr/bin/env kopi-docka backup", "--backup-cmd"
-        ),
+        backup_cmd: str = typer.Option("/usr/bin/env kopi-docka backup", "--backup-cmd"),
         log_level: str = typer.Option("INFO", "--log-level"),
     ):
         """Run the systemd-friendly daemon (service)."""

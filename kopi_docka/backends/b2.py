@@ -10,19 +10,19 @@ from .base import BackendBase
 
 class B2Backend(BackendBase):
     """Backblaze B2 cloud storage backend"""
-    
+
     @property
     def name(self) -> str:
         return "b2"
-    
+
     @property
     def display_name(self) -> str:
         return "Backblaze B2"
-    
+
     @property
     def description(self) -> str:
         return "Cost-effective cloud storage"
-    
+
     def configure(self) -> dict:
         """Interactive Backblaze B2 configuration wizard."""
         typer.echo("Backblaze B2 cloud storage selected.")
@@ -34,20 +34,20 @@ class B2Backend(BackendBase):
         typer.echo("")
         typer.echo("Get credentials: https://secure.backblaze.com/app_keys.htm")
         typer.echo("")
-        
+
         bucket = typer.prompt("Bucket name")
         prefix = typer.prompt("Path prefix (optional)", default="kopia", show_default=True)
-        
+
         # Build Kopia command parameters
         kopia_params = f"b2 --bucket {bucket}"
         if prefix:
             kopia_params += f" --prefix {prefix}"
-        
+
         env_vars = {
-            'B2_APPLICATION_KEY_ID': '<your-application-key-id>',
-            'B2_APPLICATION_KEY': '<your-application-key>',
+            "B2_APPLICATION_KEY_ID": "<your-application-key-id>",
+            "B2_APPLICATION_KEY": "<your-application-key>",
         }
-        
+
         instructions = f"""
 ⚠️  Set these environment variables before running init:
 
@@ -66,11 +66,11 @@ Get credentials from:
   • Free egress up to 3x storage
   • No API request fees
 """
-        
+
         return {
-            'kopia_params': kopia_params,
-            'env_vars': env_vars,
-            'instructions': instructions,
+            "kopia_params": kopia_params,
+            "env_vars": env_vars,
+            "instructions": instructions,
         }
 
     def get_status(self) -> dict:
@@ -84,23 +84,23 @@ Get credentials from:
             "details": {
                 "bucket": None,
                 "prefix": None,
-            }
+            },
         }
 
-        kopia_params = self.config.get('kopia_params', '')
+        kopia_params = self.config.get("kopia_params", "")
         if not kopia_params:
             return status
 
         try:
             parts = shlex.split(kopia_params)
 
-            if '--bucket' in parts:
-                idx = parts.index('--bucket')
+            if "--bucket" in parts:
+                idx = parts.index("--bucket")
                 if idx + 1 < len(parts):
                     status["details"]["bucket"] = parts[idx + 1]
 
-            if '--prefix' in parts:
-                idx = parts.index('--prefix')
+            if "--prefix" in parts:
+                idx = parts.index("--prefix")
                 if idx + 1 < len(parts):
                     status["details"]["prefix"] = parts[idx + 1]
 
@@ -136,5 +136,6 @@ Get credentials from:
     def get_kopia_args(self) -> list:
         """Get Kopia arguments from kopia_params."""
         import shlex
-        kopia_params = self.config.get('kopia_params', '')
+
+        kopia_params = self.config.get("kopia_params", "")
         return shlex.split(kopia_params) if kopia_params else []

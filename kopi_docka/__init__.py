@@ -6,7 +6,7 @@
 # @description: Package entry point exposing core APIs and utilities
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
-# @version:     2.0.3
+# @version:     5.3.0
 #
 # ------------------------------------------------------------------------------
 # Copyright (c) 2025 Markus F. (TZERO78)
@@ -76,19 +76,16 @@ __all__ = [
     "VERSION",
     "__version__",
     "__author__",
-    
     # Types
     "BackupUnit",
     "ContainerInfo",
     "VolumeInfo",
     "BackupMetadata",
     "RestorePoint",
-    
     # Configuration
     "Config",
     "create_default_config",
     "generate_secure_password",
-     
     # Core Managers
     "BackupManager",
     "RestoreManager",
@@ -98,11 +95,9 @@ __all__ = [
     "DryRunReport",
     "DisasterRecoveryManager",
     "KopiaPolicyManager",
-    
     # Service
     "KopiDockaService",
     "ServiceConfig",
-    
     # Logging
     "get_logger",
     "log_manager",

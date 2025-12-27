@@ -71,14 +71,10 @@ class DockerDiscovery:
                 check=True,
             )
         except SubprocessError as e:
-            logger.error(
-                f"Failed to access Docker: {e}", extra={"operation": "discover"}
-            )
+            logger.error(f"Failed to access Docker: {e}", extra={"operation": "discover"})
             raise RuntimeError(f"Docker daemon not accessible: {e.stderr}")
         except Exception as e:
-            logger.error(
-                f"Failed to access Docker: {e}", extra={"operation": "discover"}
-            )
+            logger.error(f"Failed to access Docker: {e}", extra={"operation": "discover"})
             raise
 
     def _run_docker(self, args: List[str]) -> str:
@@ -132,9 +128,7 @@ class DockerDiscovery:
         """
         out = self._run_docker(["ps", "-q"])
         if not out.strip():
-            logger.warning(
-                "No running containers found", extra={"operation": "discover"}
-            )
+            logger.warning("No running containers found", extra={"operation": "discover"})
             return []
 
         ids = [c for c in out.strip().split("\n") if c]
@@ -257,9 +251,7 @@ class DockerDiscovery:
             if result.returncode == 0 and result.stdout:
                 return int(result.stdout.split("\t", 1)[0])
         except Exception as e:
-            logger.debug(
-                f"Could not estimate volume size: {e}", extra={"operation": "discover"}
-            )
+            logger.debug(f"Could not estimate volume size: {e}", extra={"operation": "discover"})
         return None
 
     # ---------------------------- grouping ----------------------------

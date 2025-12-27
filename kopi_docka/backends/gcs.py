@@ -8,32 +8,32 @@ from .base import BackendBase
 
 class GCSBackend(BackendBase):
     """Google Cloud Storage backend"""
-    
+
     @property
     def name(self) -> str:
         return "gcs"
-    
+
     @property
     def display_name(self) -> str:
         return "Google Cloud Storage"
-    
+
     @property
     def description(self) -> str:
         return "GCS cloud storage"
-    
+
     def configure(self) -> dict:
         """Interactive Google Cloud Storage configuration wizard."""
         typer.echo("Google Cloud Storage selected.")
         typer.echo("")
-        
+
         bucket = typer.prompt("Bucket name")
         prefix = typer.prompt("Path prefix (optional)", default="kopia", show_default=True)
-        
+
         # Build Kopia command parameters
         kopia_params = f"gcs --bucket {bucket}"
         if prefix:
             kopia_params += f" --prefix {prefix}"
-        
+
         instructions = """
 ⚠️  Authenticate with Google Cloud:
 
@@ -52,10 +52,10 @@ Required permissions:
   • storage.objects.get
   • storage.objects.list
 """
-        
+
         return {
-            'kopia_params': kopia_params,
-            'instructions': instructions,
+            "kopia_params": kopia_params,
+            "instructions": instructions,
         }
 
     def get_status(self) -> dict:
@@ -69,23 +69,23 @@ Required permissions:
             "details": {
                 "bucket": None,
                 "prefix": None,
-            }
+            },
         }
 
-        kopia_params = self.config.get('kopia_params', '')
+        kopia_params = self.config.get("kopia_params", "")
         if not kopia_params:
             return status
 
         try:
             parts = shlex.split(kopia_params)
 
-            if '--bucket' in parts:
-                idx = parts.index('--bucket')
+            if "--bucket" in parts:
+                idx = parts.index("--bucket")
                 if idx + 1 < len(parts):
                     status["details"]["bucket"] = parts[idx + 1]
 
-            if '--prefix' in parts:
-                idx = parts.index('--prefix')
+            if "--prefix" in parts:
+                idx = parts.index("--prefix")
                 if idx + 1 < len(parts):
                     status["details"]["prefix"] = parts[idx + 1]
 
@@ -121,5 +121,6 @@ Required permissions:
     def get_kopia_args(self) -> list:
         """Get Kopia arguments from kopia_params."""
         import shlex
-        kopia_params = self.config.get('kopia_params', '')
+
+        kopia_params = self.config.get("kopia_params", "")
         return shlex.split(kopia_params) if kopia_params else []

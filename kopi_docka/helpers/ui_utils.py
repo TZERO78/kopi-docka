@@ -30,12 +30,12 @@ logger = get_logger(__name__)
 def require_sudo(command_name: str = "this command") -> None:
     """
     Check if running with sudo/root privileges.
-    
+
     Exits with clear error message if not running as root.
-    
+
     Args:
         command_name: Name of command requiring sudo (for error message)
-    
+
     Raises:
         typer.Exit: If not running as root
     """
@@ -57,7 +57,7 @@ def print_header(title: str, subtitle: str = ""):
     content = f"[bold cyan]{title}[/bold cyan]"
     if subtitle:
         content += f"\n[dim]{subtitle}[/dim]"
-    
+
     panel = Panel(content, border_style="cyan")
     console.print(panel)
 
@@ -90,14 +90,14 @@ def print_separator():
 def create_table(title: str, columns: List[tuple]) -> Table:
     """
     Create a styled Rich table
-    
+
     Args:
         title: Table title
         columns: List of (name, style, width) tuples
-        
+
     Returns:
         Rich Table instance
-        
+
     Example:
         table = create_table("Peers", [
             ("Name", "cyan", 20),
@@ -112,55 +112,44 @@ def create_table(title: str, columns: List[tuple]) -> Table:
     return table
 
 
-def prompt_choice(
-    message: str,
-    choices: List[str],
-    default: Optional[str] = None
-) -> str:
+def prompt_choice(message: str, choices: List[str], default: Optional[str] = None) -> str:
     """
     Prompt user to choose from a list of options
-    
+
     Args:
         message: Prompt message
         choices: List of valid choices
         default: Default choice if user presses Enter
-        
+
     Returns:
         Selected choice
     """
     return Prompt.ask(message, choices=choices, default=default)
 
 
-def prompt_text(
-    message: str,
-    default: Optional[str] = None,
-    password: bool = False
-) -> str:
+def prompt_text(message: str, default: Optional[str] = None, password: bool = False) -> str:
     """
     Prompt user for text input
-    
+
     Args:
         message: Prompt message
         default: Default value if user presses Enter
         password: If True, hide input (for passwords)
-        
+
     Returns:
         User input string
     """
     return Prompt.ask(message, default=default, password=password)
 
 
-def prompt_confirm(
-    message: str,
-    default: bool = True
-) -> bool:
+def prompt_confirm(message: str, default: bool = True) -> bool:
     """
     Prompt user for yes/no confirmation
-    
+
     Args:
         message: Prompt message
         default: Default answer (True=Yes, False=No)
-        
+
     Returns:
         True if user confirmed, False otherwise
     """
@@ -168,45 +157,40 @@ def prompt_confirm(
 
 
 def prompt_select(
-    message: str,
-    options: List[Any],
-    display_fn: Optional[Callable[[Any], str]] = None
+    message: str, options: List[Any], display_fn: Optional[Callable[[Any], str]] = None
 ) -> Any:
     """
     Show numbered list and let user select one option
-    
+
     Args:
         message: Prompt message
         options: List of options to choose from
         display_fn: Optional function to format option for display
-        
+
     Returns:
         Selected option
-        
+
     Example:
         peers = [peer1, peer2, peer3]
         selected = prompt_select(
-            "Select peer", 
+            "Select peer",
             peers,
             lambda p: f"{p.hostname} ({p.ip})"
         )
     """
     if not options:
         raise ValueError("Options list cannot be empty")
-    
+
     # Display options
     console.print(f"\n[cyan]{message}:[/cyan]")
     for i, option in enumerate(options, 1):
         display = display_fn(option) if display_fn else str(option)
         console.print(f"  {i}. {display}")
-    
+
     # Get selection
     while True:
-        choice = Prompt.ask(
-            f"\n[cyan]Select[/cyan]",
-            default="1"
-        )
-        
+        choice = Prompt.ask(f"\n[cyan]Select[/cyan]", default="1")
+
         try:
             idx = int(choice) - 1
             if 0 <= idx < len(options):
@@ -250,11 +234,8 @@ def with_spinner(message: str, func: Callable, *args, **kwargs):
 # New Components for v4.0.0
 # =============================================================================
 
-def print_panel(
-    content: str,
-    title: str = "",
-    style: str = "cyan"
-) -> None:
+
+def print_panel(content: str, title: str = "", style: str = "cyan") -> None:
     """
     Print content in a styled panel.
 
@@ -265,21 +246,15 @@ def print_panel(
     """
     console.print()
     if title:
-        console.print(Panel.fit(
-            content,
-            title=f"[bold {style}]{title}[/bold {style}]",
-            border_style=style
-        ))
+        console.print(
+            Panel.fit(content, title=f"[bold {style}]{title}[/bold {style}]", border_style=style)
+        )
     else:
         console.print(Panel.fit(content, border_style=style))
     console.print()
 
 
-def print_menu(
-    title: str,
-    options: List[Tuple[str, str]],
-    border_style: str = "cyan"
-) -> None:
+def print_menu(title: str, options: List[Tuple[str, str]], border_style: str = "cyan") -> None:
     """
     Print a consistent menu with numbered options.
 
@@ -307,10 +282,11 @@ def print_step(current: int, total: int, description: str) -> None:
         description: Step description
     """
     console.print()
-    console.print(Panel.fit(
-        f"[bold cyan]Step {current}/{total}: {description}[/bold cyan]",
-        border_style="cyan"
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold cyan]Step {current}/{total}: {description}[/bold cyan]", border_style="cyan"
+        )
+    )
     console.print()
 
 
@@ -373,44 +349,50 @@ def create_status_table(title: str = "") -> Table:
 def print_success_panel(message: str, title: str = "Success") -> None:
     """Print success message in green panel."""
     console.print()
-    console.print(Panel.fit(
-        f"[green]✓ {message}[/green]",
-        title=f"[bold green]{title}[/bold green]",
-        border_style="green"
-    ))
+    console.print(
+        Panel.fit(
+            f"[green]✓ {message}[/green]",
+            title=f"[bold green]{title}[/bold green]",
+            border_style="green",
+        )
+    )
     console.print()
 
 
 def print_error_panel(message: str, title: str = "Error") -> None:
     """Print error message in red panel."""
     console.print()
-    console.print(Panel.fit(
-        f"[red]✗ {message}[/red]",
-        title=f"[bold red]{title}[/bold red]",
-        border_style="red"
-    ))
+    console.print(
+        Panel.fit(
+            f"[red]✗ {message}[/red]", title=f"[bold red]{title}[/bold red]", border_style="red"
+        )
+    )
     console.print()
 
 
 def print_warning_panel(message: str, title: str = "Warning") -> None:
     """Print warning message in yellow panel."""
     console.print()
-    console.print(Panel.fit(
-        f"[yellow]⚠ {message}[/yellow]",
-        title=f"[bold yellow]{title}[/bold yellow]",
-        border_style="yellow"
-    ))
+    console.print(
+        Panel.fit(
+            f"[yellow]⚠ {message}[/yellow]",
+            title=f"[bold yellow]{title}[/bold yellow]",
+            border_style="yellow",
+        )
+    )
     console.print()
 
 
 def print_info_panel(message: str, title: str = "Info") -> None:
     """Print info message in cyan panel."""
     console.print()
-    console.print(Panel.fit(
-        f"[cyan]→ {message}[/cyan]",
-        title=f"[bold cyan]{title}[/bold cyan]",
-        border_style="cyan"
-    ))
+    console.print(
+        Panel.fit(
+            f"[cyan]→ {message}[/cyan]",
+            title=f"[bold cyan]{title}[/bold cyan]",
+            border_style="cyan",
+        )
+    )
     console.print()
 
 
@@ -426,11 +408,9 @@ def print_next_steps(steps: List[str]) -> None:
         content += f"[{i}] {step}\n"
 
     console.print()
-    console.print(Panel.fit(
-        content.strip(),
-        title="[bold cyan]What's Next[/bold cyan]",
-        border_style="cyan"
-    ))
+    console.print(
+        Panel.fit(content.strip(), title="[bold cyan]What's Next[/bold cyan]", border_style="cyan")
+    )
     console.print()
 
 
@@ -453,8 +433,9 @@ def get_menu_choice(prompt_text: str = "Select", valid_choices: List[str] = None
 
 
 # =============================================================================
-# Subprocess Utilities (v5.2.0)
+# Subprocess Utilities (v5.3.0)
 # =============================================================================
+
 
 class SubprocessError(Exception):
     """
@@ -582,7 +563,9 @@ def run_command(
         # Handle failure
         if check:
             stderr_text = result.stderr.strip() if result.stderr else ""
-            display_error = error_msg or stderr_text or f"Command exited with code {result.returncode}"
+            display_error = (
+                error_msg or stderr_text or f"Command exited with code {result.returncode}"
+            )
 
             # Log the error
             logger.error(
@@ -591,7 +574,7 @@ def run_command(
                     "returncode": result.returncode,
                     "stderr": stderr_text[:500] if stderr_text else None,
                     "duration": duration,
-                }
+                },
             )
 
             # Show error panel to user
@@ -606,11 +589,11 @@ def run_command(
                 error_content += f"\n[dim]Details:[/dim]\n{escape(stderr_display)}"
 
             console.print()
-            console.print(Panel.fit(
-                error_content,
-                title="[bold red]Command Failed[/bold red]",
-                border_style="red"
-            ))
+            console.print(
+                Panel.fit(
+                    error_content, title="[bold red]Command Failed[/bold red]", border_style="red"
+                )
+            )
 
             raise SubprocessError(cmd_list, result.returncode, stderr_text)
 
@@ -620,7 +603,7 @@ def run_command(
         duration = time.time() - start_time
         logger.warning(
             f"Command timed out after {timeout}s: {cmd_str}",
-            extra={"timeout": timeout, "duration": duration}
+            extra={"timeout": timeout, "duration": duration},
         )
 
         # Show timeout warning panel
@@ -629,11 +612,13 @@ def run_command(
         timeout_content += f"[dim]Timeout:[/dim] {timeout} seconds"
 
         console.print()
-        console.print(Panel.fit(
-            timeout_content,
-            title="[bold yellow]Command Timed Out[/bold yellow]",
-            border_style="yellow"
-        ))
+        console.print(
+            Panel.fit(
+                timeout_content,
+                title="[bold yellow]Command Timed Out[/bold yellow]",
+                border_style="yellow",
+            )
+        )
 
         if check:
             raise
@@ -643,5 +628,5 @@ def run_command(
             args=cmd_list,
             returncode=-1,
             stdout="",
-            stderr=f"Command timed out after {timeout} seconds"
+            stderr=f"Command timed out after {timeout} seconds",
         )

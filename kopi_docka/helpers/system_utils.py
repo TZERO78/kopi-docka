@@ -64,28 +64,29 @@ class SystemUtils:
     Provides methods for checking system resources and calculating
     optimal configurations based on system capabilities.
     """
-    
+
     def __init__(self):
         """Initialize SystemUtils with DependencyManager instance."""
         self._dep_manager = None
-    
+
     def _get_dep_manager(self):
         """Lazy-load DependencyManager instance."""
         if self._dep_manager is None:
             from ..cores.dependency_manager import DependencyManager
+
             self._dep_manager = DependencyManager()
         return self._dep_manager
-    
+
     # Dependency checks (delegate to DependencyManager)
-    
+
     def check_docker(self) -> bool:
         """Check if Docker is installed and accessible."""
         return self._get_dep_manager().check_docker()
-    
+
     def check_kopia(self) -> bool:
         """Check if Kopia is installed and accessible."""
         return self._get_dep_manager().check_kopia()
-    
+
     def check_tar(self) -> bool:
         """Check if tar is installed and accessible."""
         return self._get_dep_manager().check_tar()

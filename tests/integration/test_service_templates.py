@@ -155,9 +155,7 @@ class TestTemplateComments:
 
         # Count comment lines
         lines = content.splitlines()
-        comment_lines = [
-            line for line in lines if line.strip().startswith("#") or not line.strip()
-        ]
+        comment_lines = [line for line in lines if line.strip().startswith("#") or not line.strip()]
 
         # Should have substantial documentation
         assert len(comment_lines) > 20
@@ -182,4 +180,6 @@ class TestTemplateComments:
         content = (template_dir / "kopi-docka-backup.service.template").read_text()
 
         # Should document when to use this service
-        assert "one" in content.lower() and "shot" in content.lower() or "oneshot" in content.lower()
+        assert (
+            "one" in content.lower() and "shot" in content.lower() or "oneshot" in content.lower()
+        )

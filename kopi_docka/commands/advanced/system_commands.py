@@ -44,6 +44,7 @@ system_app = typer.Typer(
 # Registration (wrappers)
 # -------------------------
 
+
 def register(app: typer.Typer):
     """Register system commands under 'admin system'."""
 

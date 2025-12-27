@@ -56,14 +56,14 @@ from . import (
 
 __all__ = [
     # Top-level commands
-    'setup_commands',
-    'backup_commands',
-    'dry_run_commands',
-    'disaster_recovery_commands',
-    'doctor_commands',
+    "setup_commands",
+    "backup_commands",
+    "dry_run_commands",
+    "disaster_recovery_commands",
+    "doctor_commands",
     # Legacy modules
-    'config_commands',
-    'dependency_commands',
-    'repository_commands',
-    'service_commands',
+    "config_commands",
+    "dependency_commands",
+    "repository_commands",
+    "service_commands",
 ]

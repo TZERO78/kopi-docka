@@ -32,12 +32,12 @@ Notes:
 from pathlib import Path
 
 # Version information
-VERSION = "5.2.1"
+VERSION = "5.3.0"
 
 # Backup Scope Levels
-BACKUP_SCOPE_MINIMAL = "minimal"      # Only volumes
-BACKUP_SCOPE_STANDARD = "standard"    # Volumes + recipes + networks (default)
-BACKUP_SCOPE_FULL = "full"           # Everything including daemon config
+BACKUP_SCOPE_MINIMAL = "minimal"  # Only volumes
+BACKUP_SCOPE_STANDARD = "standard"  # Volumes + recipes + networks (default)
+BACKUP_SCOPE_FULL = "full"  # Everything including daemon config
 
 BACKUP_SCOPES = {
     BACKUP_SCOPE_MINIMAL: {
@@ -45,22 +45,22 @@ BACKUP_SCOPES = {
         "description": "Only container data (volumes)",
         "includes": ["volumes"],
         "fast": True,
-        "size": "small"
+        "size": "small",
     },
     BACKUP_SCOPE_STANDARD: {
         "name": "Standard",
         "description": "Container data + configuration (recommended)",
         "includes": ["volumes", "recipes", "networks"],
         "fast": False,
-        "size": "medium"
+        "size": "medium",
     },
     BACKUP_SCOPE_FULL: {
         "name": "Full System",
         "description": "Complete system (DR-ready)",
         "includes": ["volumes", "recipes", "networks", "docker_config"],
         "fast": False,
-        "size": "large"
-    }
+        "size": "large",
+    },
 }
 
 # Default config paths
@@ -83,11 +83,56 @@ NETWORK_BACKUP_DIR = "networks"
 DOCKER_CONFIG_BACKUP_DIR = "docker-config"
 # DATABASE_BACKUP_DIR removed (no DB dumps in cold backups)
 
+# Staging directories (v5.3.0+)
+# =============================
+# Stable staging paths for metadata backups (recipes, networks).
+# Replaces random tempfile.TemporaryDirectory() to enable retention policies.
+#
+# Problem with random temp dirs:
+#   - Each backup creates new path like /tmp/tmp8a7d.../recipes/myproject
+#   - Kopia sees each as different source, retention never triggers
+#   - "Ghost sessions" accumulate (metadata snapshots with no volumes)
+#   - Restore interface becomes cluttered with empty sessions
+#
+# Solution with stable paths:
+#   - Fixed paths like /var/cache/kopi-docka/staging/recipes/myproject
+#   - Kopia sees consistent source path across backups
+#   - Retention policies work correctly (e.g., latest=3 deletes old metadata)
+#   - Clean restore interface showing only actual backups
+#
+# Directory structure:
+#   /var/cache/kopi-docka/staging/
+#   ├── recipes/<unit-name>/     - Compose files and .env
+#   ├── networks/<unit-name>/    - Network configuration JSON
+#   └── configs/<unit-name>/     - Metadata (future use)
+#
+# Note: Directory is cleared/reused on each backup (idempotent)
+STAGING_BASE_DIR = Path("/var/cache/kopi-docka/staging")
+
 # Backup Format (v5.0+)
 # - TAR: Legacy format, streams tar archive to Kopia (no deduplication)
 # - DIRECT: New format, direct Kopia snapshot of volume directory (block-level dedup)
-BACKUP_FORMAT_TAR = "tar"          # Legacy: tar stream → Kopia stdin
-BACKUP_FORMAT_DIRECT = "direct"    # New: direct Kopia snapshot of volume path
+#
+# IMPORTANT: Retention Policy Path Behavior
+# =========================================
+# The backup format affects how Kopia retention policies are applied:
+#
+# TAR Mode (Legacy):
+#   - Snapshots created with virtual paths like "volumes/myproject"
+#   - Retention policies applied to same virtual path
+#   - Single policy covers all volumes in a backup unit
+#
+# Direct Mode (Default):
+#   - Snapshots created with actual volume mountpoints like
+#     "/var/lib/docker/volumes/myproject_data/_data"
+#   - Retention policies MUST be applied to each volume's mountpoint
+#   - Each volume gets its own retention policy
+#   - Path mismatch was a critical bug fixed in v5.3.0
+#     (policies on virtual paths never triggered for actual mountpoint snapshots)
+#
+# See: backup_manager.py::_ensure_policies() for implementation details
+BACKUP_FORMAT_TAR = "tar"  # Legacy: tar stream → Kopia stdin
+BACKUP_FORMAT_DIRECT = "direct"  # New: direct Kopia snapshot of volume path
 BACKUP_FORMAT_DEFAULT = BACKUP_FORMAT_DIRECT  # Default for new backups
 
 # Backup hooks

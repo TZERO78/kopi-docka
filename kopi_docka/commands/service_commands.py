@@ -36,6 +36,7 @@ console = Console()
 # Helper Functions
 # -------------------------
 
+
 def confirm_action(message: str, default_no: bool = True) -> bool:
     """
     Ask user for yes/no confirmation with clear options.
@@ -66,6 +67,7 @@ def confirm_action(message: str, default_no: bool = True) -> bool:
 # -------------------------
 # Commands
 # -------------------------
+
 
 def cmd_daemon(
     interval_minutes: Optional[int] = None,
@@ -99,14 +101,16 @@ def cmd_manage():
     # Check root privileges
     if os.geteuid() != 0:
         console.print()
-        console.print(Panel.fit(
-            "[red]Root privileges required[/red]\n\n"
-            "This command requires root privileges for systemctl operations.\n"
-            "Please run with sudo:\n\n"
-            "[cyan]sudo kopi-docka admin service manage[/cyan]",
-            title="[bold red]Permission Denied[/bold red]",
-            border_style="red"
-        ))
+        console.print(
+            Panel.fit(
+                "[red]Root privileges required[/red]\n\n"
+                "This command requires root privileges for systemctl operations.\n"
+                "Please run with sudo:\n\n"
+                "[cyan]sudo kopi-docka admin service manage[/cyan]",
+                title="[bold red]Permission Denied[/bold red]",
+                border_style="red",
+            )
+        )
         console.print()
         raise typer.Exit(code=13)
 
@@ -116,13 +120,15 @@ def cmd_manage():
     # Check if units exist, offer to create if missing
     if not helper.units_exist():
         console.print()
-        console.print(Panel.fit(
-            "[yellow]Systemd units not found[/yellow]\n\n"
-            "The kopi-docka systemd units are not yet installed.\n"
-            "Would you like to create them now?",
-            title="[bold yellow]Installation Required[/bold yellow]",
-            border_style="yellow"
-        ))
+        console.print(
+            Panel.fit(
+                "[yellow]Systemd units not found[/yellow]\n\n"
+                "The kopi-docka systemd units are not yet installed.\n"
+                "Would you like to create them now?",
+                title="[bold yellow]Installation Required[/bold yellow]",
+                border_style="yellow",
+            )
+        )
         console.print()
 
         if confirm_action("Create units?", default_no=False):
@@ -144,15 +150,17 @@ def cmd_manage():
     # Main menu loop
     while True:
         console.print()
-        console.print(Panel.fit(
-            "[bold cyan]KOPI-DOCKA SERVICE MANAGEMENT[/bold cyan]\n\n"
-            "[1] Show Status\n"
-            "[2] Configure Timer\n"
-            "[3] View Logs\n"
-            "[4] Control Service\n"
-            "[0] Exit",
-            border_style="cyan"
-        ))
+        console.print(
+            Panel.fit(
+                "[bold cyan]KOPI-DOCKA SERVICE MANAGEMENT[/bold cyan]\n\n"
+                "[1] Show Status\n"
+                "[2] Configure Timer\n"
+                "[3] View Logs\n"
+                "[4] Control Service\n"
+                "[0] Exit",
+                border_style="cyan",
+            )
+        )
         console.print()
 
         choice = console.input("[cyan]Selection:[/cyan] ").strip()
@@ -217,11 +225,13 @@ def _show_status_dashboard(helper: ServiceHelper):
     if timer_status.next_run:
         health_content += f"\n[bold]Next:[/bold] {timer_status.next_run}"
 
-    console.print(Panel.fit(
-        health_content,
-        title=f"[bold {health_color}]System Health[/bold {health_color}]",
-        border_style=border_color
-    ))
+    console.print(
+        Panel.fit(
+            health_content,
+            title=f"[bold {health_color}]System Health[/bold {health_color}]",
+            border_style=border_color,
+        )
+    )
     console.print()
 
     # 2. Service/Timer Status Table with Notes
@@ -268,10 +278,20 @@ def _show_status_dashboard(helper: ServiceHelper):
 
     # 4. Last Backup Info
     if backup_info.timestamp:
-        status_color = "green" if backup_info.status == "success" else "red" if backup_info.status == "failed" else "yellow"
-        status_text = "Successful" if backup_info.status == "success" else "Failed" if backup_info.status == "failed" else "Unknown"
+        status_color = (
+            "green"
+            if backup_info.status == "success"
+            else "red" if backup_info.status == "failed" else "yellow"
+        )
+        status_text = (
+            "Successful"
+            if backup_info.status == "success"
+            else "Failed" if backup_info.status == "failed" else "Unknown"
+        )
 
-        console.print(f"[bold]Last Backup:[/bold] {backup_info.timestamp} - [{status_color}]{status_text}[/{status_color}]")
+        console.print(
+            f"[bold]Last Backup:[/bold] {backup_info.timestamp} - [{status_color}]{status_text}[/{status_color}]"
+        )
         console.print()
 
     # 5. Lock File Status
@@ -279,31 +299,37 @@ def _show_status_dashboard(helper: ServiceHelper):
         if lock_status["process_running"]:
             console.print(f"[yellow]⚠[/yellow] Lock file active (PID: {lock_status['pid']})")
         else:
-            console.print(f"[dim]Stale lock file (PID: {lock_status['pid']}) - use Control Service to remove[/dim]")
+            console.print(
+                f"[dim]Stale lock file (PID: {lock_status['pid']}) - use Control Service to remove[/dim]"
+            )
         console.print()
 
     # 6. Configuration Issues (if any)
     if config_validation["issues"]:
-        console.print(Panel.fit(
-            "[yellow]Configuration Issues:[/yellow]\n" +
-            "\n".join([f"  • {issue}" for issue in config_validation["issues"]]) +
-            "\n\n[yellow]Recommendations:[/yellow]\n" +
-            "\n".join([f"  • {rec}" for rec in config_validation["recommendations"]]) +
-            "\n\n[bold]Fix:[/bold] Control Service → [7] Fix Configuration",
-            title="[yellow]⚠ Needs Attention[/yellow]",
-            border_style="yellow"
-        ))
+        console.print(
+            Panel.fit(
+                "[yellow]Configuration Issues:[/yellow]\n"
+                + "\n".join([f"  • {issue}" for issue in config_validation["issues"]])
+                + "\n\n[yellow]Recommendations:[/yellow]\n"
+                + "\n".join([f"  • {rec}" for rec in config_validation["recommendations"]])
+                + "\n\n[bold]Fix:[/bold] Control Service → [7] Fix Configuration",
+                title="[yellow]⚠ Needs Attention[/yellow]",
+                border_style="yellow",
+            )
+        )
         console.print()
 
     # 7. Always-Visible Explanation
-    console.print(Panel.fit(
-        "[bold]Timer-Triggered Mode[/bold] (Recommended)\n\n"
-        "[cyan]Service:[/cyan] disabled = starts only when timer triggers it\n"
-        "[cyan]Timer:[/cyan]   enabled  = schedules automatic backups\n\n"
-        "[dim]This prevents restart loops and lock file issues.[/dim]",
-        title="[cyan]ℹ️  How It Works[/cyan]",
-        border_style="cyan"
-    ))
+    console.print(
+        Panel.fit(
+            "[bold]Timer-Triggered Mode[/bold] (Recommended)\n\n"
+            "[cyan]Service:[/cyan] disabled = starts only when timer triggers it\n"
+            "[cyan]Timer:[/cyan]   enabled  = schedules automatic backups\n\n"
+            "[dim]This prevents restart loops and lock file issues.[/dim]",
+            title="[cyan]ℹ️  How It Works[/cyan]",
+            border_style="cyan",
+        )
+    )
     console.print()
 
     console.input("[dim]Press Enter to continue...[/dim]")
@@ -500,6 +526,7 @@ def _control_service(helper: ServiceHelper):
                 # Wait briefly and check status
                 console.print("[dim]Waiting for backup to complete (30s max)...[/dim]")
                 import time
+
                 for i in range(30):
                     time.sleep(1)
                     status = helper.get_backup_service_status()
@@ -557,28 +584,32 @@ def _control_service(helper: ServiceHelper):
                 continue
 
             if lock_status["process_running"]:
-                console.print(Panel.fit(
-                    f"[red]Cannot Remove Active Lock[/red]\n\n"
-                    f"The lock file belongs to a running process (PID: {lock_status['pid']}).\n\n"
-                    f"[yellow]If you believe this is the daemon service, stop it first:[/yellow]\n"
-                    f"  • Option [2] Restart Service, or\n"
-                    f"  • Option [3] Stop Service\n\n"
-                    f"[dim]Only stale locks from dead processes can be removed.[/dim]",
-                    title="[red]Lock Active[/red]",
-                    border_style="red"
-                ))
+                console.print(
+                    Panel.fit(
+                        f"[red]Cannot Remove Active Lock[/red]\n\n"
+                        f"The lock file belongs to a running process (PID: {lock_status['pid']}).\n\n"
+                        f"[yellow]If you believe this is the daemon service, stop it first:[/yellow]\n"
+                        f"  • Option [2] Restart Service, or\n"
+                        f"  • Option [3] Stop Service\n\n"
+                        f"[dim]Only stale locks from dead processes can be removed.[/dim]",
+                        title="[red]Lock Active[/red]",
+                        border_style="red",
+                    )
+                )
                 console.print()
                 console.input("[dim]Press Enter to continue...[/dim]")
                 continue
 
             # Lock exists but process is not running - stale lock
-            console.print(Panel.fit(
-                f"[yellow]Stale Lock Found[/yellow]\n\n"
-                f"PID: {lock_status['pid']} (process not running)\n\n"
-                f"[dim]This lock can be safely removed.[/dim]",
-                title="[yellow]Stale Lock[/yellow]",
-                border_style="yellow"
-            ))
+            console.print(
+                Panel.fit(
+                    f"[yellow]Stale Lock Found[/yellow]\n\n"
+                    f"PID: {lock_status['pid']} (process not running)\n\n"
+                    f"[dim]This lock can be safely removed.[/dim]",
+                    title="[yellow]Stale Lock[/yellow]",
+                    border_style="yellow",
+                )
+            )
             console.print()
 
             if confirm_action("Remove stale lock file?", default_no=False):
@@ -613,17 +644,19 @@ def _control_service(helper: ServiceHelper):
                 continue
 
             # Show what will be done
-            console.print(Panel.fit(
-                "[bold]This will configure timer-triggered mode:[/bold]\n\n"
-                "  1. Stop kopi-docka.service (if running)\n"
-                "  2. Disable kopi-docka.service (prevents restart loops)\n"
-                "  3. Enable kopi-docka.timer (schedules backups)\n"
-                "  4. Start kopi-docka.timer (if not running)\n"
-                "  5. Remove stale lock files\n\n"
-                "[dim]This is the recommended configuration for automatic backups.[/dim]",
-                title="[cyan]Configuration Fix[/cyan]",
-                border_style="cyan"
-            ))
+            console.print(
+                Panel.fit(
+                    "[bold]This will configure timer-triggered mode:[/bold]\n\n"
+                    "  1. Stop kopi-docka.service (if running)\n"
+                    "  2. Disable kopi-docka.service (prevents restart loops)\n"
+                    "  3. Enable kopi-docka.timer (schedules backups)\n"
+                    "  4. Start kopi-docka.timer (if not running)\n"
+                    "  5. Remove stale lock files\n\n"
+                    "[dim]This is the recommended configuration for automatic backups.[/dim]",
+                    title="[cyan]Configuration Fix[/cyan]",
+                    border_style="cyan",
+                )
+            )
             console.print()
 
             if confirm_action("Apply this configuration?", default_no=False):
@@ -680,10 +713,14 @@ def _control_service(helper: ServiceHelper):
                 console.print()
                 if unit == "service":
                     status = helper.get_service_status()
-                    console.print(f"Service Status: {'[green]Active[/green]' if status.active else '[dim]Inactive[/dim]'}")
+                    console.print(
+                        f"Service Status: {'[green]Active[/green]' if status.active else '[dim]Inactive[/dim]'}"
+                    )
                 else:
                     status = helper.get_timer_status()
-                    console.print(f"Timer Status: {'[green]Active[/green]' if status.active else '[dim]Inactive[/dim]'}")
+                    console.print(
+                        f"Timer Status: {'[green]Active[/green]' if status.active else '[dim]Inactive[/dim]'}"
+                    )
 
                 console.print()
                 console.input("[dim]Press Enter to continue...[/dim]")
@@ -698,22 +735,21 @@ def _control_service(helper: ServiceHelper):
 # Registration
 # -------------------------
 
+
 def register(app: typer.Typer):
     """Register all service commands."""
-    
+
     @app.command("daemon")
     def _daemon_cmd(
         interval_minutes: Optional[int] = typer.Option(
             None, "--interval-minutes", help="Run backup every N minutes"
         ),
-        backup_cmd: str = typer.Option(
-            "/usr/bin/env kopi-docka backup", "--backup-cmd"
-        ),
+        backup_cmd: str = typer.Option("/usr/bin/env kopi-docka backup", "--backup-cmd"),
         log_level: str = typer.Option("INFO", "--log-level"),
     ):
         """Run the systemd-friendly daemon (service)."""
         cmd_daemon(interval_minutes, backup_cmd, log_level)
-    
+
     @app.command("write-units")
     def _write_units_cmd(
         output_dir: Path = typer.Option(Path("/etc/systemd/system"), "--output-dir"),
