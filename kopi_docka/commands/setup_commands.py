@@ -159,15 +159,10 @@ def cmd_setup_wizard(
 
     if prompt_confirm("Setup backup notifications?", default=False):
         console.print()
-        from ..commands.advanced.notification_commands import _notification_setup_cmd
-        import types
-
-        # Create mock context for notification setup
-        ctx = types.SimpleNamespace()
-        ctx.obj = {"config": cfg}
+        from ..commands.advanced.notification_commands import run_notification_setup
 
         try:
-            _notification_setup_cmd(ctx)
+            run_notification_setup(cfg)
         except Exception as e:
             print_warning(f"Notification setup skipped: {e}")
             console.print(

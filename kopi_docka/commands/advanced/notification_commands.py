@@ -131,6 +131,82 @@ SERVICE_HANDLERS = {
 }
 
 
+# --- Core Setup Function (importable) ---
+
+
+def run_notification_setup(config: Config) -> bool:
+    """
+    Run the notification setup wizard.
+
+    Args:
+        config: Config object to update
+
+    Returns:
+        bool: True if setup was successful, False if skipped
+    """
+    console.print(Panel("[bold]Notification Setup Wizard[/bold]", border_style="cyan"))
+
+    # Service selection
+    console.print("\nAvailable services:")
+    console.print("  1. [cyan]telegram[/cyan] - Telegram Bot")
+    console.print("  2. [cyan]discord[/cyan]  - Discord Webhook")
+    console.print("  3. [cyan]email[/cyan]    - Email via SMTP")
+    console.print("  4. [cyan]webhook[/cyan]  - Generic Webhook (JSON)")
+    console.print("  5. [yellow]skip[/yellow]     - Skip setup\n")
+
+    service = typer.prompt(
+        "Select service",
+        default="telegram",
+    )
+
+    if service == "skip" or service == "5":
+        console.print("[yellow]Notification setup skipped.[/yellow]")
+        return False
+
+    # Map numbers to service names
+    service_map = {"1": "telegram", "2": "discord", "3": "email", "4": "webhook"}
+    service = service_map.get(service, service)
+
+    # Validate service
+    if service not in SERVICE_HANDLERS:
+        console.print(f"[red]Unknown service: {service}[/red]")
+        console.print(f"Valid options: {', '.join(SERVICE_HANDLERS.keys())}")
+        raise typer.Exit(1)
+
+    # Run service-specific handler
+    handler = SERVICE_HANDLERS[service]
+    result = handler()
+
+    # Save to config
+    config.set("notifications", "enabled", True)
+    config.set("notifications", "service", result["service"])
+    config.set("notifications", "url", result["url"])
+
+    # Handle secret storage
+    if result.get("secret"):
+        use_file = typer.confirm("\nStore secret in separate file? (recommended)", default=True)
+        if use_file:
+            secret_file = config.config_file.parent / ".notification-secret"
+            secret_file.write_text(result["secret"], encoding="utf-8")
+            secret_file.chmod(0o600)
+            config.set("notifications", "secret_file", str(secret_file))
+            config.set("notifications", "secret", None)
+            console.print(f"[green]Secret stored in: {secret_file}[/green]")
+        else:
+            config.set("notifications", "secret", result["secret"])
+            config.set("notifications", "secret_file", None)
+            console.print("[yellow]Secret stored in config (less secure)[/yellow]")
+    else:
+        config.set("notifications", "secret", None)
+        config.set("notifications", "secret_file", None)
+
+    # Save config
+    config.save()
+    console.print("\n[green]Notification configuration saved![/green]")
+
+    return True
+
+
 # --- Registration ---
 
 
@@ -145,68 +221,11 @@ def register(app: typer.Typer):
             console.print("[red]Error: Could not load configuration[/red]")
             raise typer.Exit(1)
 
-        console.print(Panel("[bold]Notification Setup Wizard[/bold]", border_style="cyan"))
+        # Run setup
+        success = run_notification_setup(config)
 
-        # Service selection
-        console.print("\nAvailable services:")
-        console.print("  1. [cyan]telegram[/cyan] - Telegram Bot")
-        console.print("  2. [cyan]discord[/cyan]  - Discord Webhook")
-        console.print("  3. [cyan]email[/cyan]    - Email via SMTP")
-        console.print("  4. [cyan]webhook[/cyan]  - Generic Webhook (JSON)")
-        console.print("  5. [yellow]skip[/yellow]     - Skip setup\n")
-
-        service = typer.prompt(
-            "Select service",
-            default="telegram",
-        )
-
-        if service == "skip" or service == "5":
-            console.print("[yellow]Notification setup skipped.[/yellow]")
-            return
-
-        # Map numbers to service names
-        service_map = {"1": "telegram", "2": "discord", "3": "email", "4": "webhook"}
-        service = service_map.get(service, service)
-
-        # Validate service
-        if service not in SERVICE_HANDLERS:
-            console.print(f"[red]Unknown service: {service}[/red]")
-            console.print(f"Valid options: {', '.join(SERVICE_HANDLERS.keys())}")
-            raise typer.Exit(1)
-
-        # Run service-specific handler
-        handler = SERVICE_HANDLERS[service]
-        result = handler()
-
-        # Save to config
-        config.set("notifications", "enabled", True)
-        config.set("notifications", "service", result["service"])
-        config.set("notifications", "url", result["url"])
-
-        # Handle secret storage
-        if result.get("secret"):
-            use_file = typer.confirm("\nStore secret in separate file? (recommended)", default=True)
-            if use_file:
-                secret_file = config.config_file.parent / ".notification-secret"
-                secret_file.write_text(result["secret"], encoding="utf-8")
-                secret_file.chmod(0o600)
-                config.set("notifications", "secret_file", str(secret_file))
-                config.set("notifications", "secret", None)
-                console.print(f"[green]Secret stored in: {secret_file}[/green]")
-            else:
-                config.set("notifications", "secret", result["secret"])
-                config.set("notifications", "secret_file", None)
-                console.print("[yellow]Secret stored in config (less secure)[/yellow]")
-        else:
-            config.set("notifications", "secret", None)
-            config.set("notifications", "secret_file", None)
-
-        # Save config
-        config.save()
-        console.print("\n[green]Notification configuration saved![/green]")
-
-        # Offer test
-        if typer.confirm("\nSend test notification?", default=True):
+        # Offer test if successful
+        if success and typer.confirm("\nSend test notification?", default=True):
             _notification_test_cmd(ctx)
 
     @notification_app.command("test")
