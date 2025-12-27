@@ -5,6 +5,27 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.4.3] - 2025-12-27
+
+### Fixed
+
+- **ImportError in wizard integration**
+  - Fixed `ImportError: cannot import name '_notification_setup_cmd'`
+  - Extracted setup logic into importable `run_notification_setup()` function
+  - Updated config_commands.py and setup_commands.py to use new function
+  - Wizard integration now works correctly when called from setup/config commands
+
+### Changed
+
+- `notification_commands.py`:
+  - Created `run_notification_setup(config)` - Importable function containing setup logic
+  - Simplified `_notification_setup_cmd` to call the new function
+  - Returns bool indicating success/skip
+- `config_commands.py` and `setup_commands.py`:
+  - Import `run_notification_setup` instead of `_notification_setup_cmd`
+  - Removed unnecessary SimpleNamespace context creation
+  - Direct function call with config object
+
 ## [5.4.2] - 2025-12-27
 
 ### Fixed
