@@ -156,7 +156,7 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
         deps_table.add_row("Kopia", "[green]Installed[/green]", "")
     else:
         deps_table.add_row(
-            "Kopia", "[red]Missing[/red]", "Run: kopi-docka admin system install-deps"
+            "Kopia", "[red]Missing[/red]", "Run: kopi-docka advanced system install-deps"
         )
         issues.append("Kopia is not installed")
 
@@ -197,7 +197,7 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
                 config_table.add_row(
                     "Password",
                     "[yellow]Default/Missing[/yellow]",
-                    "Run: kopi-docka admin repo init",
+                    "Run: kopi-docka advanced repo init",
                 )
                 warnings.append("Password is default or missing")
         except Exception:
@@ -214,12 +214,12 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
             )
         else:
             config_table.add_row(
-                "Kopia Params", "[red]Missing[/red]", "Run: kopi-docka admin config new"
+                "Kopia Params", "[red]Missing[/red]", "Run: kopi-docka advanced config new"
             )
             issues.append("Kopia parameters not configured")
     else:
         config_table.add_row(
-            "Config File", "[red]Not Found[/red]", "Run: kopi-docka admin config new"
+            "Config File", "[red]Not Found[/red]", "Run: kopi-docka advanced config new"
         )
         issues.append("No configuration file found")
 
@@ -277,9 +277,9 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
 
                 # Helpful message based on repo type
                 if repo_type == "unknown":
-                    repo_table.add_row("", "", "Run: kopi-docka admin config new")
+                    repo_table.add_row("", "", "Run: kopi-docka advanced config new")
                 else:
-                    repo_table.add_row("", "", "Run: kopi-docka admin repo init")
+                    repo_table.add_row("", "", "Run: kopi-docka advanced repo init")
 
         except Exception as e:
             repo_table.add_row("Connection", "[red]Error[/red]", str(e)[:50])

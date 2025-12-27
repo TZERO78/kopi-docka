@@ -141,7 +141,7 @@ def cmd_setup_wizard(
             except Exception as e:
                 print_warning(f"Repository initialization failed: {e}")
                 console.print(
-                    "   [dim]You can initialize later with: kopi-docka admin repo init[/dim]"
+                    "   [dim]You can initialize later with: kopi-docka advanced repo init[/dim]"
                 )
         else:
             console.print("[dim]Skipped repository initialization[/dim]")
@@ -163,7 +163,7 @@ def cmd_setup_wizard(
 
     print_next_steps(
         [
-            "List Docker containers:\n   [cyan]sudo kopi-docka admin snapshot list[/cyan]",
+            "List Docker containers:\n   [cyan]sudo kopi-docka advanced snapshot list[/cyan]",
             "Test backup (dry-run):\n   [cyan]sudo kopi-docka dry-run[/cyan]",
             "Create first backup:\n   [cyan]sudo kopi-docka backup[/cyan]",
         ]
