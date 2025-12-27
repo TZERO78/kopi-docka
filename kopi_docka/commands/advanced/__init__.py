@@ -39,6 +39,7 @@ from . import repo_commands
 from . import service_commands
 from . import system_commands
 from . import snapshot_commands
+from . import notification_commands
 
 # Register subcommand groups
 config_commands.register(admin_app)
@@ -46,3 +47,4 @@ repo_commands.register(admin_app)
 service_commands.register(admin_app)
 system_commands.register(admin_app)
 snapshot_commands.register(admin_app)
+notification_commands.register(admin_app)

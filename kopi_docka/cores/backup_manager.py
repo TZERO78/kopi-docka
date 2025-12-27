@@ -44,6 +44,7 @@ from ..helpers.config import Config
 from ..cores.repository_manager import KopiaRepository
 from ..cores.kopia_policy_manager import KopiaPolicyManager
 from ..cores.hooks_manager import HooksManager
+from ..cores.notification_manager import NotificationManager, BackupStats
 from ..helpers.constants import (
     CONTAINER_STOP_TIMEOUT,
     CONTAINER_START_TIMEOUT,
@@ -70,6 +71,7 @@ class BackupManager:
         self.repo = KopiaRepository(config)
         self.policy_manager = KopiaPolicyManager(self.repo)
         self.hooks_manager = HooksManager(config)
+        self.notification_manager = NotificationManager(config)
         self.max_workers = config.parallel_workers
 
         self.stop_timeout = self.config.getint("backup", "stop_timeout", CONTAINER_STOP_TIMEOUT)
@@ -247,6 +249,16 @@ class BackupManager:
                 f"Backup of {unit.name} completed successfully in {metadata.duration_seconds:.2f}s",
                 extra={"unit_name": unit.name, "duration": metadata.duration_seconds},
             )
+
+        # Send notification (fire-and-forget, never blocks)
+        try:
+            stats = BackupStats.from_metadata(metadata)
+            if metadata.success:
+                self.notification_manager.send_success(stats)
+            else:
+                self.notification_manager.send_failure(stats)
+        except Exception as e:
+            logger.debug(f"Notification failed (non-blocking): {e}")
 
         return metadata
 
