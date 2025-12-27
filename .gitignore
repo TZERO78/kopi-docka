@@ -27,6 +27,7 @@ dist/
 .coverage
 .coverage.*
 htmlcov/
+MagicMock/
 
 ############################
 # IDE / editor files
