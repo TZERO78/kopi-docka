@@ -59,8 +59,8 @@ def cmd_setup_wizard(
     1. Check dependencies (Kopia, Docker)
     2. Select repository storage (local, S3, B2, etc.)
     3. Configure repository
-    4. Create config file
-    5. Initialize repository (optional)
+    4. Initialize repository (optional)
+    5. Setup notifications (optional)
     """
     # Display wizard header
     console.print()
@@ -71,7 +71,8 @@ def cmd_setup_wizard(
             "  [1] Dependency verification\n"
             "  [2] Repository storage selection\n"
             "  [3] Configuration\n"
-            "  [4] Repository initialization",
+            "  [4] Repository initialization\n"
+            "  [5] Notification setup (optional)",
             border_style="cyan",
         )
     )
@@ -84,7 +85,7 @@ def cmd_setup_wizard(
     # Step 1: Dependencies
     # ═══════════════════════════════════════════
     if not skip_deps:
-        print_step(1, 4, "Checking Dependencies")
+        print_step(1, 5, "Checking Dependencies")
 
         dep_mgr = DependencyManager()
         status = dep_mgr.check_all()
@@ -111,7 +112,7 @@ def cmd_setup_wizard(
     # ═══════════════════════════════════════════
     # Step 2-3: Configuration (Repository + Password)
     # ═══════════════════════════════════════════
-    print_step(2, 4, "Configuration Setup")
+    print_step(2, 5, "Configuration Setup")
 
     # Use cmd_new_config for configuration - DRY!
     from ..commands.config_commands import cmd_new_config
@@ -124,7 +125,7 @@ def cmd_setup_wizard(
     # Step 4: Repository Init (Optional)
     # ═══════════════════════════════════════════
     if not skip_init:
-        print_step(4, 4, "Repository Initialization")
+        print_step(4, 5, "Repository Initialization")
 
         if prompt_confirm("Initialize repository now?", default=True):
             console.print("[cyan]Initializing repository...[/cyan]")
@@ -145,6 +146,38 @@ def cmd_setup_wizard(
                 )
         else:
             console.print("[dim]Skipped repository initialization[/dim]")
+
+    # ═══════════════════════════════════════════
+    # Step 5: Notification Setup (Optional)
+    # ═══════════════════════════════════════════
+    print_step(5, 5, "Notification Setup (Optional)")
+
+    console.print(
+        "[dim]Get notified about backup success/failure via Telegram, Discord, Email, etc.[/dim]"
+    )
+    console.print()
+
+    if prompt_confirm("Setup backup notifications?", default=False):
+        console.print()
+        from ..commands.advanced.notification_commands import _notification_setup_cmd
+        import types
+
+        # Create mock context for notification setup
+        ctx = types.SimpleNamespace()
+        ctx.obj = {"config": cfg}
+
+        try:
+            _notification_setup_cmd(ctx)
+        except Exception as e:
+            print_warning(f"Notification setup skipped: {e}")
+            console.print(
+                "   [dim]You can set it up later with: kopi-docka advanced notification setup[/dim]"
+            )
+    else:
+        console.print("[dim]Skipped notification setup[/dim]")
+        console.print(
+            "   [dim]You can set it up later with: kopi-docka advanced notification setup[/dim]"
+        )
 
     # ═══════════════════════════════════════════
     # Success Summary

@@ -191,6 +191,15 @@ kopi-docka --config /path/to/config.json <command>
     "file": "/var/log/kopi-docka.log",
     "max_size_mb": 100,
     "backup_count": 5
+  },
+  "notifications": {
+    "enabled": false,
+    "service": null,
+    "url": null,
+    "secret": null,
+    "secret_file": null,
+    "on_success": true,
+    "on_failure": true
   }
 }
 ```
@@ -295,6 +304,142 @@ Prior to v5.3.0, there was a critical bug where:
 - ✅ Mixed repositories (old TAR + new Direct backups) are handled correctly
 
 **Path matching happens automatically** based on your backup format setting. Just configure your desired retention values in the config file.
+
+---
+
+## Notifications
+
+**NEW in v5.4.0** 🔔
+
+Kopi-Docka can automatically send notifications about backup status to popular messaging platforms.
+
+### Quick Setup
+
+Use the interactive wizard:
+```bash
+sudo kopi-docka advanced notification setup
+```
+
+The wizard guides you through:
+1. Service selection (Telegram, Discord, Email, Webhook, Custom)
+2. Service configuration
+3. Secret storage (secure file-based or config-based)
+4. Test notification
+
+### Management Commands
+
+```bash
+# Send test notification
+sudo kopi-docka advanced notification test
+
+# Check current status
+sudo kopi-docka advanced notification status
+
+# Enable/disable notifications
+sudo kopi-docka advanced notification disable
+sudo kopi-docka advanced notification enable
+```
+
+### Configuration
+
+Add to your `config.json`:
+
+```json
+{
+  "notifications": {
+    "enabled": true,
+    "service": "telegram",
+    "url": "987654321",
+    "secret": null,
+    "secret_file": "/etc/kopi-docka-telegram-token",
+    "on_success": true,
+    "on_failure": true
+  }
+}
+```
+
+### Supported Services
+
+| Service | Description | Use Case |
+|---------|-------------|----------|
+| `telegram` | Telegram Bot | Personal notifications, free |
+| `discord` | Discord Webhook | Team notifications |
+| `email` | SMTP Email | Enterprise, audit trails |
+| `webhook` | Generic Webhook | Automation (n8n, Make, Zapier) |
+| `custom` | Apprise URL | 100+ services (Slack, Matrix, etc.) |
+
+### Field Reference
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `enabled` | boolean | Enable/disable notifications |
+| `service` | string | Service type (see table above) |
+| `url` | string | Service URL/identifier (supports `${ENV_VAR}`) |
+| `secret` | string | Token/password in config (less secure) |
+| `secret_file` | string | Path to secret file (recommended) |
+| `on_success` | boolean | Notify on backup success (default: true) |
+| `on_failure` | boolean | Notify on backup failure (default: true) |
+
+### Examples
+
+**Telegram:**
+```json
+{
+  "notifications": {
+    "enabled": true,
+    "service": "telegram",
+    "url": "987654321",
+    "secret_file": "/etc/kopi-docka-telegram-token"
+  }
+}
+```
+
+**Discord:**
+```json
+{
+  "notifications": {
+    "enabled": true,
+    "service": "discord",
+    "url": "https://discord.com/api/webhooks/123456/TOKEN"
+  }
+}
+```
+
+**Email:**
+```json
+{
+  "notifications": {
+    "enabled": true,
+    "service": "email",
+    "url": "mailto://user@smtp.gmail.com:587?to=admin@example.com",
+    "secret_file": "/etc/kopi-docka-email-password"
+  }
+}
+```
+
+**Webhook:**
+```json
+{
+  "notifications": {
+    "enabled": true,
+    "service": "webhook",
+    "url": "https://your-automation.com/webhook/abc123"
+  }
+}
+```
+
+### Key Features
+
+- **Fire-and-forget** - Notifications never block backups
+- **10-second timeout** - Protection against slow services
+- **3-way secret management** - File (secure) > Config > None
+- **Environment variables** - Use `${VAR_NAME}` in URLs
+- **Selective notifications** - Control success/failure separately
+
+### Detailed Documentation
+
+For complete setup guides, troubleshooting, and examples, see:
+**[📖 Notifications Documentation](NOTIFICATIONS.md)**
 
 ---
 

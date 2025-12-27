@@ -322,6 +322,25 @@ def cmd_new_config(
         ]
     )
 
+    # ═══════════════════════════════════════════
+    # Optional: Setup Notifications
+    # ═══════════════════════════════════════════
+    console.print()
+    if prompt_confirm("Setup backup notifications? (Telegram, Discord, Email, etc.)", default=False):
+        console.print()
+        from ..commands.advanced.notification_commands import _notification_setup_cmd
+        import types
+
+        # Create mock context for notification setup
+        ctx = types.SimpleNamespace()
+        ctx.obj = {"config": cfg}
+
+        try:
+            _notification_setup_cmd(ctx)
+        except Exception as e:
+            print_warning(f"Notification setup skipped: {e}")
+            console.print("   [dim]You can set it up later with: kopi-docka advanced notification setup[/dim]")
+
     # Optional: Open in editor for advanced settings
     if edit:
         if prompt_confirm("Open config in editor for advanced settings?", default=True):
