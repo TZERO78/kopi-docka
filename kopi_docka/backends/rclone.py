@@ -26,13 +26,36 @@ import re
 import shutil
 import socket
 import subprocess
+from enum import Enum
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, NamedTuple, Optional, Tuple
 
 import typer
 
 from .base import BackendBase
 from ..helpers.ui_utils import run_command, SubprocessError
+
+
+class ConfigStatus(Enum):
+    """Status of rclone configuration detection."""
+
+    FOUND = "found"
+    PERMISSION_DENIED = "permission_denied"
+    NOT_FOUND = "not_found"
+
+
+class ConfigDetectionResult(NamedTuple):
+    """Result of rclone configuration detection.
+
+    Attributes:
+        path: Path to the config file if found, None otherwise.
+        status: Detection status (FOUND, PERMISSION_DENIED, or NOT_FOUND).
+        checked_paths: List of paths that were checked during detection.
+    """
+
+    path: Optional[str]
+    status: ConfigStatus
+    checked_paths: List[str]
 
 
 def get_default_remote_path() -> str:
@@ -105,9 +128,9 @@ class RcloneBackend(BackendBase):
 
         return (root_config_accessible, user_config_accessible, sudo_user)
 
-    def _detect_rclone_config_path(self) -> str:
+    def _detect_rclone_config_with_status(self) -> ConfigDetectionResult:
         """
-        Detect rclone config path - NO COPYING, just find and use.
+        Detect rclone config path with detailed status information.
 
         This follows industry best practice (same approach as Restic):
         - Single Source of Truth: only one config file
@@ -119,38 +142,90 @@ class RcloneBackend(BackendBase):
         2. /root/.config/rclone/rclone.conf (if running as actual root)
 
         Returns:
-            Path to use in --config parameter
-
-        Raises:
-            SystemExit: If no config found
+            ConfigDetectionResult with path, status, and checked_paths.
+            Status can be FOUND, PERMISSION_DENIED, or NOT_FOUND.
         """
+        checked_paths = []
+
         # If running with sudo, prefer original user's config
         sudo_user = os.environ.get("SUDO_USER")
         if sudo_user and sudo_user != "root":
             user_config = Path(f"/home/{sudo_user}/.config/rclone/rclone.conf")
+            checked_paths.append(str(user_config))
+
             try:
                 if user_config.exists():
-                    typer.secho(f"✓ Using rclone config: {user_config}", fg=typer.colors.GREEN)
-                    typer.secho(
-                        "  (Preserves root_folder_id and other settings)",
-                        fg=typer.colors.BRIGHT_BLACK,
+                    return ConfigDetectionResult(
+                        path=str(user_config),
+                        status=ConfigStatus.FOUND,
+                        checked_paths=checked_paths,
                     )
-                    typer.echo("")
-                    return str(user_config)
             except PermissionError:
-                pass
+                # Config exists but cannot be read due to permissions
+                return ConfigDetectionResult(
+                    path=str(user_config),
+                    status=ConfigStatus.PERMISSION_DENIED,
+                    checked_paths=checked_paths,
+                )
 
         # Fall back to root's config
         root_config = Path("/root/.config/rclone/rclone.conf")
+        checked_paths.append(str(root_config))
+
         try:
             if root_config.exists():
-                typer.secho(f"✓ Using rclone config: {root_config}", fg=typer.colors.GREEN)
-                typer.echo("")
-                return str(root_config)
+                return ConfigDetectionResult(
+                    path=str(root_config),
+                    status=ConfigStatus.FOUND,
+                    checked_paths=checked_paths,
+                )
         except PermissionError:
-            pass
+            # Config exists but cannot be read due to permissions
+            return ConfigDetectionResult(
+                path=str(root_config),
+                status=ConfigStatus.PERMISSION_DENIED,
+                checked_paths=checked_paths,
+            )
 
-        # No config found - return None and let caller handle it
+        # No config found at any location
+        return ConfigDetectionResult(
+            path=None, status=ConfigStatus.NOT_FOUND, checked_paths=checked_paths
+        )
+
+    def _detect_rclone_config_path(self) -> str:
+        """
+        Detect rclone config path - NO COPYING, just find and use.
+
+        This is a backward-compatible wrapper around _detect_rclone_config_with_status().
+
+        This follows industry best practice (same approach as Restic):
+        - Single Source of Truth: only one config file
+        - OAuth tokens stay fresh: no stale copies
+        - Preserves user settings: root_folder_id, etc.
+
+        Priority:
+        1. /home/$SUDO_USER/.config/rclone/rclone.conf (if running with sudo)
+        2. /root/.config/rclone/rclone.conf (if running as actual root)
+
+        Returns:
+            Path to use in --config parameter, or None if not found.
+
+        Note:
+            This wrapper maintains backward compatibility for existing callers.
+            For new code, use _detect_rclone_config_with_status() to get detailed status.
+        """
+        result = self._detect_rclone_config_with_status()
+
+        if result.status == ConfigStatus.FOUND:
+            typer.secho(f"✓ Using rclone config: {result.path}", fg=typer.colors.GREEN)
+            typer.secho(
+                "  (Preserves root_folder_id and other settings)",
+                fg=typer.colors.BRIGHT_BLACK,
+            )
+            typer.echo("")
+            return result.path
+
+        # For PERMISSION_DENIED or NOT_FOUND, return None (existing behavior)
         return None
 
     def _find_rclone_config(self) -> Optional[str]:
@@ -302,17 +377,59 @@ class RcloneBackend(BackendBase):
         # This follows industry best practice: use the config directly via --config parameter
         typer.echo("Looking for rclone configuration...")
 
-        rclone_config = self._detect_rclone_config_path()
+        detection_result = self._detect_rclone_config_with_status()
 
-        # If no config found, offer to create one
-        if not rclone_config:
+        # Handle different detection statuses
+        if detection_result.status == ConfigStatus.PERMISSION_DENIED:
+            # Config exists but cannot be read due to permissions
+            typer.secho(
+                "WARNING: Rclone configuration found but not readable!",
+                fg=typer.colors.YELLOW,
+                bold=True,
+            )
+            typer.echo("")
+            typer.echo(f"  Found: {detection_result.path}")
+            typer.echo("  Status: Permission denied (running as root via sudo)")
+            typer.echo("")
+            typer.echo("Your rclone configuration exists but cannot be read due to permission")
+            typer.echo("restrictions when running with sudo.")
+            typer.echo("")
+            typer.echo("Workarounds (choose one):")
+            typer.echo("  1. Use sudo -E to preserve environment:")
+            typer.echo("     sudo -E kopi-docka admin config new")
+            typer.echo("")
+            typer.echo("  2. Make config readable by root:")
             sudo_user = os.environ.get("SUDO_USER")
+            if sudo_user:
+                typer.echo(f"     chmod 644 /home/{sudo_user}/.config/rclone/rclone.conf")
+            typer.echo("     sudo kopi-docka admin config new")
+            typer.echo("")
+            typer.echo("  3. Copy config to root's home:")
+            if sudo_user:
+                typer.echo(
+                    f"     sudo cp /home/{sudo_user}/.config/rclone/rclone.conf /root/.config/rclone/"
+                )
+            typer.echo("")
+
+            if not typer.confirm("Proceed without using existing config?", default=False):
+                typer.secho("Configuration cancelled.", fg=typer.colors.YELLOW)
+                raise SystemExit(1)
+            # User chose to proceed - fall through to NOT_FOUND logic
+            rclone_config = None
+        elif detection_result.status == ConfigStatus.FOUND:
+            # Config found and accessible
+            rclone_config = detection_result.path
+        else:
+            # NOT_FOUND - no config at any location
+            rclone_config = None
+
+        # If no config found (or user chose to proceed without), offer to create one
+        if not rclone_config:
             typer.secho("No rclone configuration found!", fg=typer.colors.YELLOW)
             typer.echo("")
             typer.echo("Checked locations:")
-            if sudo_user and sudo_user != "root":
-                typer.echo(f"  - /home/{sudo_user}/.config/rclone/rclone.conf")
-            typer.echo("  - /root/.config/rclone/rclone.conf")
+            for path in detection_result.checked_paths:
+                typer.echo(f"  - {path}")
             typer.echo("")
             typer.echo("Please run 'rclone config' as your regular user to create a remote.")
             typer.echo("")
