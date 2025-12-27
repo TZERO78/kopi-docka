@@ -411,7 +411,7 @@ Add to your `config.json`:
   "notifications": {
     "enabled": true,
     "service": "email",
-    "url": "mailto://user@smtp.gmail.com:587?to=admin@example.com&from=Kopi-Docka<user@gmail.com>",
+    "url": "mailto://user@smtp.gmail.com:587?to=admin@example.com&from=Kopi-Docka%20%3Cuser@gmail.com%3E",
     "secret_file": "/etc/kopi-docka-email-password"
   }
 }

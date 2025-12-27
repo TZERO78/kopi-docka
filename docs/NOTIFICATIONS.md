@@ -188,7 +188,7 @@ chmod 600 /etc/kopi-docka-telegram-token
    # SMTP Port: 587
    # Username: your-email@gmail.com
    # Password: your-app-password
-   # Display Name: Kopi-Docka Backup (shows as sender name)
+   # Sender Display Name: Kopi-Docka (shows as sender name)
    # Recipient: admin@example.com
    ```
 
@@ -213,13 +213,19 @@ chmod 600 /etc/kopi-docka-telegram-token
   "notifications": {
     "enabled": true,
     "service": "email",
-    "url": "mailto://user@smtp.gmail.com:587?to=admin@example.com&from=Kopi-Docka<user@gmail.com>",
+    "url": "mailto://user@smtp.gmail.com:587?to=admin@example.com&from=Kopi-Docka%20%3Cuser@gmail.com%3E",
     "secret_file": "/etc/kopi-docka-email-password",
     "on_success": true,
     "on_failure": true
   }
 }
 ```
+
+**Note:** The `from` parameter is URL-encoded:
+- `Kopi-Docka <user@gmail.com>` becomes `Kopi-Docka%20%3Cuser@gmail.com%3E`
+- Space (` `) = `%20`
+- Less-than (`<`) = `%3C`
+- Greater-than (`>`) = `%3E`
 
 ---
 
