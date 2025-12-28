@@ -596,6 +596,7 @@ class RestoreManager:
                         volume_snapshots=[],
                         database_snapshots=[],
                         network_snapshots=[],
+                        docker_config_snapshots=[],
                     )
 
                 if snap_type == "recipe":
@@ -604,6 +605,8 @@ class RestoreManager:
                     groups[key].volume_snapshots.append(s)
                 elif snap_type == "networks":
                     groups[key].network_snapshots.append(s)
+                elif snap_type == "docker_config":
+                    groups[key].docker_config_snapshots.append(s)
 
             out = list(groups.values())
             out.sort(key=lambda x: x.timestamp, reverse=True)
@@ -649,6 +652,7 @@ class RestoreManager:
                         volume_snapshots=[],
                         database_snapshots=[],  # kept empty for type-compat
                         network_snapshots=[],
+                        docker_config_snapshots=[],
                     )
 
                 # Nutze Type aus Tags statt path
@@ -658,6 +662,8 @@ class RestoreManager:
                     groups[key].volume_snapshots.append(s)
                 elif snap_type == "networks":
                     groups[key].network_snapshots.append(s)
+                elif snap_type == "docker_config":
+                    groups[key].docker_config_snapshots.append(s)
 
             out = list(groups.values())
             out.sort(key=lambda x: x.timestamp, reverse=True)
@@ -667,15 +673,85 @@ class RestoreManager:
 
         return out
 
+    def _get_backup_scope(self, restore_point: RestorePoint) -> str:
+        """
+        Get backup scope from snapshot tags.
+
+        Returns scope string or "standard" if tag not found (legacy snapshots).
+
+        Args:
+            restore_point: The restore point to check
+
+        Returns:
+            Backup scope ("minimal", "standard", or "full")
+        """
+        # Check all snapshot types for backup_scope tag
+        all_snapshots = (
+            restore_point.recipe_snapshots
+            + restore_point.volume_snapshots
+            + restore_point.network_snapshots
+            + restore_point.docker_config_snapshots
+        )
+
+        if not all_snapshots:
+            return "standard"  # Default for empty restore points
+
+        # Read scope from first snapshot (all should have same scope)
+        first_snapshot = all_snapshots[0]
+        tags = first_snapshot.get("tags", {})
+        scope = tags.get("backup_scope", "standard")
+        return scope
+
+    def _show_scope_warnings(self, scope: str, restore_point: RestorePoint):
+        """Display warnings based on backup scope.
+
+        Args:
+            scope: The backup scope ("minimal", "standard", or "full")
+            restore_point: The restore point being restored
+        """
+        from rich.panel import Panel
+
+        console = Console()
+
+        if scope == "minimal":
+            console.print()
+            console.print(
+                Panel.fit(
+                    "[yellow]⚠️  MINIMAL Scope Backup Detected[/yellow]\n\n"
+                    "This backup contains ONLY volume data.\n"
+                    "Container recipes (docker-compose files) are NOT included.\n\n"
+                    "[bold]After restore:[/bold]\n"
+                    "• Volumes will be restored\n"
+                    "• Containers must be recreated manually\n"
+                    "• Networks must be recreated manually\n\n"
+                    "Consider using --scope standard or --scope full for complete backups.",
+                    border_style="yellow",
+                    title="Restore Limitation",
+                )
+            )
+            console.print()
+
+        # Check for docker_config snapshots
+        if restore_point.docker_config_snapshots:
+            console.print(
+                "[blue]ℹ️  Docker daemon configuration is included but will NOT be auto-restored.[/blue]\n"
+                "   Use 'kopi-docka restore show-docker-config' to view and manually apply.\n"
+            )
+
     def _restore_unit(self, rp: RestorePoint):
         """Restore a selected backup unit."""
         print_separator()
         print_header("Restore", f"Unit: {rp.unit_name}")
 
+        # Check backup scope and show warnings
+        scope = self._get_backup_scope(rp)
         logger.info(
-            f"Starting restore for unit: {rp.unit_name}",
-            extra={"unit_name": rp.unit_name},
+            f"Starting restore for unit: {rp.unit_name} (scope: {scope})",
+            extra={"unit_name": rp.unit_name, "backup_scope": scope},
         )
+
+        # Show scope-specific warnings
+        self._show_scope_warnings(scope, rp)
 
         # Pre-restore hook
         print_info("🔧 Executing pre-restore hook...")

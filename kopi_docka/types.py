@@ -177,3 +177,4 @@ class RestorePoint:
     volume_snapshots: List[Dict[str, Any]] = field(default_factory=list)
     database_snapshots: List[Dict[str, Any]] = field(default_factory=list)
     network_snapshots: List[Dict[str, Any]] = field(default_factory=list)
+    docker_config_snapshots: List[Dict[str, Any]] = field(default_factory=list)
