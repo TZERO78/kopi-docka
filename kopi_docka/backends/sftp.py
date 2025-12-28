@@ -5,11 +5,15 @@ Store backups on remote server via SSH/SFTP.
 """
 
 import typer
-from .base import BackendBase
+from typing import Dict
+from .base import BackendBase, DependencyError
+from ..helpers.dependency_helper import DependencyHelper, ToolInfo
 
 
 class SFTPBackend(BackendBase):
     """SFTP/SSH remote storage backend"""
+
+    REQUIRED_TOOLS = ["ssh", "ssh-keygen"]
 
     @property
     def name(self) -> str:
@@ -27,6 +31,16 @@ class SFTPBackend(BackendBase):
         """Interactive SFTP configuration wizard."""
         typer.echo("SFTP storage selected.")
         typer.echo("")
+
+        # Check dependencies before interactive setup
+        missing = self.check_dependencies()
+        if missing:
+            raise DependencyError(
+                f"Missing required SSH tools: {', '.join(missing)}\n"
+                f"Please install manually.\n\n"
+                f"Automated Setup:\n"
+                f"  https://github.com/TZERO78/Server-Baukasten"
+            )
 
         user = typer.prompt("SSH user")
         host = typer.prompt("SSH host")
@@ -112,12 +126,38 @@ Test connection:
 
     # Abstract method implementations (required by BackendBase)
     def check_dependencies(self) -> list:
-        """SSH is typically available on all systems."""
-        return []
+        """
+        Check if SSH client tools are available.
+
+        Returns:
+            List of missing dependencies (empty if all present)
+        """
+        return DependencyHelper.missing(self.REQUIRED_TOOLS)
+
+    def get_dependency_status(self) -> Dict[str, ToolInfo]:
+        """
+        Get status of all required tools for SFTP backend.
+
+        Returns:
+            Dict mapping tool name to ToolInfo
+        """
+        return DependencyHelper.check_all(self.REQUIRED_TOOLS)
 
     def install_dependencies(self) -> bool:
-        """No dependencies to install."""
-        return True
+        """
+        Stub method - automatic installation removed (Think Simple strategy).
+
+        Users must install dependencies manually or use Server-Baukasten.
+        https://github.com/TZERO78/Server-Baukasten
+
+        Raises:
+            NotImplementedError: Automatic installation is not supported
+        """
+        raise NotImplementedError(
+            "Automatic dependency installation has been removed. "
+            "Please install ssh and ssh-keygen manually or use Server-Baukasten: "
+            "https://github.com/TZERO78/Server-Baukasten"
+        )
 
     def setup_interactive(self) -> dict:
         """Use configure() for setup."""

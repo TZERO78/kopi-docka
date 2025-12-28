@@ -17,9 +17,12 @@
 Doctor command - comprehensive system health check.
 
 Checks:
-1. System dependencies (Kopia, Docker)
-2. Configuration status
-3. Repository status (Kopia connection - the single source of truth)
+1. System Information
+2. Core Dependencies (with categories)
+3. Systemd Integration
+4. Backend Dependencies
+5. Configuration status
+6. Repository status (Kopia connection - the single source of truth)
 
 Note: Repository connection status IS the definitive check. If Kopia can
 connect to the repository, the underlying storage (filesystem, rclone, s3, etc.)
@@ -27,6 +30,7 @@ is automatically working. No separate backend checks needed.
 """
 
 from typing import Optional
+import platform
 
 import typer
 from rich.console import Console
@@ -35,6 +39,7 @@ from rich.panel import Panel
 from rich import box
 
 from ..helpers import Config, get_logger, detect_repository_type
+from ..helpers.dependency_helper import DependencyHelper
 from ..cores import KopiaRepository, DependencyManager
 
 logger = get_logger(__name__)
@@ -115,6 +120,150 @@ def _extract_storage_info(kopia_params: str, repo_type: str) -> dict:
 
 
 # -------------------------
+# Helper Functions for Sections
+# -------------------------
+
+
+def _show_system_info():
+    """Display simplified system information."""
+    import kopi_docka
+
+    console.print("[bold]1. System Information[/bold]")
+    console.print("-" * 40)
+
+    table = Table(box=box.SIMPLE, show_header=False)
+    table.add_column("Property", style="cyan", width=20)
+    table.add_column("Value", style="white")
+
+    table.add_row("OS", platform.system())
+    table.add_row("Python Version", platform.python_version())
+    table.add_row("Kopi-Docka Version", kopi_docka.__version__)
+
+    console.print(table)
+    console.print()
+
+
+def _show_core_dependencies(dep_manager: DependencyManager):
+    """Display core dependency status with categories."""
+    console.print("[bold]2. Core Dependencies[/bold]")
+    console.print("-" * 40)
+
+    table = Table(box=box.SIMPLE)
+    table.add_column("Tool", style="cyan", width=15)
+    table.add_column("Category", style="magenta", width=12)
+    table.add_column("Status", width=12)
+    table.add_column("Version", style="yellow", width=15)
+    table.add_column("Path", style="dim")
+
+    for dep_name, dep_info in dep_manager.dependencies.items():
+        tool_info = DependencyHelper.check(dep_name)
+
+        category = str(dep_info.get("category", "UNKNOWN")).replace("DependencyCategory.", "")
+
+        if tool_info.installed:
+            status = "[green]✓ Installed[/green]"
+            version = tool_info.version or "N/A"
+            path = tool_info.path or "N/A"
+        else:
+            status = "[red]✗ Missing[/red]"
+            version = "—"
+            path = "—"
+
+        table.add_row(dep_name, category, status, version, path)
+
+    console.print(table)
+    console.print()
+
+
+def _show_systemd_status():
+    """Display systemd integration status."""
+    console.print("[bold]3. Systemd Integration[/bold]")
+    console.print("-" * 40)
+
+    systemd_tools = ["systemctl", "journalctl"]
+    tool_status = DependencyHelper.check_all(systemd_tools)
+
+    table = Table(box=box.SIMPLE)
+    table.add_column("Tool", style="cyan", width=15)
+    table.add_column("Status", width=15)
+    table.add_column("Version", style="yellow")
+
+    for tool_name, tool_info in tool_status.items():
+        if tool_info.installed:
+            status = "[green]✓ Available[/green]"
+            version = tool_info.version or "N/A"
+        else:
+            status = "[yellow]○ Missing[/yellow]"
+            version = "—"
+
+        table.add_row(tool_name, status, version)
+
+    console.print(table)
+
+    if not all(t.installed for t in tool_status.values()):
+        console.print("[yellow]⚠ Some features may be limited without systemd[/yellow]")
+
+    console.print()
+
+
+def _show_backend_dependencies(cfg: Optional[Config]):
+    """Display backend-specific dependencies."""
+    console.print("[bold]4. Backend Dependencies[/bold]")
+    console.print("-" * 40)
+
+    if not cfg:
+        console.print("[dim]No configuration - backends not loaded[/dim]")
+        console.print()
+        return
+
+    # Get backend type from config
+    kopia_params = cfg.get("kopia", "kopia_params", fallback="")
+    repo_type = detect_repository_type(kopia_params)
+
+    if repo_type == "unknown":
+        console.print("[dim]No backend configured[/dim]")
+        console.print()
+        return
+
+    # Try to load the backend and check dependencies
+    try:
+        from ..backends import get_backend_class
+
+        backend_class = get_backend_class(repo_type)
+        if backend_class and hasattr(backend_class, 'REQUIRED_TOOLS'):
+            backend = backend_class(cfg.to_dict())
+
+            table = Table(box=box.SIMPLE)
+            table.add_column("Backend", style="cyan", width=15)
+            table.add_column("Tool", style="white", width=15)
+            table.add_column("Status", width=15)
+            table.add_column("Version", style="yellow")
+
+            if hasattr(backend, 'get_dependency_status'):
+                dep_status = backend.get_dependency_status()
+
+                for tool_name, tool_info in dep_status.items():
+                    if tool_info.installed:
+                        status = "[green]✓[/green]"
+                        version = tool_info.version or "N/A"
+                    else:
+                        status = "[red]✗ Missing[/red]"
+                        version = "—"
+
+                    table.add_row(repo_type.upper(), tool_name, status, version)
+
+                console.print(table)
+            else:
+                console.print(f"[dim]Backend {repo_type} does not support dependency checking[/dim]")
+        else:
+            console.print(f"[dim]Backend {repo_type} has no dependency requirements[/dim]")
+    except Exception as e:
+        console.print(f"[yellow]Could not check backend dependencies: {e}[/yellow]")
+
+    console.print()
+
+
+# -------------------------
 # Commands
 # -------------------------
 
@@ -124,9 +273,12 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
     Run comprehensive system health check.
 
     Checks:
-    1. System dependencies (Kopia, Docker)
-    2. Configuration status
-    3. Repository status (connection is the single source of truth)
+    1. System Information
+    2. Core Dependencies (with categories)
+    3. Systemd Integration
+    4. Backend Dependencies
+    5. Configuration status
+    6. Repository status (connection is the single source of truth)
     """
     console.print()
     console.print(
@@ -137,46 +289,41 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
     issues = []
     warnings = []
 
+    cfg = get_config(ctx)
+    dep_manager = DependencyManager()
+
     # ═══════════════════════════════════════════
-    # Section 1: Dependencies
+    # Section 1: System Information
     # ═══════════════════════════════════════════
-    console.print("[bold]1. System Dependencies[/bold]")
-    console.print("-" * 40)
+    _show_system_info()
 
-    deps = DependencyManager()
-    dep_status = deps.check_all()
+    # ═══════════════════════════════════════════
+    # Section 2: Core Dependencies (with categories)
+    # ═══════════════════════════════════════════
+    _show_core_dependencies(dep_manager)
 
-    deps_table = Table(box=box.SIMPLE, show_header=False)
-    deps_table.add_column("Component", style="cyan", width=20)
-    deps_table.add_column("Status", width=15)
-    deps_table.add_column("Details", style="dim")
-
-    # Kopia
-    if dep_status.get("kopia", False):
-        deps_table.add_row("Kopia", "[green]Installed[/green]", "")
-    else:
-        deps_table.add_row(
-            "Kopia", "[red]Missing[/red]", "Run: kopi-docka advanced system install-deps"
-        )
+    # Check for critical missing dependencies
+    dep_status = dep_manager.check_all()
+    if not dep_status.get("kopia", False):
         issues.append("Kopia is not installed")
-
-    # Docker
-    if dep_status.get("docker", False):
-        deps_table.add_row("Docker", "[green]Running[/green]", "")
-    else:
-        deps_table.add_row("Docker", "[red]Not Running[/red]", "Start Docker daemon")
+    if not dep_status.get("docker", False):
         issues.append("Docker is not running")
 
-    console.print(deps_table)
-    console.print()
+    # ═══════════════════════════════════════════
+    # Section 3: Systemd Integration
+    # ═══════════════════════════════════════════
+    _show_systemd_status()
 
     # ═══════════════════════════════════════════
-    # Section 2: Configuration
+    # Section 4: Backend Dependencies
     # ═══════════════════════════════════════════
-    console.print("[bold]2. Configuration[/bold]")
+    _show_backend_dependencies(cfg)
+
+    # ═══════════════════════════════════════════
+    # Section 5: Configuration
+    # ═══════════════════════════════════════════
+    console.print("[bold]5. Configuration[/bold]")
     console.print("-" * 40)
-
-    cfg = get_config(ctx)
 
     config_table = Table(box=box.SIMPLE, show_header=False)
     config_table.add_column("Property", style="cyan", width=20)
@@ -227,11 +374,11 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
     console.print()
 
     # ═══════════════════════════════════════════
-    # Section 3: Repository Status
+    # Section 6: Repository Status
     # (Kopia connection is the SINGLE SOURCE OF TRUTH)
     # ═══════════════════════════════════════════
     if cfg:
-        console.print("[bold]3. Repository Status[/bold]")
+        console.print("[bold]6. Repository Status[/bold]")
         console.print("-" * 40)
 
         repo_table = Table(box=box.SIMPLE, show_header=False)

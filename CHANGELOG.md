@@ -5,6 +5,161 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.5.0] - 2025-12-28
+
+### 🎯 Think Simple Strategy
+
+This release represents a major philosophical shift: **Kopi-Docka expects a prepared system**. We've removed all automatic installation and distro detection logic in favor of user responsibility and system simplicity.
+
+### ⚠️ BREAKING CHANGES
+
+**Removed Features:**
+- ❌ **`kopi-docka install-deps` command** - No longer exists
+- ❌ **Automatic dependency installation** - All `install_dependencies()` methods removed
+- ❌ **Distro detection logic** - No more `/etc/*-release` parsing
+- ❌ **Package manager integration** - No apt, yum, pacman, apk support
+- ❌ **`distro` library dependency** - Removed from requirements
+
+**What this means for users:**
+- You must manually install Docker and Kopia before using Kopi-Docka
+- Or use [Server-Baukasten](https://github.com/TZERO78/Server-Baukasten) for automated system setup
+- `kopi-docka doctor` shows what's missing but won't install anything
+- Backend dependencies (SSH, Tailscale, Rclone) must be installed manually
+
+### ✨ Added
+
+**Hard/Soft Gate Dependency System:**
+- **Hard Gate (MUST_HAVE)**: Docker + Kopia - Non-skippable, always checked
+  - Commands refuse to run if missing
+  - Clear error messages with installation URLs
+- **Soft Gate (SOFT)**: tar, openssl - Skippable with `--skip-dependency-check`
+  - Checked before disaster recovery
+  - Can bypass for advanced users
+
+**New Infrastructure:**
+- `DependencyHelper` utility class (`helpers/dependency_helper.py`)
+  - Centralized CLI tool detection
+  - Version parsing with edge case handling (v-prefix, suffixes, stderr, multiline)
+  - Methods: `exists()`, `get_path()`, `get_version()`, `check()`, `check_all()`, `missing()`
+- Dependency categories: `MUST_HAVE`, `SOFT`, `BACKEND`, `OPTIONAL`
+- `check_hard_gate()` - Enforces docker + kopia (non-bypassable)
+- `check_soft_gate(tools, skip=False)` - Enforces optional tools (bypassable)
+
+**Backend Improvements:**
+- All backends now have `REQUIRED_TOOLS` list
+- Standardized `check_dependencies()` using DependencyHelper
+- New `get_dependency_status()` returns detailed tool info
+- OpenSSH dependency tracking (ssh, ssh-keygen) for Tailscale/SFTP
+- Backends raise `DependencyError` before setup if tools missing
+
+**Command Integration:**
+- `backup` command: Hard gate check (docker + kopia)
+- `restore` command: Hard gate check (docker + kopia)
+- `disaster-recovery` command: Kopia check + soft gate (tar, openssl)
+- `--skip-dependency-check` flag for disaster-recovery (affects only tar/openssl)
+
+**Enhanced `doctor` Command:**
+- Section 1: System Information (OS, Python, Kopi-Docka version)
+- Section 2: Core Dependencies with categories (MUST_HAVE, SOFT, BACKEND, OPTIONAL)
+- Section 3: Systemd Integration (systemctl, journalctl)
+- Section 4: Backend Dependencies (per configured backend)
+- Color-coded status indicators (green=installed, red=missing)
+- Version display for all tools
+
+**Server-Baukasten Integration:**
+- All error messages include Server-Baukasten link
+- Automated system preparation alternative
+- Handles distro-specific quirks
+- Recommended for users who want automated setup
+
+### 🔧 Changed
+
+**DependencyManager Simplification:**
+- Removed 711 lines → 424 lines (40% reduction)
+- No more distro detection (`_detect_distro` removed)
+- No more package manager logic (`_get_package_manager` removed)
+- No more install methods (`install_dependencies`, `install_missing`, `auto_install` removed)
+- Simplified error messages: "Please install manually" + Server-Baukasten link
+
+**Backend Refactoring:**
+- `TailscaleBackend`: Added REQUIRED_TOOLS, removed install logic
+- `RcloneBackend`: Added REQUIRED_TOOLS, removed install logic
+- `SFTPBackend`: Replaced stub dependency check, added REQUIRED_TOOLS
+- All backends have stub `install_dependencies()` that raises `NotImplementedError`
+
+**Documentation:**
+- Completely rewritten `docs/INSTALLATION.md`
+  - Think Simple philosophy explained
+  - Clear Hard/Soft Gate documentation
+  - Server-Baukasten prominent
+  - Migration guide from v5.4.x
+- Error messages now actionable with installation URLs
+- No more promises of automatic installation
+
+### 🧪 Testing
+
+**New Test Suites:**
+- `test_dependency_helper.py`: 27 tests for DependencyHelper (edge cases, mocking)
+- `test_dependency_manager.py`: 34 tests for Hard/Soft Gate system
+- `test_tailscale_backend.py`: 14 tests for Tailscale dependency enforcement
+- `test_sftp_backend.py`: 17 tests for SFTP dependency enforcement
+- `test_rclone_backend.py`: 5 new dependency tests
+- Total: 97 new/updated tests, all passing
+
+**Test Coverage:**
+- Hard gate non-bypassable behavior
+- Soft gate skip flag functionality
+- OpenSSH dual-tool checking (ssh + ssh-keygen)
+- Distro detection removal verification
+- Backend REQUIRED_TOOLS enforcement
+
+### 📝 Migration Guide
+
+**From v5.4.x to v5.5.0:**
+
+1. **Before upgrading**, ensure Docker and Kopia are installed:
+   ```bash
+   docker --version
+   kopia --version
+   ```
+
+2. **After upgrading**, verify dependencies:
+   ```bash
+   kopi-docka doctor
+   ```
+
+3. **If dependencies are missing:**
+   - Manual installation: See [docs/INSTALLATION.md](docs/INSTALLATION.md)
+   - Automated: Use [Server-Baukasten](https://github.com/TZERO78/Server-Baukasten)
+
+4. **If you used `install-deps`:**
+   - This command no longer exists
+   - Use Server-Baukasten for automation
+   - Or install manually (one-time setup)
+
+### 🎓 Philosophy
+
+**Why "Think Simple"?**
+- **Simpler codebase**: Less code, fewer bugs, easier maintenance
+- **No sudo execution**: Kopi-Docka never runs privileged commands
+- **User responsibility**: You control your system, we provide tools
+- **Works everywhere**: No distro-specific logic to maintain
+- **Clear separation**: System prep vs backup tool
+
+**External automation:**
+- [Server-Baukasten](https://github.com/TZERO78/Server-Baukasten) handles system setup
+- Battle-tested, distro-aware
+- Separate concern from backup operations
+
+### 🔗 Links
+
+- **Server-Baukasten**: https://github.com/TZERO78/Server-Baukasten
+- **Docker Installation**: https://docs.docker.com/engine/install/
+- **Kopia Installation**: https://kopia.io/docs/installation/
+- **Installation Guide**: [docs/INSTALLATION.md](docs/INSTALLATION.md)
+
+---
+
 ## [5.4.3] - 2025-12-27
 
 ### Fixed

@@ -184,6 +184,12 @@ def cmd_backup(
 ):
     """Run a cold backup for selected units (or all)."""
     _override_config(ctx, config_path)
+
+    # HARD GATE: Check required dependencies (docker + kopia)
+    from kopi_docka.cores.dependency_manager import DependencyManager
+    dep_manager = DependencyManager()
+    dep_manager.check_hard_gate()
+
     cfg = ensure_config(ctx)
     repo = ensure_repository(ctx)
 
@@ -278,6 +284,11 @@ def cmd_restore(
         force_recreate_networks: Force recreation of existing networks (non-interactive)
         no_recreate_networks: Never recreate existing networks
     """
+    # HARD GATE: Check required dependencies (docker + kopia)
+    from kopi_docka.cores.dependency_manager import DependencyManager
+    dep_manager = DependencyManager()
+    dep_manager.check_hard_gate()
+
     if force_recreate_networks and no_recreate_networks:
         raise typer.BadParameter(
             "Cannot use --force-recreate-networks and --no-recreate-networks together"

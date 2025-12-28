@@ -33,6 +33,7 @@ from typing import Dict, List, NamedTuple, Optional, Tuple
 import typer
 
 from .base import BackendBase
+from ..helpers.dependency_helper import DependencyHelper, ToolInfo
 from ..helpers.ui_utils import run_command, SubprocessError
 
 
@@ -82,6 +83,8 @@ class RcloneBackend(BackendBase):
     Leverages Kopia's native rclone support to connect to any
     cloud storage provider supported by rclone.
     """
+
+    REQUIRED_TOOLS = ["rclone"]
 
     @property
     def name(self) -> str:
@@ -619,17 +622,38 @@ Documentation:
     # These are stubs since the new architecture uses configure() instead
 
     def check_dependencies(self) -> list:
-        """Check if rclone is installed."""
-        import shutil
+        """
+        Check if all required tools are installed.
 
-        missing = []
-        if not shutil.which("rclone"):
-            missing.append("rclone")
-        return missing
+        Returns:
+            List of missing tool names (empty if all present)
+        """
+        return DependencyHelper.missing(self.REQUIRED_TOOLS)
+
+    def get_dependency_status(self) -> Dict[str, ToolInfo]:
+        """
+        Get status of all required tools for Rclone backend.
+
+        Returns:
+            Dict mapping tool name to ToolInfo
+        """
+        return DependencyHelper.check_all(self.REQUIRED_TOOLS)
 
     def install_dependencies(self) -> bool:
-        """Rclone must be installed manually."""
-        return False
+        """
+        Stub method - automatic installation removed (Think Simple strategy).
+
+        Users must install dependencies manually or use Server-Baukasten.
+        https://github.com/TZERO78/Server-Baukasten
+
+        Raises:
+            NotImplementedError: Automatic installation is not supported
+        """
+        raise NotImplementedError(
+            "Automatic dependency installation has been removed. "
+            "Please install rclone manually or use Server-Baukasten: "
+            "https://github.com/TZERO78/Server-Baukasten"
+        )
 
     def setup_interactive(self) -> dict:
         """Use configure() instead."""

@@ -20,7 +20,7 @@ from rich.markup import escape
 
 from .base import BackendBase, ConfigurationError, DependencyError
 from ..i18n import _
-from ..helpers.dependency_installer import DependencyInstaller
+from ..helpers.dependency_helper import DependencyHelper, ToolInfo
 from ..helpers.ui_utils import run_command, SubprocessError
 
 
@@ -39,6 +39,8 @@ class TailscalePeer:
 class TailscaleBackend(BackendBase):
     """Secure backups over Tailscale VPN"""
 
+    REQUIRED_TOOLS = ["tailscale", "ssh", "ssh-keygen", "ssh-copy-id"]
+
     @property
     def name(self) -> str:
         return "tailscale"
@@ -56,30 +58,55 @@ class TailscaleBackend(BackendBase):
         return self.setup_interactive()
 
     def check_dependencies(self) -> List[str]:
-        """Check if Kopia and Tailscale are installed"""
-        missing = []
-        if not shutil.which("kopia"):
-            missing.append("kopia")
-        if not shutil.which("tailscale"):
-            missing.append("tailscale")
-        return missing
+        """
+        Check if all required tools are installed.
+
+        Returns:
+            List of missing tool names (empty if all present)
+        """
+        return DependencyHelper.missing(self.REQUIRED_TOOLS)
+
+    def get_dependency_status(self) -> Dict[str, ToolInfo]:
+        """
+        Get status of all required tools for Tailscale backend.
+
+        Returns:
+            Dict mapping tool name to ToolInfo
+        """
+        return DependencyHelper.check_all(self.REQUIRED_TOOLS)
 
     def install_dependencies(self) -> bool:
-        """Install Kopia and Tailscale"""
-        installer = DependencyInstaller()
+        """
+        Stub method - automatic installation removed (Think Simple strategy).
 
-        success = True
-        if not shutil.which("kopia"):
-            success = success and installer.install_kopia()
-        if not shutil.which("tailscale"):
-            success = success and installer.install_tailscale()
+        Users must install dependencies manually or use Server-Baukasten.
+        https://github.com/TZERO78/Server-Baukasten
 
-        return success
+        Raises:
+            NotImplementedError: Automatic installation is not supported
+        """
+        raise NotImplementedError(
+            "Automatic dependency installation has been removed. "
+            "Please install tailscale, ssh, ssh-keygen, and ssh-copy-id manually "
+            "or use Server-Baukasten: https://github.com/TZERO78/Server-Baukasten"
+        )
 
     def setup_interactive(self) -> Dict[str, Any]:
         """Interactive setup for Tailscale backend using Rich CLI"""
         from kopi_docka.helpers import ui_utils as utils
         from kopi_docka.i18n import t, get_current_language
+
+        # Check dependencies before proceeding with setup
+        missing = self.check_dependencies()
+        if missing:
+            error_msg = (
+                f"Missing required tools for Tailscale backend: {', '.join(missing)}\n\n"
+                f"Please install manually.\n\n"
+                f"Automated Setup:\n"
+                f"  Use Server-Baukasten for automated system preparation:\n"
+                f"  https://github.com/TZERO78/Server-Baukasten"
+            )
+            raise DependencyError(error_msg)
 
         lang = get_current_language()
 

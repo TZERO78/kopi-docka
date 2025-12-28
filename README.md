@@ -31,6 +31,22 @@ A wrapper around [Kopia](https://kopia.io), designed for Docker environments:
 
 ## Quick Start
 
+### Prerequisites
+
+**Kopi-Docka expects a prepared system.** You need to install dependencies **before** installing Kopi-Docka:
+
+**Required:**
+- [Docker](https://docs.docker.com/engine/install/) (20.10+)
+- [Kopia](https://kopia.io/docs/installation/) (0.13+)
+
+**Quick check:**
+```bash
+docker --version
+kopia --version
+```
+
+**Need automated setup?** Use [Server-Baukasten](https://github.com/TZERO78/Server-Baukasten) for automated system preparation.
+
 ### Installation
 
 ```bash
@@ -39,6 +55,9 @@ pipx install kopi-docka
 
 # Or: pip (system-wide)
 pip install kopi-docka
+
+# Verify all dependencies
+kopi-docka doctor
 ```
 
 **[Full installation guide →](docs/INSTALLATION.md)**
@@ -51,7 +70,7 @@ sudo kopi-docka setup
 ```
 
 The wizard guides you through:
-1. ✅ Dependency check (Kopia, Docker)
+1. ✅ Dependency verification (Docker, Kopia)
 2. ✅ Repository storage selection (Local, S3, B2, Azure, GCS, SFTP, Tailscale, Rclone)
 3. ✅ Repository initialization
 4. ✅ Connection test
