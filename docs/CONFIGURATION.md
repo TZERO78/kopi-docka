@@ -163,6 +163,7 @@ kopi-docka --config /path/to/config.json <command>
     "stop_timeout": 30,
     "start_timeout": 60,
     "task_timeout": 0,
+    "backup_scope": "standard",
     "update_recovery_bundle": false,
     "recovery_bundle_path": "/backup/recovery",
     "recovery_bundle_retention": 3,
@@ -216,6 +217,7 @@ kopi-docka --config /path/to/config.json <command>
 | `start_timeout` | Container start timeout (sec) | `60` |
 | `task_timeout` | Volume backup timeout (0=unlimited) | `0` |
 | `exclude_patterns` | Tar exclude patterns (array) | `[]` |
+| `backup_scope` | What to backup: `minimal` (volumes only), `standard` (volumes+recipes+networks), `full` (everything+docker_config) | `standard` |
 | `update_recovery_bundle` | DR bundle with every backup | `false` |
 | `recovery_bundle_retention` | DR bundles to keep | `3` |
 | `retention.latest` | Latest snapshots to keep | `10` |

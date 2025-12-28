@@ -51,6 +51,7 @@ kopi-docka
 | `setup` | **Master setup wizard** - Complete initial setup (Deps + Config + Init) |
 | `backup` | **Full backup** - All units with selected scope |
 | `restore` | **Interactive restore wizard** |
+| `show-docker-config <snapshot-id>` | **Extract docker_config** - Manual restore helper for FULL scope backups |
 | `disaster-recovery` | Create encrypted DR bundle |
 | `dry-run` | Simulate backup (no changes, preview) |
 | `doctor` | **System health check** - Dependencies, config, backend, repository |
