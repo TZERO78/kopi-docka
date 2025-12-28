@@ -132,7 +132,7 @@ class BackupManager:
             # 2) Recipes (skip for minimal scope)
             if backup_scope != BACKUP_SCOPE_MINIMAL:
                 logger.info("Backing up recipes...", extra={"unit_name": unit.name})
-                recipe_snapshot = self._backup_recipes(unit, backup_id)
+                recipe_snapshot = self._backup_recipes(unit, backup_id, backup_scope)
                 if recipe_snapshot:
                     metadata.kopia_snapshot_ids.append(recipe_snapshot)
             else:
@@ -143,7 +143,7 @@ class BackupManager:
             # 2.5) Networks (standard and full scopes)
             if backup_scope in [BACKUP_SCOPE_STANDARD, BACKUP_SCOPE_FULL]:
                 logger.info("Backing up networks...", extra={"unit_name": unit.name})
-                network_snapshot, network_count = self._backup_networks(unit, backup_id)
+                network_snapshot, network_count = self._backup_networks(unit, backup_id, backup_scope)
                 if network_snapshot:
                     metadata.kopia_snapshot_ids.append(network_snapshot)
                     metadata.networks_backed_up = network_count
@@ -160,7 +160,7 @@ class BackupManager:
                     futures.append(
                         (
                             volume.name,
-                            executor.submit(self._backup_volume, volume, unit, backup_id),
+                            executor.submit(self._backup_volume, volume, unit, backup_id, backup_scope),
                         )
                     )
 
@@ -376,7 +376,7 @@ class BackupManager:
 
         return staging_dir
 
-    def _backup_recipes(self, unit: BackupUnit, backup_id: str) -> Optional[str]:
+    def _backup_recipes(self, unit: BackupUnit, backup_id: str, backup_scope: str) -> Optional[str]:
         """Backup compose files and container inspect data (with secret redaction)."""
         import shutil
 
@@ -485,6 +485,7 @@ class BackupManager:
                     "type": "recipe",
                     "unit": unit.name,
                     "backup_id": backup_id,
+                    "backup_scope": backup_scope,
                     "timestamp": datetime.now().isoformat(),
                 },
             )
@@ -496,7 +497,7 @@ class BackupManager:
             # Note: Keep staging directory on error for debugging
             return None
 
-    def _backup_networks(self, unit: BackupUnit, backup_id: str) -> Tuple[Optional[str], int]:
+    def _backup_networks(self, unit: BackupUnit, backup_id: str, backup_scope: str) -> Tuple[Optional[str], int]:
         """
         Backup custom Docker networks used by this unit.
 
@@ -590,6 +591,7 @@ class BackupManager:
                     "type": "networks",
                     "unit": unit.name,
                     "backup_id": backup_id,
+                    "backup_scope": backup_scope,
                     "timestamp": datetime.now().isoformat(),
                     "network_count": str(len(network_configs)),
                 },
@@ -609,7 +611,7 @@ class BackupManager:
             # Note: Keep staging directory on error for debugging
             return None, 0
 
-    def _backup_volume(self, volume: VolumeInfo, unit: BackupUnit, backup_id: str) -> Optional[str]:
+    def _backup_volume(self, volume: VolumeInfo, unit: BackupUnit, backup_id: str, backup_scope: str) -> Optional[str]:
         """Backup a single volume using the configured backup format.
 
         Dispatcher that routes to the appropriate backup method based on
@@ -619,6 +621,7 @@ class BackupManager:
             volume: Volume to backup
             unit: Parent backup unit
             backup_id: Unique ID for this backup run
+            backup_scope: Backup scope (minimal/standard/full)
 
         Returns:
             Snapshot ID if successful, None otherwise
@@ -626,12 +629,12 @@ class BackupManager:
         backup_format = BACKUP_FORMAT_DEFAULT
 
         if backup_format == BACKUP_FORMAT_DIRECT:
-            return self._backup_volume_direct(volume, unit, backup_id)
+            return self._backup_volume_direct(volume, unit, backup_id, backup_scope)
         else:
-            return self._backup_volume_tar(volume, unit, backup_id)
+            return self._backup_volume_tar(volume, unit, backup_id, backup_scope)
 
     def _backup_volume_direct(
-        self, volume: VolumeInfo, unit: BackupUnit, backup_id: str
+        self, volume: VolumeInfo, unit: BackupUnit, backup_id: str, backup_scope: str
     ) -> Optional[str]:
         """Backup a single volume via direct Kopia snapshot (v5.0+).
 
@@ -643,6 +646,7 @@ class BackupManager:
             volume: Volume to backup
             unit: Parent backup unit
             backup_id: Unique ID for this backup run
+            backup_scope: Backup scope (minimal/standard/full)
 
         Returns:
             Snapshot ID if successful, None otherwise
@@ -685,6 +689,7 @@ class BackupManager:
                     "unit": unit.name,
                     "volume": volume.name,
                     "backup_id": backup_id,
+                    "backup_scope": backup_scope,
                     "timestamp": datetime.now().isoformat(),
                     "size_bytes": str(getattr(volume, "size_bytes", 0) or "0"),
                     "backup_format": BACKUP_FORMAT_DIRECT,
@@ -711,7 +716,7 @@ class BackupManager:
             return None
 
     def _backup_volume_tar(
-        self, volume: VolumeInfo, unit: BackupUnit, backup_id: str
+        self, volume: VolumeInfo, unit: BackupUnit, backup_id: str, backup_scope: str
     ) -> Optional[str]:
         """Backup a single volume via tar stream → Kopia (legacy).
 
@@ -765,6 +770,7 @@ class BackupManager:
                         "unit": unit.name,
                         "volume": volume.name,
                         "backup_id": backup_id,
+                        "backup_scope": backup_scope,
                         "timestamp": datetime.now().isoformat(),
                         "size_bytes": str(getattr(volume, "size_bytes", 0) or "0"),
                         "backup_format": BACKUP_FORMAT_TAR,
