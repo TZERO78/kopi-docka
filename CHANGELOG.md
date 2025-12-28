@@ -47,6 +47,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Explicit default replaces implicit code-based default
 - Easier to understand and modify user preferences
 
+**Docker Config Manual Restore Command:**
+- New command: `kopi-docka show-docker-config <snapshot-id>`
+- Extracts docker_config snapshots from FULL scope backups to temp directory
+- Displays safety warnings about manual restore requirements
+- Shows extracted files (daemon.json, systemd overrides) with sizes
+- Displays daemon.json contents inline (if <10KB)
+- Provides 6-step manual restore instructions with safety warnings
+- Prevents accidental production breakage from automatic daemon.json restoration
+- Example: `sudo kopi-docka show-docker-config k1a2b3c4d5e6f7g8`
+
 ### 🔧 Changed
 
 **BackupManager Enhancements:**

@@ -255,6 +255,56 @@ Consider using --scope standard or --scope full for complete backups.
 2. Manually recreate containers: `docker compose up -d` (using your original docker-compose.yml)
 3. Manually recreate networks if needed: `docker network create ...`
 
+### 🔧 Docker Config Manual Restore
+
+For **FULL scope** backups, Docker daemon configuration is backed up but requires manual restoration:
+
+**Extract docker_config snapshot:**
+```bash
+# List docker_config snapshots
+sudo kopi-docka list --snapshots | grep docker_config
+
+# Extract configuration to temp directory
+sudo kopi-docka show-docker-config <snapshot-id>
+```
+
+**What this command does:**
+- Extracts docker_config snapshot to `/tmp/kopia-docker-config-XXXXX/`
+- Displays safety warnings about manual restore
+- Shows extracted files (`daemon.json`, systemd overrides)
+- Displays `daemon.json` contents inline (if <10KB)
+- Provides 6-step manual restore instructions
+
+**Why manual restore?**
+- Docker daemon configuration is extremely sensitive
+- Incorrect config can break Docker entirely
+- Must be reviewed before applying to production
+- Prevents accidental system breakage
+
+**Example output:**
+```
+✓ Extracted files:
+   • daemon.json (2.3 KB)
+   • docker.service.d/override.conf (0.5 KB)
+
+📄 daemon.json contents:
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  }
+}
+
+🔧 Manual Restore Instructions
+Step 1: Review extracted files
+Step 2: Backup current config
+Step 3: Apply configuration (CAREFULLY!)
+Step 4: Systemd overrides (if present)
+Step 5: Restart Docker daemon
+Step 6: Verify Docker is working
+```
+
 ### Scope Selection Guidance
 
 **Choose minimal when:**
@@ -312,6 +362,7 @@ sudo kopi-docka setup              # Complete setup wizard
 sudo kopi-docka backup             # Full backup (standard scope)
 sudo kopi-docka restore            # Interactive restore wizard
 sudo kopi-docka restore --yes      # Non-interactive restore (CI/CD)
+sudo kopi-docka show-docker-config <snapshot-id>  # Extract docker_config for manual restore
 sudo kopi-docka disaster-recovery  # Create DR bundle
 sudo kopi-docka dry-run            # Simulate backup (preview)
 sudo kopi-docka doctor             # System health check
