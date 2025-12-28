@@ -250,6 +250,16 @@ class Config:
         """Get recovery bundle retention count."""
         return int(self.get("backup", "recovery_bundle_retention", fallback=3))
 
+    @property
+    def backup_scope(self) -> str:
+        """
+        Get backup scope setting.
+
+        Returns:
+            Backup scope: "minimal", "standard" (default), or "full"
+        """
+        return self.get("backup", "backup_scope", fallback="standard")
+
     # Kopia settings properties
 
     @property
@@ -544,6 +554,7 @@ class Config:
             },
             "backup": {
                 "base_path": "/backup/kopi-docka",
+                "backup_scope": "standard",
                 "parallel_workers": "auto",
                 "stop_timeout": 30,
                 "start_timeout": 60,

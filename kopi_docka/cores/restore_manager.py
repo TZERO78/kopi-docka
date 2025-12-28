@@ -42,6 +42,7 @@ from contextlib import contextmanager
 
 from rich.console import Console
 from rich.prompt import Prompt
+from rich.panel import Panel
 
 from ..helpers.logging import get_logger
 from ..helpers.ui_utils import (
@@ -2013,6 +2014,137 @@ class RestoreManager:
         console.print(f"   sudo chown -R $USER:$USER /path/to/your/project/")
         console.print(f"\n3. Start containers:")
         console.print(f"   cd /path/to/your/project && docker compose up -d")
+
+    def show_docker_config(self, snapshot_id: str) -> bool:
+        """
+        Extract and display docker_config snapshot for manual restore.
+
+        This command extracts Docker daemon configuration from a FULL scope backup
+        to a temporary location and shows step-by-step instructions for manual
+        restore. Auto-restoring daemon.json is intentionally NOT supported to
+        prevent accidental production breakage.
+
+        Args:
+            snapshot_id: Snapshot ID to extract
+
+        Returns:
+            True if extraction successful, False otherwise
+        """
+        console = Console()
+
+        try:
+            # Create temp directory for extraction
+            temp_dir = Path(tempfile.mkdtemp(prefix="kopia-docker-config-"))
+
+            console.print(
+                Panel.fit(
+                    "[bold cyan]Docker Config Manual Restore[/bold cyan]\n\n"
+                    "[yellow]⚠️  Safety Notice:[/yellow]\n"
+                    "Docker daemon configuration is NOT automatically restored.\n"
+                    "You must manually review and apply changes to avoid production issues.",
+                    border_style="cyan",
+                )
+            )
+            console.print()
+
+            # Extract snapshot
+            console.print(f"[cyan]📥 Extracting docker_config snapshot...[/cyan]")
+            console.print(f"   Snapshot ID: {snapshot_id[:12]}...")
+            console.print(f"   Target: {temp_dir}")
+            console.print()
+
+            try:
+                self.repo.restore_snapshot(snapshot_id, str(temp_dir))
+            except Exception as e:
+                console.print(f"[red]✗ Failed to restore snapshot: {e}[/red]")
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return False
+
+            # Check what was extracted
+            extracted_files = list(temp_dir.rglob("*"))
+            config_files = [f for f in extracted_files if f.is_file()]
+
+            if not config_files:
+                console.print("[yellow]⚠️  No files found in snapshot[/yellow]")
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return False
+
+            # Display extracted files
+            console.print("[bold green]✓ Extracted files:[/bold green]")
+            for file in config_files:
+                rel_path = file.relative_to(temp_dir)
+                size_kb = file.stat().st_size / 1024
+                console.print(f"   • {rel_path} ({size_kb:.1f} KB)")
+            console.print()
+
+            # Show file contents (if small enough)
+            daemon_json = temp_dir / "daemon.json"
+            if daemon_json.exists() and daemon_json.stat().st_size < 10240:  # <10KB
+                console.print("[bold]📄 daemon.json contents:[/bold]")
+                console.print(Panel(
+                    daemon_json.read_text(),
+                    border_style="dim",
+                    expand=False,
+                ))
+                console.print()
+
+            # Show manual restore instructions
+            console.print(
+                Panel.fit(
+                    "[bold]🔧 Manual Restore Instructions[/bold]\n\n"
+                    "[yellow]⚠️  WARNING: Applying wrong Docker config can break Docker entirely![/yellow]\n"
+                    "Only proceed if you understand these settings.\n\n"
+                    "[bold]Step 1: Review extracted files[/bold]\n"
+                    f"   cd {temp_dir}\n"
+                    f"   ls -lah\n"
+                    f"   cat daemon.json  # Review configuration\n\n"
+                    "[bold]Step 2: Backup current config (if exists)[/bold]\n"
+                    "   sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.bak\n\n"
+                    "[bold]Step 3: Apply configuration (CAREFULLY!)[/bold]\n"
+                    f"   sudo cp {temp_dir}/daemon.json /etc/docker/daemon.json\n\n"
+                    "[bold]Step 4: Systemd overrides (if present)[/bold]\n"
+                    f"   # If docker.service.d/ was extracted:\n"
+                    f"   sudo cp -r {temp_dir}/docker.service.d/ /etc/systemd/system/\n"
+                    "   sudo systemctl daemon-reload\n\n"
+                    "[bold]Step 5: Restart Docker daemon[/bold]\n"
+                    "   sudo systemctl restart docker\n\n"
+                    "[bold]Step 6: Verify Docker is working[/bold]\n"
+                    "   docker ps\n"
+                    "   docker info\n\n"
+                    "[dim]Note: Files will remain in temp directory for review.[/dim]\n"
+                    f"[dim]Cleanup when done: rm -rf {temp_dir}[/dim]",
+                    border_style="yellow",
+                    title="[bold yellow]⚠️  Manual Restore Required[/bold yellow]",
+                )
+            )
+            console.print()
+
+            console.print(f"[bold green]✓ Extraction complete![/bold green]")
+            console.print(f"   Files location: [cyan]{temp_dir}[/cyan]")
+            console.print()
+            console.print(
+                "[dim]💡 Tip: Test configuration changes on a non-production system first.[/dim]"
+            )
+            console.print()
+
+            logger.info(
+                f"Docker config snapshot extracted",
+                extra={"snapshot_id": snapshot_id, "temp_dir": str(temp_dir)},
+            )
+
+            return True
+
+        except KeyboardInterrupt:
+            console.print("\n[yellow]⚠️  Extraction cancelled[/yellow]")
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            return False
+        except Exception as e:
+            console.print(f"\n[red]✗ Unexpected error: {e}[/red]")
+            logger.error(f"Docker config extraction failed: {e}")
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            return False
 
     def _display_restart_instructions(self, recipe_dir: Path):
         """Show modern docker compose restart steps with override support."""

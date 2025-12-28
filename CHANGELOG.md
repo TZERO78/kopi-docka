@@ -5,6 +5,138 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.5.1] - 2025-12-28
+
+### ✨ Added
+
+**Backup Scope Tracking:**
+- All snapshots now include `backup_scope` tag (minimal/standard/full)
+- Enables scope detection during restore operations
+- Visible in `kopia snapshot list --tags` for debugging
+- Automatic tracking eliminates guesswork about backup capabilities
+
+**Docker Config Backup (FULL scope):**
+- New `_backup_docker_config()` method backs up Docker daemon configuration
+- Includes `/etc/docker/daemon.json` if present
+- Includes `/etc/systemd/system/docker.service.d/` systemd overrides if present
+- Only runs when using `--scope full` flag
+- Non-fatal errors: logs warnings and continues backup
+- Enables complete disaster recovery with daemon settings preserved
+
+**Backup Scope Selection in Setup Wizard:**
+- Interactive scope selection during `kopi-docka advanced config new`
+- Three options with clear descriptions:
+  - **minimal** - Volumes only (fastest, smallest backups)
+  - **standard** - Volumes + Recipes + Networks [RECOMMENDED]
+  - **full** - Everything + Docker daemon config (DR-ready)
+- Warning confirmation for minimal scope selection
+- Default is `standard` (best balance for most users)
+
+**Restore Scope Detection and Warnings:**
+- RestoreManager reads `backup_scope` tag from snapshots
+- **MINIMAL scope backups** show prominent warning panel:
+  - "This backup contains ONLY volume data"
+  - "Container recipes (docker-compose files) are NOT included"
+  - Lists restore limitations (manual container/network recreation required)
+- Docker config snapshots displayed in restore list (manual restore only)
+- Legacy snapshots without tag default to "standard" scope (backward compatible)
+
+**Config Template Extension:**
+- Added `backup_scope` field to `config_template.json`
+- New `backup_scope` property in Config class with fallback to "standard"
+- Explicit default replaces implicit code-based default
+- Easier to understand and modify user preferences
+
+### 🔧 Changed
+
+**BackupManager Enhancements:**
+- All snapshot methods (`_backup_volume`, `_backup_recipes`, `_backup_networks`) now accept `backup_scope` parameter
+- `backup_unit()` passes scope to all backup methods
+- Snapshot tags include `backup_scope` field for all snapshot types (volume, recipe, networks, docker_config)
+- `backup_scope == BACKUP_SCOPE_FULL` triggers docker_config backup
+
+**BackupMetadata Tracking:**
+- Added `backup_scope: str` field to BackupMetadata dataclass
+- Added `docker_config_backed_up: bool` field to track docker_config backup status
+- Both fields included in `to_dict()` for JSON serialization
+- Metadata JSON now contains scope for reference and debugging
+
+**RestoreManager Improvements:**
+- New `_get_backup_scope()` method reads scope from snapshot tags
+- New `_show_scope_warnings()` displays scope-specific warnings
+- Extended RestorePoint type with `docker_config_snapshots` field
+- Updated snapshot grouping to recognize `type=docker_config` snapshots
+- Integrated scope warnings into restore workflow
+
+### 🧪 Testing
+
+**New Test Coverage:**
+- 7 unit tests for backup_scope tag presence in all snapshot types
+- 7 unit tests for docker_config backup functionality
+- 10 unit tests for restore scope detection and warnings
+- All tests passing (88 backup_manager tests, all restore_manager tests)
+
+**Test Scenarios:**
+- backup_scope tag verification in volume/recipe/network snapshots
+- docker_config backup with daemon.json and systemd overrides
+- Permission error handling (non-fatal)
+- Scope detection from snapshots
+- Legacy snapshot handling (default to "standard")
+- Minimal scope warning display
+- docker_config snapshot recognition
+
+### ⚠️ Important: Backup Scope Restore Matrix
+
+**What can be restored with each scope:**
+
+| Scope | Volumes | Container Configs | Networks | Docker Daemon Config |
+|-------|---------|-------------------|----------|---------------------|
+| **minimal** | ✅ Yes | ❌ No* | ❌ No | ❌ No |
+| **standard** | ✅ Yes | ✅ Yes | ✅ Yes | ❌ No |
+| **full** | ✅ Yes | ✅ Yes | ✅ Yes | ⚠️ Manual** |
+
+**Notes:**
+- \* **Minimal scope limitation:** Only volume data is backed up. After restore, you must manually recreate containers using your original docker-compose.yml files or container run commands. Networks must also be manually recreated.
+- \*\* **Docker config restore:** Docker daemon configuration is backed up but **not automatically restored** for safety. Use manual restore to review and apply configuration changes.
+
+**Scope Selection Guidance:**
+- **Use minimal** when you only need data backups and always have your docker-compose files available
+- **Use standard** (recommended) for complete container restore capability with recipes and networks
+- **Use full** for complete disaster recovery scenarios requiring Docker daemon configuration preservation
+
+### 📝 Migration
+
+**For existing users:**
+1. **No action required** - default scope is `standard` (same behavior as before)
+2. **Old snapshots work** - snapshots without `backup_scope` tag default to "standard"
+3. **New config field** - `backup_scope` added to config template, existing configs will use "standard" default
+4. **To enable docker_config backup:** Use `--scope full` flag or set `backup_scope: "full"` in config
+
+**Backward Compatibility:**
+- All existing snapshots remain fully restorable
+- Legacy snapshots without `backup_scope` tag are treated as "standard" scope
+- No breaking changes to CLI or configuration format
+
+### 🔗 Configuration Examples
+
+**Set backup scope in config:**
+```json
+{
+  "backup": {
+    "backup_scope": "standard"
+  }
+}
+```
+
+**Override scope via CLI:**
+```bash
+sudo kopi-docka backup --scope minimal    # Volumes only (fastest)
+sudo kopi-docka backup --scope standard   # Recommended default
+sudo kopi-docka backup --scope full       # Include Docker daemon config
+```
+
+---
+
 ## [5.5.0] - 2025-12-28
 
 ### 🎯 Think Simple Strategy

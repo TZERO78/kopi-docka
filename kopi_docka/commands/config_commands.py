@@ -244,6 +244,72 @@ def cmd_new_config(
     console.print()
 
     # ═══════════════════════════════════════════
+    # Phase 1.5: Backup Scope Selection
+    # ═══════════════════════════════════════════
+    console.print(
+        Panel.fit(
+            "[bold cyan]Backup Scope Selection[/bold cyan]\n\n"
+            "Choose how much data to include in backups:",
+            border_style="cyan",
+        )
+    )
+    console.print()
+
+    print_menu(
+        "Backup Scope Options",
+        [
+            (
+                "1",
+                "[yellow]minimal[/yellow]  - Volumes only (fastest, smallest)\n"
+                "          ⚠️  Cannot restore containers, only data!",
+            ),
+            (
+                "2",
+                "[green]standard[/green] - Volumes + Recipes + Networks [RECOMMENDED]\n"
+                "          ✅ Full container restore capability",
+            ),
+            (
+                "3",
+                "[blue]full[/blue]     - Everything + Docker daemon config (DR-ready)\n"
+                "          ✅ Complete disaster recovery capability",
+            ),
+        ],
+    )
+
+    scope_choice = console.input("\n[cyan]Select backup scope [2]:[/cyan] ") or "2"
+    try:
+        scope_choice = int(scope_choice)
+    except ValueError:
+        scope_choice = 2
+
+    scope_map = {1: "minimal", 2: "standard", 3: "full"}
+    backup_scope = scope_map.get(scope_choice, "standard")
+
+    if backup_scope == "minimal":
+        console.print()
+        console.print(
+            Panel.fit(
+                "[yellow]⚠️  WARNING: Minimal Scope Selected[/yellow]\n\n"
+                "You will only be able to restore volume data.\n"
+                "Containers must be recreated manually after restore.\n\n"
+                "[bold]After restore with minimal scope:[/bold]\n"
+                "  • Volumes will be restored ✅\n"
+                "  • Containers must be recreated manually ❌\n"
+                "  • Networks must be recreated manually ❌",
+                title="[yellow]Important[/yellow]",
+                border_style="yellow",
+            )
+        )
+        console.print()
+        if not prompt_confirm("Are you sure you want minimal scope?", default=True):
+            backup_scope = "standard"
+            console.print("[green]Changed to standard scope (recommended)[/green]")
+
+    cfg.set("backup", "backup_scope", backup_scope)
+    print_success(f"Backup scope set to: {backup_scope}")
+    console.print()
+
+    # ═══════════════════════════════════════════
     # Phase 2: Password Setup
     # ═══════════════════════════════════════════
     console.print(
