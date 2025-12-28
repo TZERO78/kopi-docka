@@ -394,6 +394,178 @@ class TestBackupScopeTag:
 
 
 # =============================================================================
+# Docker Config Backup Tests
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestBackupDockerConfig:
+    """Tests for _backup_docker_config method."""
+
+    @patch("pathlib.Path.mkdir")
+    @patch("pathlib.Path.iterdir", return_value=[])
+    @patch("shutil.copy2")
+    def test_backs_up_daemon_json_when_present(self, mock_copy2, mock_iterdir, mock_mkdir):
+        """Should backup daemon.json when it exists."""
+        manager = make_backup_manager()
+        manager.repo.create_snapshot.return_value = "snap-docker-123"
+        unit = make_backup_unit(name="mystack")
+
+        # Create a mock that returns True for daemon.json, False for systemd
+        original_path = Path
+
+        class MockPath(type(Path())):
+            def exists(self):
+                return "/etc/docker/daemon.json" in str(self)
+
+            def is_file(self):
+                return "/etc/docker/daemon.json" in str(self)
+
+            def is_dir(self):
+                return False
+
+        with patch("kopi_docka.cores.backup_manager.Path", MockPath):
+            result = manager._backup_docker_config(unit, "backup-id-123", BACKUP_SCOPE_FULL)
+
+        assert result == "snap-docker-123"
+        mock_copy2.assert_called_once()
+
+        # Verify snapshot tags
+        call_args = manager.repo.create_snapshot.call_args
+        tags = call_args[1]["tags"]
+        assert tags["type"] == "docker_config"
+        assert tags["backup_scope"] == BACKUP_SCOPE_FULL
+        assert tags["backup_id"] == "backup-id-123"
+        assert "daemon.json" in tags["files"]
+
+    @patch("pathlib.Path.mkdir")
+    @patch("pathlib.Path.iterdir", return_value=[])
+    @patch("shutil.copytree")
+    def test_backs_up_systemd_overrides_when_present(self, mock_copytree, mock_iterdir, mock_mkdir):
+        """Should backup systemd overrides when they exist."""
+        manager = make_backup_manager()
+        manager.repo.create_snapshot.return_value = "snap-docker-456"
+        unit = make_backup_unit(name="mystack")
+
+        # Create a mock that returns True for systemd, False for daemon.json
+        class MockPath(type(Path())):
+            def exists(self):
+                return "docker.service.d" in str(self)
+
+            def is_file(self):
+                return False
+
+            def is_dir(self):
+                return "docker.service.d" in str(self)
+
+        with patch("kopi_docka.cores.backup_manager.Path", MockPath):
+            result = manager._backup_docker_config(unit, "backup-id-456", BACKUP_SCOPE_FULL)
+
+        assert result == "snap-docker-456"
+        mock_copytree.assert_called_once()
+
+        # Verify snapshot tags
+        call_args = manager.repo.create_snapshot.call_args
+        tags = call_args[1]["tags"]
+        assert tags["type"] == "docker_config"
+        assert "docker.service.d/" in tags["files"]
+
+    @patch("pathlib.Path.mkdir")
+    @patch("pathlib.Path.iterdir", return_value=[])
+    @patch("pathlib.Path.exists", return_value=False)
+    def test_returns_none_when_no_config_files_exist(self, mock_exists, mock_iterdir, mock_mkdir):
+        """Should return None when no config files are found."""
+        manager = make_backup_manager()
+        unit = make_backup_unit(name="mystack")
+
+        result = manager._backup_docker_config(unit, "backup-id-789", BACKUP_SCOPE_FULL)
+
+        assert result is None
+        manager.repo.create_snapshot.assert_not_called()
+
+    @patch("pathlib.Path.mkdir")
+    @patch("pathlib.Path.iterdir", return_value=[])
+    @patch("shutil.copy2", side_effect=PermissionError("Access denied"))
+    def test_handles_permission_error_gracefully(self, mock_copy2, mock_iterdir, mock_mkdir):
+        """Should handle permission errors and return None."""
+        manager = make_backup_manager()
+        unit = make_backup_unit(name="mystack")
+
+        # Create a mock that returns True for daemon.json but copy2 will fail
+        class MockPath(type(Path())):
+            def exists(self):
+                return "/etc/docker/daemon.json" in str(self)
+
+            def is_file(self):
+                return "/etc/docker/daemon.json" in str(self)
+
+            def is_dir(self):
+                return False
+
+        with patch("kopi_docka.cores.backup_manager.Path", MockPath):
+            result = manager._backup_docker_config(unit, "backup-id-999", BACKUP_SCOPE_FULL)
+
+        # Should return None since no files were successfully backed up
+        assert result is None
+
+    @patch("kopi_docka.cores.backup_manager.run_command")
+    def test_full_scope_calls_docker_config_backup(self, mock_run):
+        """FULL scope should call _backup_docker_config."""
+        mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
+        manager = make_backup_manager()
+        unit = make_backup_unit()
+
+        with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
+            with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
+                with patch.object(manager, "_backup_volume", return_value="vol_snap"):
+                    with patch.object(
+                        manager, "_backup_docker_config", return_value="docker_snap"
+                    ) as mock_docker_config:
+                        metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_FULL)
+
+        mock_docker_config.assert_called_once()
+        assert metadata.docker_config_backed_up is True
+        assert "docker_snap" in metadata.kopia_snapshot_ids
+
+    @patch("kopi_docka.cores.backup_manager.run_command")
+    def test_standard_scope_skips_docker_config_backup(self, mock_run):
+        """STANDARD scope should NOT call _backup_docker_config."""
+        mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
+        manager = make_backup_manager()
+        unit = make_backup_unit()
+
+        with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
+            with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
+                with patch.object(manager, "_backup_volume", return_value="vol_snap"):
+                    with patch.object(
+                        manager, "_backup_docker_config"
+                    ) as mock_docker_config:
+                        metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_STANDARD)
+
+        mock_docker_config.assert_not_called()
+        assert metadata.docker_config_backed_up is False
+
+    @patch("kopi_docka.cores.backup_manager.run_command")
+    def test_docker_config_failure_does_not_fail_backup(self, mock_run):
+        """Docker config backup failure should not fail the entire backup."""
+        mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
+        manager = make_backup_manager()
+        unit = make_backup_unit()
+
+        with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
+            with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
+                with patch.object(manager, "_backup_volume", return_value="vol_snap"):
+                    with patch.object(
+                        manager, "_backup_docker_config", return_value=None
+                    ):  # Simulate failure
+                        metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_FULL)
+
+        # Backup should still succeed
+        assert metadata.success is True
+        assert metadata.docker_config_backed_up is False
+
+
+# =============================================================================
 # Container Stop/Start Order Tests
 # =============================================================================
 

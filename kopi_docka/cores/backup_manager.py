@@ -51,6 +51,7 @@ from ..helpers.constants import (
     RECIPE_BACKUP_DIR,
     VOLUME_BACKUP_DIR,
     NETWORK_BACKUP_DIR,
+    DOCKER_CONFIG_BACKUP_DIR,
     BACKUP_SCOPE_MINIMAL,
     BACKUP_SCOPE_STANDARD,
     BACKUP_SCOPE_FULL,
@@ -152,6 +153,18 @@ class BackupManager:
                     f"Skipping networks backup (scope: {backup_scope})",
                     extra={"unit_name": unit.name},
                 )
+
+            # 2.6) Docker daemon config (full scope only)
+            if backup_scope == BACKUP_SCOPE_FULL:
+                logger.info("Backing up Docker daemon configuration...", extra={"unit_name": unit.name})
+                docker_config_snapshot = self._backup_docker_config(unit, backup_id, backup_scope)
+                if docker_config_snapshot:
+                    metadata.kopia_snapshot_ids.append(docker_config_snapshot)
+                    metadata.docker_config_backed_up = True
+                else:
+                    metadata.docker_config_backed_up = False
+            else:
+                metadata.docker_config_backed_up = False
 
             # 3) Volumes (parallel)
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
@@ -610,6 +623,71 @@ class BackupManager:
             )
             # Note: Keep staging directory on error for debugging
             return None, 0
+
+    def _backup_docker_config(
+        self, unit: BackupUnit, backup_id: str, backup_scope: str
+    ) -> Optional[str]:
+        """
+        Backup Docker daemon configuration for disaster recovery.
+
+        Only backs up known configuration files, not entire /etc/docker directory.
+        Errors are non-fatal - logs warning and returns None.
+
+        Args:
+            unit: Backup unit context
+            backup_id: Unique backup run identifier
+            backup_scope: Backup scope (always "full" when this is called)
+
+        Returns:
+            Snapshot ID if successful, None otherwise
+        """
+        import shutil
+
+        try:
+            staging_dir = self._prepare_staging_dir(DOCKER_CONFIG_BACKUP_DIR, unit.name)
+            files_backed_up = []
+
+            # 1. Main Docker daemon configuration
+            daemon_json = Path("/etc/docker/daemon.json")
+            if daemon_json.exists() and daemon_json.is_file():
+                try:
+                    shutil.copy2(daemon_json, staging_dir / "daemon.json")
+                    files_backed_up.append("daemon.json")
+                except PermissionError as e:
+                    logger.warning(f"Cannot read {daemon_json}: {e}")
+
+            # 2. systemd service overrides
+            systemd_overrides = Path("/etc/systemd/system/docker.service.d")
+            if systemd_overrides.exists() and systemd_overrides.is_dir():
+                try:
+                    override_dir = staging_dir / "docker.service.d"
+                    shutil.copytree(systemd_overrides, override_dir)
+                    files_backed_up.append("docker.service.d/")
+                except PermissionError as e:
+                    logger.warning(f"Cannot read {systemd_overrides}: {e}")
+
+            if not files_backed_up:
+                logger.info("No Docker config files found (normal on default installations)")
+                return None
+
+            logger.info(f"Backing up Docker daemon config: {', '.join(files_backed_up)}")
+
+            # Create snapshot with backup_scope tag
+            return self.repo.create_snapshot(
+                str(staging_dir),
+                tags={
+                    "type": "docker_config",
+                    "unit": unit.name,
+                    "backup_id": backup_id,
+                    "backup_scope": backup_scope,
+                    "timestamp": datetime.now().isoformat(),
+                    "files": ",".join(files_backed_up),
+                },
+            )
+
+        except Exception as e:
+            logger.warning(f"Docker config backup failed (non-fatal): {e}", exc_info=True)
+            return None
 
     def _backup_volume(self, volume: VolumeInfo, unit: BackupUnit, backup_id: str, backup_scope: str) -> Optional[str]:
         """Backup a single volume using the configured backup format.
