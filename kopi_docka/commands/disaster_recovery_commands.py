@@ -49,6 +49,7 @@ def cmd_disaster_recovery(
     ctx: typer.Context,
     output: Optional[Path] = None,
     no_password_file: bool = False,
+    skip_dependency_check: bool = False,
 ):
     """
     Create disaster recovery bundle.
@@ -63,6 +64,34 @@ def cmd_disaster_recovery(
 
     The bundle is encrypted with AES-256-CBC and a random password.
     """
+    # HARD GATE: Check kopia (docker not needed for disaster recovery)
+    from kopi_docka.cores.dependency_manager import DependencyManager
+    dep_manager = DependencyManager()
+
+    # Check only kopia, not docker (DR doesn't need docker)
+    from kopi_docka.helpers.dependency_helper import DependencyHelper
+    if not DependencyHelper.exists("kopia"):
+        from rich.console import Console
+        console_err = Console()
+        console_err.print(
+            "\n[red]✗ Cannot proceed - kopia is required[/red]\n\n"
+            "Disaster Recovery requires Kopia to access the repository.\n\n"
+            "Installation:\n"
+            "  • Kopia: https://kopia.io/docs/installation/\n\n"
+            "Automated Setup:\n"
+            "  Use Server-Baukasten for automated system preparation:\n"
+            "  https://github.com/TZERO78/Server-Baukasten\n\n"
+            "After installation, verify with:\n"
+            "  kopi-docka doctor\n"
+        )
+        raise typer.Exit(code=1)
+
+    # SOFT GATE: Check tar and openssl (needed for bundle creation)
+    dep_manager.check_soft_gate(
+        required_tools=["tar", "openssl"],
+        skip=skip_dependency_check
+    )
+
     cfg = ensure_config(ctx)
 
     console.print()
@@ -141,6 +170,11 @@ def register(app: typer.Typer):
             "--no-password-file",
             help="Don't write password to sidecar file (more secure, but you must save it manually).",
         ),
+        skip_dependency_check: bool = typer.Option(
+            False,
+            "--skip-dependency-check",
+            help="Skip optional dependency checks (tar, openssl). Not recommended.",
+        ),
     ):
         """Create disaster recovery bundle."""
-        cmd_disaster_recovery(ctx, output, no_password_file)
+        cmd_disaster_recovery(ctx, output, no_password_file, skip_dependency_check)

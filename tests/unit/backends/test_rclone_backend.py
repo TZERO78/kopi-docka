@@ -1,17 +1,20 @@
 """
-Unit tests for rclone backend configuration detection.
+Unit tests for rclone backend configuration detection and dependency checking.
 
 Tests the enhanced config detection with permission error handling and status reporting.
+Also tests REQUIRED_TOOLS dependency enforcement.
 Related to GitHub issue #29: Rclone Config Detection & User Experience Fix
 """
 
 import os
 from pathlib import Path
 from unittest import mock
+from unittest.mock import patch
 
 import pytest
 
 from kopi_docka.backends.rclone import RcloneBackend, ConfigStatus, ConfigDetectionResult
+from kopi_docka.helpers.dependency_helper import ToolInfo
 
 
 @pytest.fixture
@@ -191,3 +194,70 @@ class TestConfigureMethod:
             assert exc_info.value.code == 1
             # Verify confirm was called (offer to create flow was triggered)
             mock_confirm.assert_called_once()
+
+
+class TestDependencyChecking:
+    """Tests for dependency checking with REQUIRED_TOOLS."""
+
+    def test_required_tools_defined(self, rclone_backend):
+        """Test that REQUIRED_TOOLS is properly defined."""
+        assert hasattr(rclone_backend, 'REQUIRED_TOOLS')
+        assert rclone_backend.REQUIRED_TOOLS == ["rclone"]
+
+    @patch('kopi_docka.helpers.dependency_helper.DependencyHelper.missing')
+    def test_check_dependencies_all_present(self, mock_missing, rclone_backend):
+        """Test check_dependencies when all tools are present."""
+        mock_missing.return_value = []
+
+        result = rclone_backend.check_dependencies()
+
+        assert result == []
+        mock_missing.assert_called_once_with(["rclone"])
+
+    @patch('kopi_docka.helpers.dependency_helper.DependencyHelper.missing')
+    def test_check_dependencies_rclone_missing(self, mock_missing, rclone_backend):
+        """Test check_dependencies when rclone is missing."""
+        mock_missing.return_value = ["rclone"]
+
+        result = rclone_backend.check_dependencies()
+
+        assert result == ["rclone"]
+        mock_missing.assert_called_once_with(["rclone"])
+
+    @patch('kopi_docka.helpers.dependency_helper.DependencyHelper.check_all')
+    def test_get_dependency_status_all_installed(self, mock_check_all, rclone_backend):
+        """Test get_dependency_status when all tools are installed."""
+        mock_check_all.return_value = {
+            "rclone": ToolInfo(
+                name="rclone",
+                installed=True,
+                path="/usr/bin/rclone",
+                version="1.65.0"
+            )
+        }
+
+        result = rclone_backend.get_dependency_status()
+
+        assert "rclone" in result
+        assert result["rclone"].installed is True
+        assert result["rclone"].version == "1.65.0"
+        mock_check_all.assert_called_once_with(["rclone"])
+
+    @patch('kopi_docka.helpers.dependency_helper.DependencyHelper.check_all')
+    def test_get_dependency_status_missing(self, mock_check_all, rclone_backend):
+        """Test get_dependency_status when rclone is missing."""
+        mock_check_all.return_value = {
+            "rclone": ToolInfo(
+                name="rclone",
+                installed=False,
+                path=None,
+                version=None
+            )
+        }
+
+        result = rclone_backend.get_dependency_status()
+
+        assert "rclone" in result
+        assert result["rclone"].installed is False
+        assert result["rclone"].path is None
+        mock_check_all.assert_called_once_with(["rclone"])

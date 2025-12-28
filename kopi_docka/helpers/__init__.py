@@ -16,6 +16,7 @@ from .file_operations import (
     copy_with_rollback,
 )
 from .ui_utils import run_command, SubprocessError
+from .dependency_helper import DependencyHelper, ToolInfo
 
 __all__ = [
     "Config",
@@ -33,4 +34,6 @@ __all__ = [
     "copy_with_rollback",
     "run_command",
     "SubprocessError",
+    "DependencyHelper",
+    "ToolInfo",
 ]

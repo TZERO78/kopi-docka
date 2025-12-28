@@ -3,215 +3,261 @@
 #
 # @file:        dependency_manager.py
 # @module:      kopi_docka.cores
-# @description: Checks, reports, and installs system dependencies required by Kopi-Docka.
+# @description: Simplified dependency manager with Hard/Soft Gate system
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
-# @version:     1.0.2
+# @version:     2.0.0
 #
 # ------------------------------------------------------------------------------
 # Copyright (c) 2025 Markus F. (TZERO78)
 # MIT-Lizenz: siehe LICENSE oder https://opensource.org/licenses/MIT
 # ==============================================================================
 # Hinweise:
-# - DEPENDENCIES map captures check commands, packages, and metadata
-# - Detects distro family to assemble install commands dynamically
-# - get_missing separates required versus optional components
+# - Think Simple Strategy: No distro detection, no automatic installation
+# - Users prepare their system manually or use Server-Baukasten
+# - Hard Gate: Docker + Kopia (non-skippable)
+# - Soft Gate: Command-specific tools (skippable with flag)
 ################################################################################
 
 """
-Dependency management for Kopi-Docka.
+Simplified Dependency Manager - Think Simple Strategy
 
-This module handles checking and installing system dependencies.
+No distro detection, no package managers, no automatic installation.
+Users prepare their system manually or use Server-Baukasten.
 """
 
-import os
-import re
-import shutil
-import subprocess
-from typing import List, Dict, Tuple, Optional
-from pathlib import Path
+from enum import Enum
+from typing import List, Dict, Optional
+import sys
+from rich.console import Console
 
 from ..helpers.logging import get_logger
 
 logger = get_logger(__name__)
+console = Console()
+
+
+class DependencyCategory(str, Enum):
+    """Dependency category types."""
+    MUST_HAVE = "MUST_HAVE"  # Docker, Kopia - not skippable
+    SOFT = "SOFT"            # tar, openssl - skippable with flag
+    BACKEND = "BACKEND"      # ssh, tailscale, rclone - checked by backends
+    OPTIONAL = "OPTIONAL"    # systemctl, hostname, du - only shown in doctor
+
+
+# Installation URLs for MUST_HAVE dependencies
+INSTALLATION_URLS = {
+    "docker": "https://docs.docker.com/engine/install/",
+    "kopia": "https://kopia.io/docs/installation/",
+}
+
+# Server-Baukasten for automated system setup
+SERVER_BAUKASTEN_URL = "https://github.com/TZERO78/Server-Baukasten"
 
 
 class DependencyManager:
-    """Manages system dependencies for Kopi-Docka."""
+    """Simplified dependency manager without automatic installation."""
 
-    # Define all dependencies with metadata
-    DEPENDENCIES = {
-        "docker": {
-            "check_command": "docker",
-            "check_method": "check_docker",
-            "packages": {
-                "debian": "docker.io",
-                "redhat": "docker",
-                "arch": "docker",
-                "alpine": "docker",
-            },
-            "required": True,
-            "description": "Docker container runtime",
-            "install_notes": "May require adding user to docker group",
-        },
-        "python3-systemd": {
-            "check_command": None,
-            "check_method": "check_python_systemd",
-            "packages": {
-                "debian": "python3-systemd",
-                "redhat": "python3-systemd",
-                "arch": "python-systemd",
-                "alpine": None,  # Not available in Alpine
-            },
-            "required": False,
-            "description": "Structured logging for systemd journal",
-            "install_notes": "Enhances logging when running under systemd",
-        },
-        "kopia": {
-            "check_command": "kopia",
-            "check_method": "check_kopia",
-            "packages": {
-                "debian": None,  # Special installation
-                "redhat": None,  # Special installation
-                "arch": "kopia",  # AUR
-                "alpine": None,  # Not available
-            },
-            "required": True,
-            "description": "Kopia backup tool",
-            "special_install": True,
-            "version_command": ["kopia", "version"],
-        },
-        "tar": {
-            "check_command": "tar",
-            "check_method": "check_tar",
-            "packages": {
-                "debian": "tar",
-                "redhat": "tar",
-                "arch": "tar",
-                "alpine": "tar",
-            },
-            "required": True,
-            "description": "Archive tool for volume backups",
-        },
-        "openssl": {
-            "check_command": "openssl",
-            "check_method": "check_openssl",
-            "packages": {
-                "debian": "openssl",
-                "redhat": "openssl",
-                "arch": "openssl",
-                "alpine": "openssl",
-            },
-            "required": True,
-            "description": "Encryption for disaster recovery bundles",
-        },
-        "hostname": {
-            "check_command": "hostname",
-            "check_method": "check_hostname",
-            "packages": {
-                "debian": "hostname",
-                "redhat": "hostname",
-                "arch": "inetutils",
-                "alpine": "hostname",
-            },
-            "required": False,
-            "description": "System hostname for reporting",
-        },
-        "du": {
-            "check_command": "du",
-            "check_method": "check_du",
-            "packages": {
-                "debian": "coreutils",
-                "redhat": "coreutils",
-                "arch": "coreutils",
-                "alpine": "coreutils",
-            },
-            "required": False,
-            "description": "Disk usage calculation for volume analysis",
-        },
-    }
-
-    def __init__(self):
-        """Initialize dependency manager."""
-        self.distro = self._detect_distro()
-        logger.debug(f"Detected distribution: {self.distro}")
-
-    def _detect_distro(self) -> str:
+    def __init__(self, config=None):
         """
-        Detect Linux distribution type.
+        Initialize dependency manager.
 
-        Returns:
-            Distribution type (debian, redhat, arch, alpine, unknown)
+        Args:
+            config: Optional config object (for backward compatibility)
         """
-        if os.path.exists("/etc/debian_version"):
-            return "debian"
-        elif os.path.exists("/etc/redhat-release"):
-            return "redhat"
-        elif os.path.exists("/etc/arch-release"):
-            return "arch"
-        elif os.path.exists("/etc/alpine-release"):
-            return "alpine"
-        else:
-            return "unknown"
+        self.config = config
+        self._init_dependencies()
 
-    def _get_package_manager(self) -> Optional[Tuple[str, List[str]]]:
-        """
-        Get package manager for current distro.
-
-        Returns:
-            Tuple of (manager_name, install_command) or None
-        """
-        managers = {
-            "debian": ("apt", ["apt-get", "install", "-y"]),
-            "redhat": ("yum", ["yum", "install", "-y"]),
-            "arch": ("pacman", ["pacman", "-S", "--noconfirm"]),
-            "alpine": ("apk", ["apk", "add", "--no-cache"]),
+    def _init_dependencies(self):
+        """Initialize the dependency definitions with categories."""
+        self.dependencies = {
+            "docker": {
+                "check_method": self.check_docker,
+                "required": True,
+                "category": DependencyCategory.MUST_HAVE,
+                "description": "Container runtime for Kopi-Docka",
+            },
+            "kopia": {
+                "check_method": self.check_kopia,
+                "required": True,
+                "category": DependencyCategory.MUST_HAVE,
+                "description": "Backup engine",
+            },
+            "tar": {
+                "check_method": self.check_tar,
+                "required": False,
+                "category": DependencyCategory.SOFT,
+                "description": "Archive creation for disaster recovery",
+            },
+            "openssl": {
+                "check_method": self.check_openssl,
+                "required": False,
+                "category": DependencyCategory.SOFT,
+                "description": "Encryption for disaster recovery bundles",
+            },
+            "openssh": {
+                "check_method": self.check_openssh,
+                "required": False,
+                "category": DependencyCategory.BACKEND,
+                "description": "SSH client for Tailscale/SFTP backends",
+            },
+            "systemctl": {
+                "check_method": self.check_systemctl,
+                "required": False,
+                "category": DependencyCategory.OPTIONAL,
+                "description": "Systemd service management",
+            },
+            "hostname": {
+                "check_method": self.check_hostname,
+                "required": False,
+                "category": DependencyCategory.OPTIONAL,
+                "description": "System hostname utility",
+            },
         }
-        return managers.get(self.distro)
-
-    def check_python_systemd(self) -> bool:
-        """Check if python-systemd module is installed."""
-        try:
-            import systemd.journal
-
-            return True
-        except ImportError:
-            return False
 
     def check_docker(self) -> bool:
-        """Check if Docker is installed and running."""
-        if not shutil.which("docker"):
-            return False
-
-        try:
-            result = subprocess.run(["docker", "info"], capture_output=True, timeout=5)
-            if result.returncode != 0:
-                logger.debug("Docker installed but not accessible (user not in docker group?)")
-                return False
-            return True
-        except (subprocess.TimeoutExpired, subprocess.SubprocessError) as e:
-            logger.debug(f"Error checking Docker: {e}")
-            return False
+        """Check if Docker is available."""
+        from kopi_docka.helpers.dependency_helper import DependencyHelper
+        return DependencyHelper.exists("docker")
 
     def check_kopia(self) -> bool:
-        """Check if Kopia is installed."""
-        return shutil.which("kopia") is not None
+        """Check if Kopia is available."""
+        from kopi_docka.helpers.dependency_helper import DependencyHelper
+        return DependencyHelper.exists("kopia")
 
     def check_tar(self) -> bool:
-        """Check if tar is installed."""
-        return shutil.which("tar") is not None
+        """Check if tar is available."""
+        from kopi_docka.helpers.dependency_helper import DependencyHelper
+        return DependencyHelper.exists("tar")
 
     def check_openssl(self) -> bool:
-        """Check if openssl is installed."""
-        return shutil.which("openssl") is not None
+        """Check if openssl is available."""
+        from kopi_docka.helpers.dependency_helper import DependencyHelper
+        return DependencyHelper.exists("openssl")
+
+    def check_openssh(self) -> bool:
+        """Check if SSH client tools are available."""
+        from kopi_docka.helpers.dependency_helper import DependencyHelper
+        required_tools = ["ssh", "ssh-keygen"]
+        missing = DependencyHelper.missing(required_tools)
+        return len(missing) == 0
+
+    def check_systemctl(self) -> bool:
+        """Check if systemctl is available."""
+        from kopi_docka.helpers.dependency_helper import DependencyHelper
+        return DependencyHelper.exists("systemctl")
 
     def check_hostname(self) -> bool:
-        """Check if hostname command is available."""
-        return shutil.which("hostname") is not None
+        """Check if hostname is available."""
+        from kopi_docka.helpers.dependency_helper import DependencyHelper
+        return DependencyHelper.exists("hostname")
 
-    def check_du(self) -> bool:
-        """Check if du command is available."""
-        return shutil.which("du") is not None
+    def check_hard_gate(self) -> None:
+        """
+        Check MUST_HAVE dependencies (docker, kopia).
+
+        These dependencies CANNOT be skipped, even with --skip-dependency-check.
+
+        Raises:
+            SystemExit: If any MUST_HAVE dependency is missing
+        """
+        from kopi_docka.helpers.dependency_helper import DependencyHelper
+
+        must_have_deps = {
+            name: info for name, info in self.dependencies.items()
+            if info.get("category") == DependencyCategory.MUST_HAVE
+        }
+
+        missing = []
+        for name, info in must_have_deps.items():
+            if not DependencyHelper.exists(name):
+                missing.append(name)
+
+        if missing:
+            error_msg = [
+                "",
+                "━" * 60,
+                "✗ Cannot proceed - required dependencies missing",
+                "━" * 60,
+                "",
+                f"  Missing: {', '.join(missing)}",
+                "",
+                "Kopi-Docka requires Docker and Kopia to function.",
+                "",
+                "Installation:",
+            ]
+
+            for dep in missing:
+                if dep in INSTALLATION_URLS:
+                    error_msg.append(f"  • {dep.capitalize()}: {INSTALLATION_URLS[dep]}")
+
+            error_msg.extend([
+                "",
+                "Automated Setup:",
+                "  Use Server-Baukasten for automated system preparation:",
+                f"  {SERVER_BAUKASTEN_URL}",
+                "",
+                "After installation, verify with:",
+                "  kopi-docka doctor",
+                "",
+                "Note: --skip-dependency-check does NOT apply to Docker/Kopia.",
+                ""
+            ])
+
+            console.print("\n".join(error_msg), style="red")
+            sys.exit(1)
+
+    def check_soft_gate(self, required_tools: List[str], skip: bool = False) -> None:
+        """
+        Check SOFT dependencies (command-specific tools).
+
+        These can be skipped with --skip-dependency-check flag.
+
+        Args:
+            required_tools: List of tool names to check (e.g., ["tar", "openssl"])
+            skip: If True, show warning and continue. If False, raise error.
+
+        Raises:
+            SystemExit: If any required tool is missing and skip=False
+        """
+        from kopi_docka.helpers.dependency_helper import DependencyHelper
+
+        missing = DependencyHelper.missing(required_tools)
+
+        if not missing:
+            return  # All tools present
+
+        if skip:
+            # Show warning and continue
+            console.print(f"\n[yellow]⚠️ Skipping dependency check for: {', '.join(missing)}[/yellow]")
+            console.print("[yellow]   Some features may not work correctly.[/yellow]\n")
+            return
+
+        # Build simple error message
+        error_msg = [
+            "",
+            f"✗ Missing optional dependencies: {', '.join(missing)}",
+            "",
+            "Please install manually.",
+            "",
+            "Automated Setup:",
+            "  Use Server-Baukasten for automated system preparation:",
+            f"  {SERVER_BAUKASTEN_URL}",
+            "",
+            "Or run with --skip-dependency-check (not recommended):",
+        ]
+
+        # Get current command name from sys.argv
+        if len(sys.argv) > 1:
+            cmd = sys.argv[1]
+            error_msg.append(f"  kopi-docka {cmd} --skip-dependency-check")
+        else:
+            error_msg.append("  kopi-docka <command> --skip-dependency-check")
+
+        error_msg.append("")
+
+        console.print("\n".join(error_msg), style="yellow")
+        sys.exit(1)
 
     def check_dependency(self, name: str) -> bool:
         """
@@ -223,18 +269,16 @@ class DependencyManager:
         Returns:
             True if installed, False otherwise
         """
-        dep = self.DEPENDENCIES.get(name)
+        dep = self.dependencies.get(name)
         if not dep:
             return False
 
-        # Use specific check method if available
-        if "check_method" in dep:
-            method = getattr(self, dep["check_method"], None)
-            if method:
-                return method()
+        # Use specific check method
+        method = dep.get("check_method")
+        if method:
+            return method()
 
-        # Fallback to command check
-        return shutil.which(dep["check_command"]) is not None
+        return False
 
     def check_all(self, include_optional: bool = False) -> Dict[str, bool]:
         """
@@ -247,7 +291,7 @@ class DependencyManager:
             Dictionary mapping dependency name to installation status
         """
         results = {}
-        for name, dep in self.DEPENDENCIES.items():
+        for name, dep in self.dependencies.items():
             if not include_optional and not dep["required"]:
                 continue
             results[name] = self.check_dependency(name)
@@ -264,7 +308,7 @@ class DependencyManager:
             List of missing dependency names
         """
         missing = []
-        for name, dep in self.DEPENDENCIES.items():
+        for name, dep in self.dependencies.items():
             if required_only and not dep["required"]:
                 continue
             if not self.check_dependency(name):
@@ -281,358 +325,25 @@ class DependencyManager:
         Returns:
             Version string or None if not available
         """
-        dep = self.DEPENDENCIES.get(name)
-        if not dep or not self.check_dependency(name):
+        from kopi_docka.helpers.dependency_helper import DependencyHelper
+
+        if not self.check_dependency(name):
             return None
 
-        if name == "docker":
-            try:
-                result = subprocess.run(
-                    ["docker", "version", "--format", "{{.Server.Version}}"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                if result.returncode == 0:
-                    return result.stdout.strip()
-            except Exception:
-                pass
-
-        elif name == "kopia":
-            try:
-                result = subprocess.run(
-                    ["kopia", "version"], capture_output=True, text=True, timeout=5
-                )
-                if result.returncode == 0:
-                    for line in result.stdout.split("\n"):
-                        if line.strip():
-                            return line.strip().split()[0]
-            except Exception:
-                pass
-
-        elif "version_command" in dep:
-            try:
-                result = subprocess.run(
-                    dep["version_command"] + ["--version"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                if result.returncode == 0:
-                    return result.stdout.strip().split("\n")[0]
-            except Exception:
-                pass
-
-        return None
-
-    def get_install_commands(self) -> List[str]:
-        """
-        Get installation commands for current distro.
-
-        Returns:
-            List of shell commands to install missing dependencies
-        """
-        commands = []
-        missing = self.get_missing()
-
-        if not missing:
-            return commands
-
-        manager_info = self._get_package_manager()
-        if not manager_info:
-            logger.warning(f"Unknown distribution: {self.distro}")
-            return commands
-
-        manager_name, base_cmd = manager_info
-
-        # Group packages for installation
-        regular_packages = []
-        special_installs = []
-
-        for dep_name in missing:
-            dep = self.DEPENDENCIES[dep_name]
-            package = dep["packages"].get(self.distro)
-
-            if package is None:
-                # Special installation required
-                special_installs.append(dep_name)
-            else:
-                regular_packages.append(package)
-
-        # Create install command for regular packages
-        if regular_packages:
-            cmd = base_cmd + regular_packages
-            commands.append(" ".join(cmd))
-
-        # Add special installation instructions
-        for dep_name in special_installs:
-            if dep_name == "kopia":
-                if self.distro == "debian":
-                    commands.extend(
-                        [
-                            # Sicherstellen, dass gnupg installiert ist
-                            "command -v gpg >/dev/null 2>&1 || apt-get install -y gnupg",
-                            # Keyring-Verzeichnis erstellen (falls nicht vorhanden)
-                            "install -d -m 0755 /etc/apt/keyrings",
-                            # Key herunterladen & im Keyring speichern
-                            "curl -fsSL https://kopia.io/signing-key | gpg --dearmor -o /etc/apt/keyrings/kopia.gpg",
-                            # Berechtigungen setzen
-                            "chmod 0644 /etc/apt/keyrings/kopia.gpg",
-                            # APT-Source mit signed-by eintragen (https statt http!)
-                            'echo "deb [signed-by=/etc/apt/keyrings/kopia.gpg] https://packages.kopia.io/apt/ stable main" > /etc/apt/sources.list.d/kopia.list',
-                            "apt update",
-                            "apt install -y kopia",
-                        ]
-                    )
-                elif self.distro == "redhat":
-                    commands.extend(
-                        [
-                            "rpm --import https://kopia.io/signing-key",
-                            r"""cat > /etc/yum.repos.d/kopia.repo <<EOF
-[kopia]
-name=Kopia
-baseurl=http://packages.kopia.io/rpm/stable/\$basearch/
-enabled=1
-gpgcheck=1
-gpgkey=https://kopia.io/signing-key
-EOF""",
-                            "yum install -y kopia",
-                        ]
-                    )
-        # Add Docker group command if Docker is missing
-        if "docker" in missing:
-            commands.append("usermod -aG docker $USER")
-
-        return commands
-
-    def install_missing(self, dry_run: bool = False) -> bool:
-        """
-        Attempt to install missing dependencies.
-
-        Args:
-            dry_run: Only show what would be installed
-
-        Returns:
-            True if successful, False otherwise
-        """
-        missing = self.get_missing()
-
-        if not missing:
-            logger.info("All required dependencies are already installed")
-            return True
-
-        logger.info(f"Missing dependencies: {', '.join(missing)}")
-
-        if os.geteuid() != 0:
-            logger.error("Root privileges required to install dependencies")
-            logger.info("Run: sudo kopi-docka install-deps")
-            return False
-
-        commands = self.get_install_commands()
-
-        if not commands:
-            logger.error("Cannot determine installation commands for this system")
-            return False
-
-        if dry_run:
-            logger.info("Would execute the following commands:")
-            for cmd in commands:
-                logger.info(f"  {cmd}")
-            return True
-
-        # Execute installation commands
-        for cmd in commands:
-            logger.info(f"Executing: {cmd}")
-            try:
-                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-                if result.returncode != 0:
-                    logger.error(f"Command failed: {result.stderr}")
-                    return False
-            except Exception as e:
-                logger.error(f"Error executing command: {e}")
-                return False
-
-        # Check if installation was successful
-        still_missing = self.get_missing()
-        if still_missing:
-            logger.warning(
-                f"Some dependencies still missing after installation: {', '.join(still_missing)}"
-            )
-            return False
-
-        logger.info("All dependencies successfully installed")
-        return True
-
-    def print_install_guide(self):
-        """Print installation guide for missing dependencies."""
-        missing = self.get_missing(required_only=False)
-
-        if not missing:
-            print("✅ All dependencies are installed!")
-            return
-
-        print("\n" + "=" * 60)
-        print("DEPENDENCY INSTALLATION GUIDE")
-        print("=" * 60)
-
-        required_missing = []
-        optional_missing = []
-
-        for dep_name in missing:
-            dep = self.DEPENDENCIES[dep_name]
-            if dep["required"]:
-                required_missing.append(dep_name)
-            else:
-                optional_missing.append(dep_name)
-
-        if required_missing:
-            print("\n🚨 REQUIRED Dependencies Missing:")
-            for dep_name in required_missing:
-                dep = self.DEPENDENCIES[dep_name]
-                print(f"\n  📦 {dep_name}")
-                print(f"     {dep['description']}")
-                if "install_notes" in dep:
-                    print(f"     Note: {dep['install_notes']}")
-
-        if optional_missing:
-            print("\n📎 Optional Dependencies Missing:")
-            for dep_name in optional_missing:
-                dep = self.DEPENDENCIES[dep_name]
-                print(f"\n  📦 {dep_name}")
-                print(f"     {dep['description']}")
-                if "install_notes" in dep:
-                    print(f"     Note: {dep['install_notes']}")
-
-        # Show installation commands
-        commands = self.get_install_commands()
-        if commands:
-            print("\n" + "-" * 60)
-            print("Installation Commands:")
-            print("-" * 60)
-
-            if os.geteuid() != 0:
-                print("\n⚠ Run as root or with sudo:")
-
-            for cmd in commands:
-                print(f"\n  $ {cmd}")
-
-        # Special instructions
-        if "docker" in missing:
-            print("\n" + "-" * 60)
-            print("📌 Docker Post-Installation:")
-            print("-" * 60)
-            print("  After installing Docker:")
-            print("  1. Add your user to the docker group:")
-            print("     $ sudo usermod -aG docker $USER")
-            print("  2. Log out and back in for group changes to take effect")
-            print("  3. Verify with: docker run hello-world")
-
-        if "kopia" in missing and self.distro == "arch":
-            print("\n" + "-" * 60)
-            print("📌 Kopia on Arch Linux:")
-            print("-" * 60)
-            print("  Install from AUR:")
-            print("  $ yay -S kopia-bin")
-            print("  OR")
-            print("  $ paru -S kopia-bin")
-
-        print("\n" + "=" * 60)
-
-        # Automated installation option
-        if required_missing:
-            print("\n💡 For automated installation (requires root):")
-            print("   $ sudo kopi-docka install-deps")
-        else:
-            print("\n✅ All required dependencies are installed!")
-            print("   Optional dependencies can enhance functionality.")
-
-    def auto_install(self, force: bool = False) -> bool:
-        """
-        Auto-install missing dependencies with confirmation.
-
-        Args:
-            force: Skip confirmation prompt
-
-        Returns:
-            True if successful, False otherwise
-        """
-        missing = self.get_missing()
-
-        if not missing:
-            print("✅ All required dependencies are already installed!")
-            return True
-
-        print("\n🔍 Checking system dependencies...")
-        print(f"Distribution: {self.distro.capitalize()}")
-        print(f"Missing: {', '.join(missing)}")
-
-        commands = self.get_install_commands()
-
-        if not commands:
-            print("\n❌ Cannot determine installation commands for this system")
-            print("Please install dependencies manually:")
-            self.print_install_guide()
-            return False
-
-        print("\n📋 The following commands will be executed:")
-        for cmd in commands:
-            print(f"  $ {cmd}")
-
-        if not force:
-            response = input("\n⚠ Proceed with installation? [y/N]: ")
-            if response.lower() != "y":
-                return False
-
-        print("\n📦 Installing dependencies...")
-
-        for cmd in commands:
-            print(f"\n→ {cmd}")
-            try:
-                result = subprocess.run(cmd, shell=True, text=True)
-                if result.returncode != 0:
-                    print(f"❌ Command failed with exit code {result.returncode}")
-                    return False
-            except Exception as e:
-                print(f"❌ Error: {e}")
-                return False
-
-        # Post-installation checks
-        if "docker" in missing:
-            print("\n⚠ Docker installed. You may need to:")
-            print("  1. Log out and back in for group membership")
-            print("  2. Or run: newgrp docker")
-
-        # Verify installation
-        print("\n🔍 Verifying installation...")
-        still_missing = self.get_missing()
-
-        if not still_missing:
-            print("\n✅ All dependencies successfully installed!")
-            return True
-        else:
-            print("\n⚠ Some dependencies are still missing:")
-            for dep in still_missing:
-                print(f"  - {dep}")
-            print("\nYou may need to:")
-            print("  1. Restart your shell/terminal")
-            print("  2. Log out and back in (for Docker group)")
-            print("  3. Install these manually")
-            return False
+        return DependencyHelper.get_version(name)
 
     def print_status(self, verbose: bool = False):
         """
-        Print dependency status report.
+        Print dependency status report (legacy compatibility).
 
         Args:
             verbose: Show detailed information including versions
         """
+        from kopi_docka.helpers.dependency_helper import DependencyHelper
+
         print("\n" + "=" * 60)
         print("KOPI-DOCKA DEPENDENCY STATUS")
         print("=" * 60)
-
-        print(
-            f"\n📦 System: {self.distro.capitalize() if self.distro != 'unknown' else 'Unknown'} Linux"
-        )
 
         results = self.check_all(include_optional=True)
 
@@ -640,16 +351,17 @@ EOF""",
         optional_deps = []
 
         for name, installed in results.items():
-            dep = self.DEPENDENCIES[name]
+            dep = self.dependencies[name]
             dep_info = {
                 "name": name,
                 "installed": installed,
                 "description": dep["description"],
                 "required": dep["required"],
+                "category": dep.get("category", "UNKNOWN"),
             }
 
             if verbose and installed:
-                version = self.get_version(name)
+                version = DependencyHelper.get_version(name)
                 if version:
                     dep_info["version"] = version
 
@@ -659,16 +371,17 @@ EOF""",
                 optional_deps.append(dep_info)
 
         # Print required dependencies
-        print("\n� Required Dependencies:")
+        print("\n🔒 Required Dependencies:")
         print("-" * 40)
         all_required_ok = True
 
         for dep in required_deps:
             status = "✓" if dep["installed"] else "✗"
+            category = f"[{dep['category']}]"
             version = (
                 f" (v{dep.get('version', 'unknown')})" if verbose and dep.get("version") else ""
             )
-            print(f"{status} {dep['name']:<15} : {dep['description']}{version}")
+            print(f"{status} {dep['name']:<15} {category:<15} : {dep['description']}{version}")
 
             if not dep["installed"]:
                 all_required_ok = False
@@ -679,16 +392,17 @@ EOF""",
 
         for dep in optional_deps:
             status = "✓" if dep["installed"] else "○"
+            category = f"[{dep['category']}]"
             version = (
                 f" (v{dep.get('version', 'unknown')})" if verbose and dep.get("version") else ""
             )
-            print(f"{status} {dep['name']:<15} : {dep['description']}{version}")
+            print(f"{status} {dep['name']:<15} {category:<15} : {dep['description']}{version}")
 
         print("=" * 60)
 
         if not all_required_ok:
             print("\n⚠ Missing required dependencies detected!")
-            print("Run: kopi-docka install-deps")
+            print(f"Install manually or use: {SERVER_BAUKASTEN_URL}")
         else:
             print("\n✅ All required dependencies are installed!")
             print("Ready to backup! Run: kopi-docka backup --dry-run")
@@ -703,8 +417,7 @@ EOF""",
             Dictionary with all dependency requirements
         """
         return {
-            "system": self.distro,
-            "dependencies": self.DEPENDENCIES,
+            "dependencies": self.dependencies,
             "status": self.check_all(include_optional=True),
             "missing": self.get_missing(required_only=False),
         }
