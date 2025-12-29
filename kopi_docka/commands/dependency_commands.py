@@ -92,43 +92,6 @@ def cmd_check(
         console.print("  [dim]Run:[/dim] [cyan]kopi-docka advanced config new[/cyan]")
 
 
-def cmd_install_deps(force: bool = False, dry_run: bool = False):
-    """Install missing system dependencies."""
-    deps = DependencyManager()
-
-    if dry_run:
-        missing = deps.get_missing()
-        if missing:
-            deps.install_missing(dry_run=True)
-        else:
-            print_success("All dependencies already installed")
-        return
-
-    missing = deps.get_missing()
-    if missing:
-        success = deps.auto_install(force=force)
-        if not success:
-            raise typer.Exit(code=1)
-        console.print()
-        print_success(f"Installed {len(missing)} dependencies")
-    else:
-        print_success("All required dependencies already installed")
-
-    # Hint about config
-    if (
-        not Path.home().joinpath(".config/kopi-docka/config.json").exists()
-        and not Path("/etc/kopi-docka.json").exists()
-    ):
-        console.print()
-        console.print(
-            "[dim]Tip:[/dim] Create config with: [cyan]kopi-docka advanced config new[/cyan]"
-        )
-
-
-def cmd_deps():
-    """Show dependency installation guide."""
-    deps = DependencyManager()
-    deps.print_install_guide()
 
 
 # -------------------------
@@ -151,16 +114,3 @@ def register(app: typer.Typer, hidden: bool = False):
     ):
         """Check system requirements and dependencies."""
         cmd_check(ctx, verbose, config)
-
-    @app.command("install-deps", hidden=hidden)
-    def _install_deps_cmd(
-        force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt"),
-        dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be installed"),
-    ):
-        """Install missing system dependencies."""
-        cmd_install_deps(force, dry_run)
-
-    @app.command("show-deps", hidden=hidden)
-    def _deps_cmd():
-        """Show dependency installation guide."""
-        cmd_deps()

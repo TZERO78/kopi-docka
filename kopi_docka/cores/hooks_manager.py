@@ -33,7 +33,7 @@ import os
 import subprocess
 import time
 from pathlib import Path
-from typing import Optional, List
+from typing import List
 
 from ..helpers.logging import get_logger
 from ..helpers.config import Config

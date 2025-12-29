@@ -32,7 +32,7 @@ from typing import Optional, List, Dict, Any
 
 from pydantic import BaseModel, Field, field_validator, ValidationError
 
-from .constants import DEFAULT_CONFIG_PATHS, VERSION
+from .constants import DEFAULT_CONFIG_PATHS
 from .logging import get_logger
 
 logger = get_logger(__name__)
@@ -900,7 +900,6 @@ def create_default_config(path: Optional[Path] = None, force: bool = False) -> P
     Returns:
         Path to the created config file
     """
-    from datetime import datetime
 
     if path is None:
         if os.geteuid() == 0:

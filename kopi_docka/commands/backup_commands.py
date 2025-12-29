@@ -32,7 +32,6 @@ from ..helpers.constants import (
 from ..helpers.ui_utils import (
     print_success,
     print_error,
-    print_warning,
     print_error_panel,
 )
 from ..cores import (

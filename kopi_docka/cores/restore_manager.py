@@ -51,7 +51,6 @@ from ..helpers.ui_utils import (
     print_header,
     print_success,
     print_error,
-    print_warning,
     print_info,
     print_separator,
 )
@@ -60,9 +59,6 @@ from ..helpers.config import Config
 from ..cores.repository_manager import KopiaRepository
 from ..cores.hooks_manager import HooksManager
 from ..helpers.constants import (
-    RECIPE_BACKUP_DIR,
-    VOLUME_BACKUP_DIR,
-    NETWORK_BACKUP_DIR,
     CONTAINER_START_TIMEOUT,
     BACKUP_FORMAT_TAR,
     BACKUP_FORMAT_DIRECT,

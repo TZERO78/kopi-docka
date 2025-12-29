@@ -34,9 +34,7 @@ from ..helpers import (
 from ..helpers.ui_utils import (
     print_success,
     print_warning,
-    print_error,
     print_menu,
-    print_panel,
     print_success_panel,
     print_error_panel,
     print_warning_panel,
@@ -91,7 +89,7 @@ def ensure_config(ctx: typer.Context) -> Config:
 # -------------------------
 
 
-def cmd_config(ctx: typer.Context, show: bool = True):
+def cmd_config(ctx: typer.Context):
     """Show current configuration."""
     cfg = ensure_config(ctx)
 
@@ -655,9 +653,6 @@ def cmd_change_password(
 def cmd_status(ctx: typer.Context):
     """Show detailed status of configured repository storage."""
     from rich.console import Console
-    from rich.table import Table
-    from rich.panel import Panel
-    from rich import box
 
     cfg = ensure_config(ctx)
     console = Console()

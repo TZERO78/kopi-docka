@@ -10,7 +10,7 @@ import shlex
 import subprocess
 import sys
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import typer
 from rich import box
@@ -27,14 +27,11 @@ console = Console()
 logger = get_logger(__name__)
 
 
-def require_sudo(command_name: str = "this command") -> None:
+def require_sudo() -> None:
     """
     Check if running with sudo/root privileges.
 
     Exits with clear error message if not running as root.
-
-    Args:
-        command_name: Name of command requiring sudo (for error message)
 
     Raises:
         typer.Exit: If not running as root

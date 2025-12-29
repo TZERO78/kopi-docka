@@ -240,7 +240,6 @@ class ServiceHelper:
         Returns:
             Dict with exists, pid, and process_running fields
         """
-        import os
 
         lock_file = Path("/run/kopi-docka/kopi-docka.lock")
 

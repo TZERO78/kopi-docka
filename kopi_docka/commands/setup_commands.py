@@ -25,20 +25,18 @@ Orchestrates the complete setup process:
 This is the "one command to set everything up" experience.
 """
 
-from typing import Optional
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
 
-from ..helpers import get_logger, Config
+from ..helpers import get_logger
 from ..cores.dependency_manager import DependencyManager
 from ..helpers.ui_utils import (
     print_step,
     print_success,
     print_warning,
     print_error,
-    print_success_panel,
     print_next_steps,
     prompt_confirm,
 )
