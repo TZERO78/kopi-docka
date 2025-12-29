@@ -205,6 +205,35 @@ kopi-docka --config /path/to/config.json <command>
 }
 ```
 
+### Configuration Validation
+
+**Since v5.6.0:** Kopi-Docka uses **Pydantic** for automatic configuration validation.
+
+**Benefits:**
+- ✅ **Early error detection** - Invalid configs fail at startup, not during backup
+- ✅ **Clear error messages** - Shows exactly what's wrong and where
+- ✅ **Type safety** - Ensures values have correct types (string, int, bool)
+- ✅ **Range validation** - Checks values are within sensible limits
+
+**Example error message:**
+```
+Configuration validation failed:
+  • backup -> parallel_workers: Value error, parallel_workers must be 'auto' or 1-32
+  • kopia -> kopia_params: Invalid repository type 'xyz'. Must be one of: filesystem, rclone, s3, ...
+
+Fix the errors in: /etc/kopi-docka.json
+```
+
+**Validated fields include:**
+- Repository type must be valid (filesystem, rclone, s3, b2, azure, gcs, sftp, webdav)
+- Backup scope must be: minimal, standard, or full
+- Parallel workers: "auto" or 1-32
+- Timeouts: 1-600 seconds
+- Retention values: within sensible limits
+- Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+---
+
 ### Important Settings
 
 | Setting | Description | Default |

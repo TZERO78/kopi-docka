@@ -498,8 +498,14 @@ Kopi-Docka would not exist without these excellent tools:
   cloud and remote storage providers  
   https://rclone.org
 
-- **Typer** – clean and readable CLI framework for Python  
+- **Typer** – clean and readable CLI framework for Python
   https://typer.tiangolo.com
+
+- **Pydantic** – data validation and settings management using Python type annotations
+  https://docs.pydantic.dev
+
+- **Apprise** – universal notification library supporting 100+ services
+  https://github.com/caronc/apprise
 
 All of these tools remain under their respective licenses and are **not bundled**
 with Kopi-Docka.
