@@ -30,13 +30,13 @@ post_backup = "/path/to/post-backup.sh"
 """
 
 import os
-import subprocess
 import time
 from pathlib import Path
 from typing import List
 
 from ..helpers.logging import get_logger
 from ..helpers.config import Config
+from ..helpers.ui_utils import run_command, SubprocessError
 from ..helpers.constants import (
     HOOK_PRE_BACKUP,
     HOOK_POST_BACKUP,
@@ -111,8 +111,13 @@ class HooksManager:
             if unit_name:
                 env["KOPI_DOCKA_UNIT_NAME"] = unit_name
 
-            result = subprocess.run(
-                [str(hook_path)], capture_output=True, text=True, timeout=timeout, env=env
+            # Use run_command for automatic subprocess tracking
+            result = run_command(
+                [str(hook_path)],
+                f"Executing {hook_type} hook",
+                timeout=timeout,
+                env=env,
+                check=False,  # Don't raise on non-zero exit
             )
 
             duration = time.time() - start_time
@@ -140,11 +145,18 @@ class HooksManager:
                 )
                 return False
 
-        except subprocess.TimeoutExpired:
-            logger.error(
-                f"Hook {hook_type} timed out after {timeout}s",
-                extra={"hook_type": hook_type, "timeout": timeout},
-            )
+        except SubprocessError as e:
+            # run_command raises SubprocessError on timeout
+            if "timeout" in str(e).lower():
+                logger.error(
+                    f"Hook {hook_type} timed out after {timeout}s",
+                    extra={"hook_type": hook_type, "timeout": timeout},
+                )
+            else:
+                logger.error(
+                    f"Hook {hook_type} execution failed: {e}",
+                    extra={"hook_type": hook_type, "error": str(e)},
+                )
             return False
         except Exception as e:
             logger.error(

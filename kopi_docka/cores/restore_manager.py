@@ -58,6 +58,7 @@ from ..types import RestorePoint
 from ..helpers.config import Config
 from ..cores.repository_manager import KopiaRepository
 from ..cores.hooks_manager import HooksManager
+from ..cores.safe_exit_manager import SafeExitManager, DataSafetyHandler
 from ..helpers.constants import (
     CONTAINER_START_TIMEOUT,
     BACKUP_FORMAT_TAR,
@@ -763,6 +764,13 @@ class RestoreManager:
         restore_dir = Path(tempfile.mkdtemp(prefix=f"kopia-docka-restore-{safe_unit}-"))
         print_info(f"📂 Restore directory: {restore_dir}")
 
+        # Setup DataSafetyHandler for emergency cleanup on abort
+        safe_exit = SafeExitManager.get_instance()
+        data_safety_handler = DataSafetyHandler()
+        safe_exit.register_handler(data_safety_handler)
+        # Register temp directory for cleanup on abort
+        data_safety_handler.register_temp_dir(str(restore_dir))
+
         try:
             # 1) Recipes
             print("\n1️⃣ Restoring recipes...")
@@ -780,7 +788,7 @@ class RestoreManager:
             # 3) Volume instructions
             if rp.volume_snapshots:
                 print("\n3️⃣ Volume restoration:")
-                self._display_volume_restore_instructions(rp, restore_dir)
+                self._display_volume_restore_instructions(rp, restore_dir, data_safety_handler)
 
             # 4) Interactive config copy (NEW in v3.1.0)
             if recipe_dir.exists():
@@ -824,6 +832,9 @@ class RestoreManager:
                     extra={"unit_name": rp.unit_name},
                 )
                 print(f"\n⚠️  Could not clean up {restore_dir}: {cleanup_error}")
+
+            # Unregister DataSafetyHandler (cleanup complete)
+            safe_exit.unregister_handler(data_safety_handler)
 
     def _restore_recipe(self, rp: RestorePoint, restore_dir: Path) -> Path:
         """Restore recipe snapshots into a folder."""
@@ -1171,7 +1182,7 @@ class RestoreManager:
             except Exception:
                 pass
 
-    def _display_volume_restore_instructions(self, rp: RestorePoint, restore_dir: Path):
+    def _display_volume_restore_instructions(self, rp: RestorePoint, restore_dir: Path, data_safety_handler: DataSafetyHandler):
         """Interactive volume restore: execute now or show instructions."""
         print("\n   📦 Volume Restoration:")
         print("   " + "-" * 40)
@@ -1206,8 +1217,8 @@ class RestoreManager:
 
                 try:
                     success = self._execute_volume_restore(
-                        vol, unit, snap_id, config_file, snapshot=snap
-                    )  # Pass snapshot for format detection
+                        vol, unit, snap_id, config_file, snapshot=snap, data_safety_handler=data_safety_handler
+                    )  # Pass snapshot for format detection and data safety handler
 
                     if success:
                         print("   " + "=" * 50)
@@ -1296,7 +1307,7 @@ class RestoreManager:
         return BACKUP_FORMAT_TAR
 
     def _execute_volume_restore(
-        self, vol: str, unit: str, snap_id: str, config_file: str, snapshot: dict = None
+        self, vol: str, unit: str, snap_id: str, config_file: str, snapshot: dict = None, data_safety_handler: DataSafetyHandler = None
     ) -> bool:
         """Execute volume restore with automatic format detection.
 
@@ -1309,6 +1320,7 @@ class RestoreManager:
             snap_id: Snapshot ID
             config_file: Kopia config file path
             snapshot: Snapshot metadata dict (optional, for format detection)
+            data_safety_handler: Data safety handler for emergency cleanup
 
         Returns:
             True if restore successful, False otherwise
@@ -1326,12 +1338,12 @@ class RestoreManager:
         )
 
         if backup_format == BACKUP_FORMAT_DIRECT:
-            return self._execute_volume_restore_direct(vol, unit, snap_id, config_file)
+            return self._execute_volume_restore_direct(vol, unit, snap_id, config_file, data_safety_handler)
         else:
-            return self._execute_volume_restore_tar(vol, unit, snap_id, config_file)
+            return self._execute_volume_restore_tar(vol, unit, snap_id, config_file, data_safety_handler)
 
     def _execute_volume_restore_direct(
-        self, vol: str, unit: str, snap_id: str, config_file: str
+        self, vol: str, unit: str, snap_id: str, config_file: str, data_safety_handler: DataSafetyHandler = None
     ) -> bool:
         """Execute volume restore for direct Kopia snapshots (v5.0+).
 
@@ -1343,6 +1355,7 @@ class RestoreManager:
             unit: Unit name
             snap_id: Snapshot ID
             config_file: Kopia config file path
+            data_safety_handler: Data safety handler for emergency cleanup
 
         Returns:
             True if restore successful, False otherwise
@@ -1378,6 +1391,10 @@ class RestoreManager:
                     timeout=60,
                 )
                 print(f"      ✓ Stopped {len(stopped_ids)} container(s)")
+                # Register stopped containers with DataSafetyHandler (keep stopped on abort)
+                if data_safety_handler:
+                    for container_id in stopped_ids:
+                        data_safety_handler.register_stopped_container(container_id)
             else:
                 print("      ℹ No running containers using this volume")
 
@@ -1518,7 +1535,7 @@ class RestoreManager:
             return False
 
     def _execute_volume_restore_tar(
-        self, vol: str, unit: str, snap_id: str, config_file: str
+        self, vol: str, unit: str, snap_id: str, config_file: str, data_safety_handler: DataSafetyHandler = None
     ) -> bool:
         """Execute volume restore for TAR-based backups (legacy).
 
@@ -1529,6 +1546,7 @@ class RestoreManager:
             unit: Unit name
             snap_id: Snapshot ID
             config_file: Kopia config file path
+            data_safety_handler: Data safety handler for emergency cleanup
 
         Returns:
             True if restore successful, False otherwise
@@ -1564,6 +1582,10 @@ class RestoreManager:
                     timeout=60,
                 )
                 print(f"      ✓ Stopped {len(stopped_ids)} container(s)")
+                # Register stopped containers with DataSafetyHandler (keep stopped on abort)
+                if data_safety_handler:
+                    for container_id in stopped_ids:
+                        data_safety_handler.register_stopped_container(container_id)
             else:
                 print("      ℹ No running containers using this volume")
 

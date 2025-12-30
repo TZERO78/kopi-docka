@@ -45,6 +45,7 @@ from ..cores.repository_manager import KopiaRepository
 from ..cores.kopia_policy_manager import KopiaPolicyManager
 from ..cores.hooks_manager import HooksManager
 from ..cores.notification_manager import NotificationManager, BackupStats
+from ..cores.safe_exit_manager import SafeExitManager, ServiceContinuityHandler
 from ..helpers.constants import (
     CONTAINER_STOP_TIMEOUT,
     CONTAINER_START_TIMEOUT,
@@ -109,6 +110,11 @@ class BackupManager:
             backup_scope=backup_scope,
         )
 
+        # Setup ServiceContinuityHandler for emergency container restart on abort
+        safe_exit = SafeExitManager.get_instance()
+        service_handler = ServiceContinuityHandler()
+        safe_exit.register_handler(service_handler)
+
         try:
             # Apply retention policies up front
             self._ensure_policies(unit)
@@ -128,7 +134,7 @@ class BackupManager:
                 f"Stopping {len(unit.containers)} containers...",
                 extra={"unit_name": unit.name},
             )
-            self._stop_containers(unit.containers)
+            self._stop_containers(unit.containers, service_handler)
 
             # 2) Recipes (skip for minimal scope)
             if backup_scope != BACKUP_SCOPE_MINIMAL:
@@ -211,7 +217,10 @@ class BackupManager:
                 f"Starting {len(unit.containers)} containers...",
                 extra={"unit_name": unit.name},
             )
-            self._start_containers(unit.containers)
+            self._start_containers(unit.containers, service_handler)
+
+            # Unregister ServiceContinuityHandler (cleanup complete)
+            safe_exit.unregister_handler(service_handler)
 
             # 5) Post-backup hook
             logger.info("Executing post-backup hook...", extra={"unit_name": unit.name})
@@ -275,8 +284,8 @@ class BackupManager:
 
         return metadata
 
-    def _stop_containers(self, containers: List[ContainerInfo]):
-        """Stop containers gracefully."""
+    def _stop_containers(self, containers: List[ContainerInfo], service_handler: ServiceContinuityHandler):
+        """Stop containers gracefully and register them for emergency restart."""
         for c in containers:
             if c.is_running:
                 try:
@@ -286,13 +295,15 @@ class BackupManager:
                         timeout=self.stop_timeout + 10,  # Docker timeout + safety margin
                     )
                     logger.debug(f"Stopped container: {c.name}", extra={"container": c.name})
+                    # Register with ServiceContinuityHandler for emergency restart on abort
+                    service_handler.register_container(c.id, c.name)
                 except SubprocessError as e:
                     logger.error(
                         f"Failed to stop container {c.name}: {e.stderr}",
                         extra={"container": c.name},
                     )
 
-    def _start_containers(self, containers: List[ContainerInfo]):
+    def _start_containers(self, containers: List[ContainerInfo], service_handler: ServiceContinuityHandler):
         """Start containers in original order and wait (healthcheck if present)."""
         for c in containers:
             try:
@@ -302,6 +313,8 @@ class BackupManager:
                     timeout=30,
                 )
                 logger.debug(f"Started container: {c.name}", extra={"container": c.name})
+                # Unregister from emergency restart (normal startup successful)
+                service_handler.unregister_container(c.id)
                 self._wait_container_healthy(c, timeout=self.start_timeout)
             except SubprocessError as e:
                 logger.error(

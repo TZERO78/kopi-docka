@@ -92,6 +92,22 @@ class DisasterRecoveryManager:
         work_dir = Path("/tmp") / bundle_name
         work_dir.mkdir(parents=True, exist_ok=True)
 
+        # Register CleanupHandler for interrupt-safe cleanup
+        from ..cores.safe_exit_manager import SafeExitManager, CleanupHandler
+        import shutil
+
+        safe_exit = SafeExitManager.get_instance()
+        cleanup_handler = CleanupHandler(name="disaster_recovery")
+
+        # Register temp dir cleanup
+        def cleanup_temp_dir():
+            if work_dir.exists():
+                shutil.rmtree(work_dir)
+                logger.info(f"CleanupHandler: Removed temp dir {work_dir}")
+
+        cleanup_handler.register_cleanup("temp_dir", cleanup_temp_dir)
+        safe_exit.register_handler(cleanup_handler)
+
         try:
             logger.info("Creating disaster recovery bundle...", extra={"bundle": bundle_name})
 
@@ -128,6 +144,15 @@ class DisasterRecoveryManager:
 
             # 7) archive + encrypt
             archive_path = output_dir / f"{bundle_name}.tar.gz.enc"
+
+            # Register partial archive cleanup
+            def cleanup_partial_archive():
+                if archive_path.exists():
+                    archive_path.unlink()
+                    logger.warning(f"CleanupHandler: Removed incomplete archive {archive_path}")
+
+            cleanup_handler.register_cleanup("partial_archive", cleanup_partial_archive)
+
             password = self._create_encrypted_archive(work_dir, archive_path)
 
             # 8) sidecar README (+ optional PASSWORD)
@@ -144,17 +169,19 @@ class DisasterRecoveryManager:
                 keep=self.config.getint("backup", "recovery_bundle_retention", 3),
             )
 
+            # Success: unregister cleanup handler and cleanup temp dir
+            safe_exit.unregister_handler(cleanup_handler)
+
+            # Normal cleanup (on success)
+            if work_dir.exists():
+                shutil.rmtree(work_dir)
+
             return archive_path
 
-        finally:
-            # cleanup temp dir
-            try:
-                import shutil
-
-                if work_dir.exists():
-                    shutil.rmtree(work_dir)
-            except Exception as e:
-                logger.warning(f"Cleanup failed for {work_dir}: {e}")
+        except Exception:
+            # On exception: CleanupHandler will handle cleanup on abort
+            # Re-raise to let caller handle
+            raise
 
     # ---------------- internal helpers ----------------
 
@@ -555,7 +582,8 @@ class DisasterRecoveryManager:
         with tarfile.open(tar_path, "w:gz") as tar:
             tar.add(src_dir, arcname=src_dir.name)
 
-        subprocess.run(
+        # Use run_command for automatic subprocess tracking
+        run_command(
             [
                 "openssl",
                 "enc",
@@ -569,6 +597,7 @@ class DisasterRecoveryManager:
                 "-pass",
                 f"pass:{password}",
             ],
+            "Encrypting recovery bundle with OpenSSL AES-256-CBC",
             check=True,
         )
 

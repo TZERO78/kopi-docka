@@ -38,6 +38,7 @@ from typing import Any, Dict, IO, List, Optional, Union
 
 from ..helpers.config import Config
 from ..helpers.logging import get_logger
+from ..helpers.ui_utils import run_command, SubprocessError
 
 logger = get_logger(__name__)
 
@@ -112,21 +113,23 @@ class KopiaRepository:
     def _run(self, args: List[str], check: bool = True) -> subprocess.CompletedProcess:
         """
         Run Kopia command with our env and config.
-        Raises with stderr/stdout if check=True and rc!=0.
+        Uses run_command() for automatic subprocess tracking.
+        Raises RuntimeError if check=True and rc!=0 (backward compatibility).
         """
         if "--config-file" not in args:
             args = [*args, "--config-file", self._get_config_file()]
 
-        proc = subprocess.run(
-            args,
-            env=self._get_env(),
-            text=True,
-            capture_output=True,
-        )
-        if check and proc.returncode != 0:
-            msg = proc.stderr.strip() or proc.stdout.strip()
-            raise RuntimeError(f"{' '.join(args)} failed: {msg}")
-        return proc
+        try:
+            return run_command(
+                args,
+                description=f"Kopia: {' '.join(args[:3])}",
+                check=check,
+                show_output=False,
+                env=self._get_env(),
+            )
+        except SubprocessError as e:
+            # Backward compatibility: convert SubprocessError → RuntimeError
+            raise RuntimeError(f"{' '.join(args)} failed: {e.stderr.strip() or e.stdout.strip()}")
 
     # --------------- Status / Connect / Create ---------------
 
