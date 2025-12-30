@@ -26,7 +26,6 @@ from rich import box
 
 from ..helpers import Config, get_logger, extract_filesystem_path
 from ..helpers.ui_utils import (
-    print_success,
     print_error,
     print_warning,
     print_error_panel,

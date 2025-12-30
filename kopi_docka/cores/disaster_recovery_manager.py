@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import json
 import hashlib
-import logging
 import subprocess
 import tarfile
 import secrets

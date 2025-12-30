@@ -677,7 +677,6 @@ Documentation:
     def get_status(self) -> dict:
         """Get Rclone storage status."""
         import shlex
-        import re
 
         status = {
             "repository_type": self.name,

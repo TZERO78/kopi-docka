@@ -37,7 +37,7 @@ import json
 import os
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional, Dict, Any, Union
+from typing import Optional, Dict, Any
 from datetime import datetime
 
 # Optional: Echte journald structured logs

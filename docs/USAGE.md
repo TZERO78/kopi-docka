@@ -2,7 +2,7 @@
 
 # Usage
 
-## CLI Structure (v5.3.1+)
+## CLI Structure (v5.5.1+)
 
 Kopi-Docka features a simplified CLI with primary commands and an `advanced` subcommand for power users.
 
@@ -31,7 +31,6 @@ kopi-docka
     │   ├── daemon
     │   └── write-units
     ├── system         # Dependencies
-    │   ├── install-deps
     │   └── show-deps
     └── snapshot       # Snapshots & units
         ├── list
@@ -51,6 +50,7 @@ kopi-docka
 | `setup` | **Master setup wizard** - Complete initial setup (Deps + Config + Init) |
 | `backup` | **Full backup** - All units with selected scope |
 | `restore` | **Interactive restore wizard** |
+| `show-docker-config <snapshot-id>` | **Extract docker_config** - Manual restore helper for FULL scope backups |
 | `disaster-recovery` | Create encrypted DR bundle |
 | `dry-run` | Simulate backup (no changes, preview) |
 | `doctor` | **System health check** - Dependencies, config, backend, repository |
@@ -89,8 +89,7 @@ kopi-docka
 
 | Command | Description |
 |---------|-------------|
-| `advanced system install-deps` | Auto-install missing dependencies |
-| `advanced system show-deps` | Show manual installation guide |
+| `advanced system show-deps` | Show manual installation guide for dependencies |
 
 ### Advanced Snapshot Commands
 
@@ -105,14 +104,15 @@ kopi-docka
 For backward compatibility, these commands still work but are hidden from `--help`:
 
 - **Wrapper commands** (use `advanced` subcommands instead):
-  - `check` → Use `advanced system` or `doctor` instead
-  - `install-deps` → Use `advanced system install-deps`
+  - `check` → Use `doctor` instead
   - `show-deps` → Use `advanced system show-deps`
   - `init` → Use `advanced repo init`
   - `repo-*` → Use `advanced repo` subcommands
   - `change-password` → Use `advanced repo change-password`
   - `daemon` → Use `advanced service daemon`
 - **Legacy alias**: `admin` → Use `advanced` instead
+
+**Note:** The `install-deps` command was removed in v5.5.0. Dependencies must be installed manually or using [Server-Baukasten](https://github.com/TZERO78/Server-Baukasten).
 
 ### Backup Options
 
@@ -325,39 +325,6 @@ sudo kopi-docka backup                      # Separate config
 - ✅ Different repositories, schedules, retention policies
 - ✅ Both can run simultaneously
 - ✅ Kopia remains unmodified - we're just a wrapper
-
----
-
-## Migration from v3.3 to v3.4
-
-Most old commands still work but are now under `admin`:
-
-| Old Command (v3.3) | New Command (v3.4) |
-|--------------------|-------------------|
-| `new-config` | `admin config new` |
-| `show-config` | `admin config show` |
-| `edit-config` | `admin config edit` |
-| `reset-config` | `admin config reset` |
-| `change-password` | `admin repo change-password` |
-| `init` | `admin repo init` |
-| `repo-status` | `admin repo status` |
-| `repo-maintenance` | `admin repo maintenance` |
-| `check` | `doctor` |
-| `status` | `doctor` (combined) |
-| `install-deps` | `admin system install-deps` |
-| `show-deps` | `admin system show-deps` |
-| `list` | `admin snapshot list` |
-| `estimate-size` | `admin snapshot estimate-size` |
-| `daemon` | `admin service daemon` |
-| `write-units` | `admin service write-units` |
-
-**Top-level commands unchanged:**
-- `setup`
-- `backup`
-- `restore`
-- `disaster-recovery`
-- `dry-run`
-- `version`
 
 ---
 

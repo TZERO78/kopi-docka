@@ -10,7 +10,6 @@ and sets up passwordless SSH access.
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -314,7 +313,6 @@ class TailscaleBackend(BackendBase):
                 - ssh_connected: bool
                 - tailscale_running: bool
         """
-        from kopi_docka.helpers import ui_utils as utils
 
         status = {
             "tailscale_running": self._is_running(),
@@ -408,7 +406,7 @@ class TailscaleBackend(BackendBase):
     def _start_tailscale(self) -> bool:
         """Start Tailscale"""
         from kopi_docka.helpers import ui_utils as utils
-        from kopi_docka.i18n import t, get_current_language
+        from kopi_docka.i18n import get_current_language
 
         lang = get_current_language()
 

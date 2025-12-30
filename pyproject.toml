@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kopi-docka"
-version = "5.5.0"
+version = "5.6.0"
 description = "Robust cold backups for Docker environments using Kopia"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -32,6 +32,7 @@ dependencies = [
     "rich>=13.0.0",
     "rich-click>=1.7.0",
     "apprise>=1.6.0",
+    "pydantic>=2.0.0",
 ]
 
 # Optionale Dependencies
@@ -46,6 +47,9 @@ dev = [
     "pytest-randomly>=3.0.0",
     "black>=22.0.0",
     "flake8>=4.0.0",
+    "mypy>=1.8.0",
+    "vulture>=2.0.0",
+    "ruff>=0.1.0",
 ]
 
 [project.urls]
@@ -106,11 +110,34 @@ branch = true
 omit = ["*/tests/*", "*/__pycache__/*"]
 
 [tool.coverage.report]
-# Current coverage: ~29%, target: 60% (increase gradually)
-fail_under = 25
+# Current coverage: ~44%, target: 60% (increase gradually)
+fail_under = 40
 show_missing = true
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",
     "raise NotImplementedError",
+]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false  # Start lenient, increase later
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+show_error_codes = true
+pretty = true
+
+# Exclude patterns
+exclude = [
+    "^venv/",
+    "^\\.venv/",
+    "^build/",
+    "^dist/",
 ]

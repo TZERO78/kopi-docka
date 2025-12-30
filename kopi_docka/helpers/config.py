@@ -30,7 +30,9 @@ import tempfile
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
-from .constants import DEFAULT_CONFIG_PATHS, VERSION
+from pydantic import BaseModel, Field, field_validator, ValidationError
+
+from .constants import DEFAULT_CONFIG_PATHS
 from .logging import get_logger
 
 logger = get_logger(__name__)
@@ -136,6 +138,209 @@ def generate_secure_password(length: int = 32) -> str:
     # Alle sicheren Zeichen (keine Verwechslungsgefahr wie 0/O, 1/l)
     alphabet = string.ascii_letters + string.digits + "!@#$^&*()-_=+[]{}|;:,.<>?/"
     return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+# ===============================================================================
+# Pydantic Models for Config Validation
+# ===============================================================================
+
+
+class KopiaConfig(BaseModel):
+    """Kopia repository and encryption settings."""
+
+    kopia_params: str = Field(
+        min_length=1, description="Kopia repository parameters (e.g., 'filesystem --path /backup')"
+    )
+    password: str = Field(default="", description="Repository password (plaintext)")
+    password_file: Optional[str] = Field(default=None, description="Path to external password file")
+    profile: str = Field(default="kopi-docka", min_length=1, description="Kopia profile name")
+    compression: str = Field(
+        default="zstd", description="Compression algorithm (zstd, pgzip, etc.)"
+    )
+    encryption: str = Field(
+        default="AES256-GCM-HMAC-SHA256", description="Encryption algorithm"
+    )
+    cache_directory: Optional[str] = Field(
+        default="/var/cache/kopi-docka", description="Kopia cache directory"
+    )
+    cache_size_mb: int = Field(
+        default=500, ge=0, le=10000, description="Cache size limit in MB (0=unlimited)"
+    )
+
+    @field_validator("kopia_params")
+    @classmethod
+    def validate_kopia_params(cls, v: str) -> str:
+        """Validate kopia_params format."""
+        if not v.strip():
+            raise ValueError("kopia_params cannot be empty")
+
+        # Check if it starts with a valid repository type
+        valid_types = {"filesystem", "rclone", "s3", "b2", "azure", "gcs", "sftp", "webdav"}
+        first_word = v.strip().split()[0].lower()
+
+        if first_word not in valid_types:
+            raise ValueError(
+                f"Invalid repository type '{first_word}'. "
+                f"Must be one of: {', '.join(sorted(valid_types))}"
+            )
+
+        return v.strip()
+
+
+class BackupHooks(BaseModel):
+    """Backup hook scripts."""
+
+    pre_backup: Optional[str] = Field(default=None, description="Script to run before backup")
+    post_backup: Optional[str] = Field(default=None, description="Script to run after backup")
+
+
+class BackupConfig(BaseModel):
+    """Backup behavior and timing settings."""
+
+    base_path: str = Field(
+        default="/backup/kopi-docka", min_length=1, description="Base directory for backups"
+    )
+    backup_scope: str = Field(
+        default="standard", description="Backup scope: minimal, standard, or full"
+    )
+    parallel_workers: str = Field(
+        default="auto", description="Number of parallel workers (auto or 1-32)"
+    )
+    stop_timeout: int = Field(
+        default=30, ge=1, le=600, description="Container stop timeout in seconds"
+    )
+    start_timeout: int = Field(
+        default=60, ge=1, le=600, description="Container start timeout in seconds"
+    )
+    task_timeout: int = Field(default=0, ge=0, description="Task timeout in seconds (0=unlimited)")
+    database_backup: Optional[str] = Field(
+        default="true", description="Enable database backup (true/false)"
+    )
+    update_recovery_bundle: bool = Field(
+        default=False, description="Update recovery bundle"
+    )
+    recovery_bundle_path: str = Field(
+        default="/backup/recovery", description="Path to recovery bundle"
+    )
+    recovery_bundle_retention: int = Field(
+        default=3, ge=1, le=100, description="Number of recovery bundles to keep"
+    )
+    exclude_patterns: List[str] = Field(default_factory=list, description="List of exclude patterns")
+    hooks: BackupHooks = Field(default_factory=BackupHooks, description="Backup hooks")
+
+    # Legacy fields for backward compatibility
+    pre_backup_hook: Optional[str] = Field(default=None, description="Legacy: Script to run before backup")
+    post_backup_hook: Optional[str] = Field(default=None, description="Legacy: Script to run after backup")
+
+    @field_validator("backup_scope")
+    @classmethod
+    def validate_backup_scope(cls, v: str) -> str:
+        """Validate backup scope."""
+        valid_scopes = {"minimal", "standard", "full"}
+        if v.lower() not in valid_scopes:
+            raise ValueError(
+                f"Invalid backup_scope '{v}'. Must be one of: {', '.join(sorted(valid_scopes))}"
+            )
+        return v.lower()
+
+    @field_validator("parallel_workers")
+    @classmethod
+    def validate_parallel_workers(cls, v: str) -> str:
+        """Validate parallel workers setting."""
+        if v == "auto":
+            return v
+
+        try:
+            workers = int(v)
+            if workers < 1 or workers > 32:
+                raise ValueError("parallel_workers must be between 1 and 32")
+            return str(workers)
+        except ValueError as e:
+            raise ValueError(f"parallel_workers must be 'auto' or 1-32: {e}")
+
+
+class DockerConfig(BaseModel):
+    """Docker daemon and compose settings."""
+
+    socket: str = Field(
+        default="/var/run/docker.sock",
+        min_length=1,
+        description="Path to Docker socket",
+    )
+    compose_timeout: int = Field(
+        default=300, ge=10, le=3600, description="Docker Compose timeout in seconds"
+    )
+    prune_stopped_containers: bool = Field(
+        default=False, description="Prune stopped containers"
+    )
+
+
+class RetentionConfig(BaseModel):
+    """Backup retention policy."""
+
+    latest: int = Field(default=10, ge=0, le=100, description="Number of latest backups to keep")
+    hourly: int = Field(default=0, ge=0, le=168, description="Number of hourly backups to keep")
+    daily: int = Field(default=7, ge=0, le=365, description="Number of daily backups to keep")
+    weekly: int = Field(default=4, ge=0, le=52, description="Number of weekly backups to keep")
+    monthly: int = Field(
+        default=12, ge=0, le=120, description="Number of monthly backups to keep"
+    )
+    annual: int = Field(default=3, ge=0, le=50, description="Number of annual backups to keep")
+    yearly: Optional[int] = Field(default=None, ge=0, le=50, description="Legacy: Number of yearly backups to keep")
+
+
+class LoggingConfig(BaseModel):
+    """Logging configuration."""
+
+    level: str = Field(default="INFO", description="Log level (DEBUG, INFO, WARNING, ERROR)")
+    file: Optional[str] = Field(default=None, description="Log file path (None for stdout only)")
+    max_size_mb: int = Field(default=100, ge=1, le=1000, description="Max log file size in MB")
+    backup_count: int = Field(
+        default=5, ge=1, le=50, description="Number of rotated log files to keep"
+    )
+
+    @field_validator("level")
+    @classmethod
+    def validate_log_level(cls, v: str) -> str:
+        """Validate log level."""
+        valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+        v_upper = v.upper()
+        if v_upper not in valid_levels:
+            raise ValueError(
+                f"Invalid log level '{v}'. Must be one of: {', '.join(sorted(valid_levels))}"
+            )
+        return v_upper
+
+
+class NotificationsConfig(BaseModel):
+    """Notification service configuration."""
+
+    enabled: bool = Field(default=False, description="Enable notifications")
+    service: Optional[str] = Field(default=None, description="Notification service name")
+    url: Optional[str] = Field(default=None, description="Notification service URL")
+    secret: Optional[str] = Field(default=None, description="Notification secret/token")
+    secret_file: Optional[str] = Field(default=None, description="Path to secret file")
+    on_success: bool = Field(default=True, description="Notify on successful backup")
+    on_failure: bool = Field(default=True, description="Notify on backup failure")
+
+
+class ConfigModel(BaseModel):
+    """Root configuration model with all sections."""
+
+    version: Optional[str] = Field(default=None, description="Config file version")
+    kopia: KopiaConfig = Field(default_factory=KopiaConfig)
+    backup: BackupConfig = Field(default_factory=BackupConfig)
+    docker: DockerConfig = Field(default_factory=DockerConfig)
+    retention: RetentionConfig = Field(default_factory=RetentionConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    notifications: NotificationsConfig = Field(default_factory=NotificationsConfig)
+
+    model_config = {"extra": "allow"}  # Allow extra fields for forward compatibility
+
+
+# ===============================================================================
+# Config Class (with Pydantic validation)
+# ===============================================================================
 
 
 class Config:
@@ -249,6 +454,16 @@ class Config:
     def recovery_bundle_retention(self) -> int:
         """Get recovery bundle retention count."""
         return int(self.get("backup", "recovery_bundle_retention", fallback=3))
+
+    @property
+    def backup_scope(self) -> str:
+        """
+        Get backup scope setting.
+
+        Returns:
+            Backup scope: "minimal", "standard" (default), or "full"
+        """
+        return self.get("backup", "backup_scope", fallback="standard")
 
     # Kopia settings properties
 
@@ -544,6 +759,7 @@ class Config:
             },
             "backup": {
                 "base_path": "/backup/kopi-docka",
+                "backup_scope": "standard",
                 "parallel_workers": "auto",
                 "stop_timeout": 30,
                 "start_timeout": 60,
@@ -620,16 +836,44 @@ class Config:
         return path
 
     def _load_config(self) -> None:
-        """Load configuration from JSON file with UTF-8 encoding."""
+        """Load and validate configuration from JSON file with Pydantic."""
         try:
+            # Load raw JSON
             with open(self.config_file, "r", encoding="utf-8") as f:
-                self._config = json.load(f)
-            logger.info(f"Configuration loaded from {self.config_file}")
+                raw_data = json.load(f)
+
+            # Validate with Pydantic
+            try:
+                validated_config = ConfigModel(**raw_data)
+                # Convert back to dict for backward compatibility
+                self._config = validated_config.model_dump(exclude_unset=False)
+                logger.info(f"Configuration loaded and validated from {self.config_file}")
+            except ValidationError as e:
+                # Format validation errors nicely
+                error_messages = []
+                for error in e.errors():
+                    location = " -> ".join(str(loc) for loc in error["loc"])
+                    message = error["msg"]
+                    error_messages.append(f"  • {location}: {message}")
+
+                error_text = "\n".join(error_messages)
+                logger.error(
+                    f"Configuration validation failed:\n{error_text}\n\n"
+                    f"Please fix the config file: {self.config_file}"
+                )
+                raise ValueError(
+                    f"Configuration validation failed:\n{error_text}\n\n"
+                    f"Fix the errors in: {self.config_file}"
+                )
+
         except json.JSONDecodeError as e:
             logger.error(f"Config file JSON parsing error: {e}")
             raise ValueError(f"Invalid JSON in config file {self.config_file}: {e}")
         except UnicodeDecodeError as e:
             logger.error(f"Config file encoding error (expected UTF-8): {e}")
+            raise
+        except ValidationError:
+            # Already handled above
             raise
         except Exception as e:
             logger.error(f"Failed to load configuration: {e}")
@@ -656,7 +900,6 @@ def create_default_config(path: Optional[Path] = None, force: bool = False) -> P
     Returns:
         Path to the created config file
     """
-    from datetime import datetime
 
     if path is None:
         if os.geteuid() == 0:

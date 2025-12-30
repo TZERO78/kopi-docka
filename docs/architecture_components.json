@@ -118,7 +118,6 @@
       {
         "name": "DependencyManager",
         "methods": [
-          "auto_install",
           "check_all",
           "check_dependency",
           "check_docker",
@@ -132,7 +131,6 @@
           "get_install_commands",
           "get_missing",
           "get_version",
-          "install_missing",
           "print_install_guide",
           "print_status"
         ]
@@ -557,42 +555,6 @@
           "log_summary",
           "operation",
           "setup"
-        ]
-      }
-    ],
-    "helpers/dependency_installer.py": [
-      {
-        "name": "InstallStatus",
-        "methods": []
-      },
-      {
-        "name": "InstallResult",
-        "methods": []
-      },
-      {
-        "name": "DependencyInstaller",
-        "methods": [
-          "check_installed",
-          "install",
-          "install_docker",
-          "install_kopia",
-          "install_rclone",
-          "install_tailscale"
-        ]
-      }
-    ],
-    "helpers/os_detect.py": [
-      {
-        "name": "OSInfo",
-        "methods": [
-          "debian_version_major",
-          "is_arch",
-          "is_debian",
-          "is_debian_based",
-          "is_fedora",
-          "is_rhel_based",
-          "is_ubuntu",
-          "ubuntu_version"
         ]
       }
     ],

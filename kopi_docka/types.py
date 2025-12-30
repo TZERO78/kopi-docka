@@ -144,6 +144,7 @@ class BackupMetadata:
     errors: List[str] = field(default_factory=list)
     backup_scope: str = "standard"  # minimal, standard, full
     networks_backed_up: int = 0
+    docker_config_backed_up: bool = False
     hooks_executed: List[str] = field(default_factory=list)
     backup_format: str = "direct"  # "tar" (legacy) or "direct" (v5.0+)
 
@@ -161,6 +162,7 @@ class BackupMetadata:
             "errors": self.errors,
             "backup_scope": self.backup_scope,
             "networks_backed_up": self.networks_backed_up,
+            "docker_config_backed_up": self.docker_config_backed_up,
             "hooks_executed": self.hooks_executed,
             "backup_format": self.backup_format,
         }
@@ -175,3 +177,4 @@ class RestorePoint:
     volume_snapshots: List[Dict[str, Any]] = field(default_factory=list)
     database_snapshots: List[Dict[str, Any]] = field(default_factory=list)
     network_snapshots: List[Dict[str, Any]] = field(default_factory=list)
+    docker_config_snapshots: List[Dict[str, Any]] = field(default_factory=list)

@@ -737,6 +737,157 @@ sudo kopi-docka admin service manage
 
 ---
 
+## What's New in v5.5.1
+
+### 🏷️ Backup Scope Tracking & Restore Warnings
+**Automatic scope detection and restore capability warnings**
+
+Kopi-Docka v5.5.1 enhances backup scope features with automatic tracking and intelligent restore warnings.
+
+**Scope Tag Tracking:**
+```bash
+# All snapshots now include backup_scope tag
+kopia snapshot list --tags | grep backup_scope
+# → backup_scope=standard
+# → backup_scope=full
+# → backup_scope=minimal
+```
+
+**Restore Scope Detection:**
+- RestoreManager automatically reads `backup_scope` tag from snapshots
+- **MINIMAL scope backups** show prominent warning panel during restore
+- Warns that only volume data will be restored
+- Explains that containers/networks must be manually recreated
+- Legacy snapshots without tag default to "standard" (backward compatible)
+
+**Example Warning:**
+```
+⚠️  MINIMAL Scope Backup Detected
+
+This backup contains ONLY volume data.
+Container recipes (docker-compose files) are NOT included.
+
+After restore:
+• Volumes will be restored
+• Containers must be recreated manually
+• Networks must be recreated manually
+
+Consider using --scope standard or --scope full for complete backups.
+```
+
+### 🐳 Docker Config Backup (FULL Scope)
+**Complete disaster recovery with Docker daemon configuration**
+
+FULL scope backups now include Docker daemon configuration files:
+- `/etc/docker/daemon.json` (if present)
+- `/etc/systemd/system/docker.service.d/` (systemd overrides)
+
+**Automatic Backup:**
+```bash
+# Use FULL scope to include docker_config
+sudo kopi-docka backup --scope full
+
+# Set as default in config
+{
+  "backup": {
+    "backup_scope": "full"
+  }
+}
+```
+
+**What's Backed Up:**
+- Docker daemon settings (log drivers, storage drivers, etc.)
+- Systemd service overrides
+- Docker runtime configuration
+- Non-fatal on errors (logs warning, continues backup)
+
+### 🔧 Docker Config Manual Restore Command
+**Safe, guided restoration of Docker daemon configuration**
+
+New command for extracting and reviewing docker_config snapshots:
+
+```bash
+# List docker_config snapshots
+sudo kopi-docka list --snapshots | grep docker_config
+
+# Extract configuration to temp directory
+sudo kopi-docka show-docker-config <snapshot-id>
+```
+
+**Command Features:**
+- Extracts snapshot to `/tmp/kopia-docker-config-XXXXX/`
+- Displays safety warnings about manual restore
+- Shows extracted files with sizes
+- Displays `daemon.json` contents (if <10KB)
+- Provides 6-step manual restore instructions
+- Prevents accidental production breakage
+
+**Why Manual Restore?**
+- Docker daemon configuration is extremely sensitive
+- Incorrect config can break Docker entirely
+- Must be reviewed before applying to production
+- Prevents system-wide Docker failures
+
+**Example Usage:**
+```bash
+$ sudo kopi-docka show-docker-config k1a2b3c4d5e6f7g8
+
+Docker Config Manual Restore
+⚠️  Safety Notice:
+Docker daemon configuration is NOT automatically restored.
+You must manually review and apply changes to avoid production issues.
+
+✓ Extracted files:
+   • daemon.json (2.3 KB)
+   • docker.service.d/override.conf (0.5 KB)
+
+📄 daemon.json contents:
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  }
+}
+
+🔧 Manual Restore Instructions
+Step 1: Review extracted files
+Step 2: Backup current config
+Step 3: Apply configuration (CAREFULLY!)
+Step 4: Systemd overrides (if present)
+Step 5: Restart Docker daemon
+Step 6: Verify Docker is working
+
+Files location: /tmp/kopia-docker-config-abc123/
+```
+
+### ⚙️ Config Wizard Scope Selection
+**Interactive backup scope selection during setup**
+
+The config wizard now includes backup scope selection:
+
+```bash
+sudo kopi-docka advanced config new
+# → Interactive menu prompts for scope
+```
+
+**Wizard Features:**
+- Three clear options: minimal / standard / full
+- Descriptions explain restore capabilities
+- Default is "standard" (recommended)
+- Warning confirmation for minimal scope
+- Easy to understand implications
+
+**Scope Options in Wizard:**
+1. **minimal** - Volumes only (fastest, smallest)
+   - ⚠️ Cannot restore containers, only data!
+2. **standard** - Volumes + Recipes + Networks [RECOMMENDED]
+   - ✅ Full container restore capability
+3. **full** - Everything + Docker daemon config (DR-ready)
+   - ✅ Complete disaster recovery capability
+
+---
+
 ## What's New in v4.1.0
 
 ### 🤖 Non-Interactive Restore Mode

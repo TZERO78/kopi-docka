@@ -127,10 +127,14 @@ graph LR
   BackupManager --> DockerDiscovery
   BackupManager --> HooksManager
   BackupManager --> KopiaRepository
+  RestoreManager --> KopiaRepository
+  RestoreManager --> HooksManager
   KopiaRepository --> Backends
   KopiaRepository --> KopiaPolicyManager
-  HooksManager --> (user scripts)
-  Helpers --> (logging, ui_utils, system_utils)
+  HooksManager --> UserScripts[User Scripts]
+  Helpers --> Logging
+  Helpers --> UIUtils[UI Utils]
+  Helpers --> SystemUtils[System Utils]
 ``` 
 
 ---
