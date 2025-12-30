@@ -1401,7 +1401,49 @@ sudo kopi-docka restore
 
 ---
 
-### 🔧 Pre/Post Backup Hooks
+### � Smart Repository Re-initialization
+**Fix password mismatches without losing access to backups**
+
+When your config has the wrong password for an existing repository (the "chicken-egg" problem), use the reconnect option:
+
+```bash
+# Safe reconnect: keeps config, only fixes password
+sudo kopi-docka advanced config reset --reconnect
+```
+
+**What --reconnect does:**
+
+1. **Keeps your existing config** (backend, paths, settings)
+2. **Prompts for the correct password** (max 3 attempts)
+3. **Tests connection** before saving
+4. **Updates only the password** in your config
+
+**Use Cases:**
+- Wrong password in config for existing repo
+- Reconnecting after restoring config from backup
+- Taking over a repository from another system
+- Password file was deleted/corrupted
+
+**Alternative: Full Re-initialization**
+
+If you need the interactive wizard with Connect/Overwrite options (e.g., to delete and recreate a repository):
+
+```bash
+# Smart re-init with detection wizard
+sudo kopi-docka advanced repo init --reinit
+```
+
+**Supported Backends:**
+- ✅ Filesystem (local paths, NFS, CIFS)
+- ✅ S3 (AWS, MinIO, Wasabi)
+- ✅ B2 (Backblaze)
+- ✅ Azure Blob Storage
+- ✅ Google Cloud Storage
+- ✅ SFTP
+
+---
+
+### �🔧 Pre/Post Backup Hooks
 **Run custom scripts before and after backups - perfect for maintenance mode**
 
 See detailed guide: [Hooks Documentation](HOOKS.md)

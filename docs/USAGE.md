@@ -69,7 +69,7 @@ kopi-docka
 
 | Command | Description |
 |---------|-------------|
-| `advanced repo init` | Initialize/connect repository |
+| `advanced repo init` | Initialize or connect to repository |
 | `advanced repo status` | Show repository status |
 | `advanced repo maintenance` | Run repository maintenance (cleanup/optimize) |
 | `advanced repo change-password` | Safely change repository password |
