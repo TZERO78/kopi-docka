@@ -290,6 +290,397 @@ Below are compact, AI-friendly class → method tables and short notes for the m
 
 ---
 
+## SafeExitManager — Two-Layer Exit Safety Architecture 🛡️
+
+### Overview
+
+**SafeExitManager** is a singleton component that ensures graceful cleanup when Kopi-Docka operations are interrupted (SIGINT/SIGTERM). It uses a two-layer architecture to prevent:
+- Containers staying stopped after backup abort → production outage
+- Zombie subprocess processes → resource leaks
+- Temp directories accumulating → disk space leaks
+- Kopia locks staying held → blocked operations
+- Incomplete DR archives → confusion
+
+### Two-Layer Architecture
+
+```mermaid
+graph TB
+    subgraph "Application Layer"
+        BM[BackupManager]
+        RM[RestoreManager]
+        DRM[DisasterRecoveryManager]
+        REPO[RepositoryManager]
+        HM[HooksManager]
+    end
+
+    subgraph "Strategy Layer (SafeExitManager)"
+        SEM[SafeExitManager Core<br/>Signal Handler]
+        SCH[ServiceContinuityHandler<br/>Priority: 10]
+        DSH[DataSafetyHandler<br/>Priority: 20]
+        CH[CleanupHandler<br/>Priority: 50]
+
+        SEM --> SCH
+        SEM --> DSH
+        SEM --> CH
+    end
+
+    subgraph "Process Layer (run_command)"
+        RC[run_command<br/>subprocess tracking]
+        TRACK[Process Registry<br/>{cleanup_id: (pid, name)}]
+
+        RC --> TRACK
+    end
+
+    BM --> SCH
+    BM --> RC
+    RM --> DSH
+    RM --> RC
+    DRM --> CH
+    DRM --> RC
+    REPO --> RC
+    HM --> RC
+
+    style SEM fill:#ff6b6b
+    style SCH fill:#4ecdc4
+    style DSH fill:#45b7d1
+    style CH fill:#96ceb4
+    style RC fill:#ffeaa7
+```
+
+### Layer Separation of Concerns
+
+| Responsibility | Process Layer | Strategy Layer |
+|----------------|---------------|----------------|
+| **Terminate subprocesses** | ✅ Automatic | ❌ |
+| **Zombie prevention** | ✅ SIGTERM → SIGKILL | ❌ |
+| **Container restart/stop** | ❌ | ✅ Context-aware |
+| **Temp file cleanup** | ❌ | ✅ Context-aware |
+| **Registration** | ✅ Auto (all run_command) | ✅ Manual (per manager) |
+| **Coverage** | All subprocesses | Specific operations |
+
+### Process Layer — Automatic Subprocess Tracking
+
+**Implementation**: `kopi_docka.helpers.ui_utils.run_command()`
+
+Every subprocess launched via `run_command()` is automatically tracked:
+
+```python
+def run_command(cmd, description, timeout=None, ...):
+    """Execute command with automatic subprocess tracking."""
+    from ..cores.safe_exit_manager import SafeExitManager
+
+    safe_exit = SafeExitManager.get_instance()
+    cleanup_id = None
+
+    try:
+        # Start process with Popen (instead of subprocess.run)
+        process = subprocess.Popen(cmd_list, ...)
+
+        # Register with SafeExitManager
+        cleanup_id = safe_exit.register_process(process.pid, cmd_str[:50])
+
+        # Wait for completion
+        stdout, stderr = process.communicate(timeout=timeout)
+
+        # ... error handling ...
+    finally:
+        # Always deregister (even on exception)
+        if cleanup_id:
+            safe_exit.unregister_process(cleanup_id)
+```
+
+**Tracked Process Registry**:
+```python
+{
+    "uuid-1234": TrackedProcess(pid=12345, name="docker stop webapp", registered_at=1735567890.123),
+    "uuid-5678": TrackedProcess(pid=12346, name="kopia snapshot create", registered_at=1735567891.456),
+}
+```
+
+**On SIGINT/SIGTERM**:
+1. First pass: Send SIGTERM to all tracked PIDs (graceful)
+2. Wait 5 seconds
+3. Second pass: Send SIGKILL to survivors (force)
+4. Clear registry
+
+### Strategy Layer — Context-Aware Handlers
+
+**Implementation**: `kopi_docka.cores.safe_exit_manager.SafeExitManager`
+
+Three handler types with different priorities (lower = runs first):
+
+#### 1. ServiceContinuityHandler (Priority: 10)
+
+**Purpose**: Restart containers after backup abort (prevent production outage)
+
+**Used by**: `BackupManager`
+
+**Behavior**:
+- Tracks containers that were stopped for backup
+- On abort: Restarts containers in **LIFO order** (reverse of stop order)
+- Timeout: 30s per container
+- Errors logged but don't block other containers
+
+**Integration**:
+```python
+# In BackupManager.__init__
+self.service_continuity = ServiceContinuityHandler()
+SafeExitManager.get_instance().register_handler(self.service_continuity)
+
+# In _stop_containers()
+self.service_continuity.register_container(container_id, container_name)
+
+# In _start_containers()
+self.service_continuity.unregister_container(container_id)
+```
+
+#### 2. DataSafetyHandler (Priority: 20)
+
+**Purpose**: Keep containers stopped during restore abort (data integrity)
+
+**Used by**: `RestoreManager`
+
+**Behavior**:
+- Tracks containers that were stopped for restore
+- Tracks temp directories created during restore
+- On abort:
+  - Containers stay STOPPED (intentional)
+  - Temp dirs cleaned up
+  - Warning logged for manual restart
+
+**Integration**:
+```python
+# In RestoreManager._restore_unit()
+handler = DataSafetyHandler()
+SafeExitManager.get_instance().register_handler(handler)
+
+handler.register_stopped_container(container_name)
+handler.register_temp_dir(temp_restore_dir)
+
+# ... restore operations ...
+
+SafeExitManager.get_instance().unregister_handler(handler)
+```
+
+#### 3. CleanupHandler (Priority: 50)
+
+**Purpose**: Generic cleanup callbacks (temp dirs, incomplete files)
+
+**Used by**: `DisasterRecoveryManager`, `RepositoryManager`
+
+**Behavior**:
+- Accepts arbitrary cleanup callbacks
+- Executes callbacks on abort
+- Error-tolerant (try/except per callback)
+
+**Integration**:
+```python
+# In DisasterRecoveryManager.create_recovery_bundle()
+cleanup_handler = CleanupHandler("dr_cleanup")
+cleanup_handler.register_cleanup(
+    "temp_dir",
+    lambda: shutil.rmtree(temp_dir) if os.path.exists(temp_dir) else None
+)
+cleanup_handler.register_cleanup(
+    "incomplete_archive",
+    lambda: os.remove(bundle_path) if os.path.exists(bundle_path) else None
+)
+
+SafeExitManager.get_instance().register_handler(cleanup_handler)
+
+# ... DR operations ...
+
+SafeExitManager.get_instance().unregister_handler(cleanup_handler)
+```
+
+### Signal Handling Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant OS
+    participant SEM as SafeExitManager
+    participant PL as Process Layer
+    participant SL as Strategy Layer
+    participant Docker
+
+    User->>OS: Ctrl+C (SIGINT)
+    OS->>SEM: signal_handler(SIGINT)
+
+    alt Cleanup already in progress
+        SEM->>OS: Force exit (128+signum)
+    end
+
+    SEM->>SEM: Set cleanup_in_progress flag
+
+    Note over SEM,PL: LAYER 1: Process Termination
+    SEM->>PL: _terminate_all_processes()
+    PL->>PL: SIGTERM → all tracked PIDs
+    PL->>PL: wait 5s
+    PL->>PL: SIGKILL → survivors
+    PL->>PL: Clear process registry
+
+    Note over SEM,SL: LAYER 2: Strategy Handlers
+    SEM->>SEM: Sort handlers by priority
+
+    SEM->>SL: ServiceContinuityHandler.cleanup()
+    SL->>Docker: docker start (LIFO order)
+    Docker-->>SL: containers UP
+
+    SEM->>SL: DataSafetyHandler.cleanup()
+    SL->>SL: Remove temp dirs
+    SL->>SL: Log warning (containers stopped)
+
+    SEM->>SL: CleanupHandler.cleanup()
+    SL->>SL: Execute callbacks
+
+    SEM->>OS: sys.exit(130 or 143)
+```
+
+### Implementation: SafeExitManager Core
+
+**File**: `kopi_docka/cores/safe_exit_manager.py`
+
+**Key Methods**:
+
+| Method | Layer | Purpose |
+|--------|-------|---------|
+| `install_handlers()` | Core | Install SIGINT/SIGTERM handlers (call once at startup) |
+| `_signal_handler(signum, frame)` | Core | Signal callback → cleanup → exit |
+| `register_process(pid, name)` | Process | Add subprocess to tracking (returns cleanup_id) |
+| `unregister_process(cleanup_id)` | Process | Remove subprocess from tracking |
+| `_terminate_all_processes()` | Process | SIGTERM → wait → SIGKILL all tracked PIDs |
+| `register_handler(handler)` | Strategy | Add exit handler (sorted by priority) |
+| `unregister_handler(handler)` | Strategy | Remove exit handler |
+| `_run_all_handlers()` | Strategy | Execute handlers in priority order |
+
+**Thread Safety**:
+- `_lock` (class-level): Singleton creation
+- `_process_lock`: Process registry access
+- `_handler_lock`: Handler registry access
+- `_cleanup_in_progress`: Flag prevents nested cleanup
+
+**systemd Integration**:
+```python
+# Optional import (works without systemd)
+try:
+    from ..helpers.service_manager import sd_notify_stopping, sd_notify_watchdog
+    HAS_SD_NOTIFY = True
+except ImportError:
+    HAS_SD_NOTIFY = False
+
+def _signal_handler(self, signum, frame):
+    # ... setup ...
+
+    if HAS_SD_NOTIFY:
+        sd_notify_stopping("Emergency cleanup in progress")
+
+    self._terminate_all_processes()
+
+    if HAS_SD_NOTIFY:
+        sd_notify_watchdog()  # Reset watchdog before handlers
+
+    self._run_all_handlers()
+    # ... exit ...
+```
+
+### Component Integration Summary
+
+| Manager | Uses Process Layer | Uses Strategy Layer | Handler Type |
+|---------|-------------------|---------------------|--------------|
+| **BackupManager** | ✅ (all docker/kopia calls) | ✅ | ServiceContinuityHandler |
+| **RestoreManager** | ✅ (all docker/kopia calls) | ✅ | DataSafetyHandler |
+| **RepositoryManager** | ✅ (all kopia calls) | ❌ | None (process layer sufficient) |
+| **DisasterRecoveryManager** | ✅ (openssl subprocess) | ✅ | CleanupHandler |
+| **HooksManager** | ✅ (hook subprocess) | ❌ | None (process layer sufficient) |
+
+**Key Insight**: Process Layer provides baseline zombie prevention for ALL managers. Strategy Layer adds context-aware cleanup only where needed.
+
+### Installation & Lifecycle
+
+**Startup** (`kopi_docka/__main__.py`):
+```python
+def main():
+    # Install signal handlers BEFORE any operations
+    SafeExitManager.get_instance().install_handlers()
+
+    # ... rest of CLI setup ...
+    app()
+```
+
+**Manager Pattern** (example: BackupManager):
+```python
+class BackupManager:
+    def __init__(self, config: Config):
+        self.service_continuity = ServiceContinuityHandler()
+        SafeExitManager.get_instance().register_handler(self.service_continuity)
+        # Handler stays registered for entire BackupManager lifetime
+
+    def _stop_containers(self, containers):
+        for container in containers:
+            run_command(["docker", "stop", container.id], ...)  # Auto-tracked
+            self.service_continuity.register_container(container.id, container.name)
+
+    def _start_containers(self, containers):
+        for container in containers:
+            run_command(["docker", "start", container.id], ...)  # Auto-tracked
+            self.service_continuity.unregister_container(container.id)
+```
+
+### Edge Cases & Known Limitations
+
+| Edge Case | Behavior | Mitigation |
+|-----------|----------|------------|
+| **SIGKILL (kill -9)** | Not catchable - no cleanup runs | Document: Use SIGTERM instead |
+| **Double SIGINT** | First → cleanup, Second → force exit(128+signum) | `_cleanup_in_progress` flag |
+| **Restore on new hardware** | Container doesn't exist for restart | Graceful skip in handlers (try/except) |
+| **Network failure during cleanup** | Container restart may fail | Logged as error, doesn't block other containers |
+| **Nested run_command during cleanup** | Not re-tracked (cleanup phase) | Acceptable - cleanup operations are simple |
+| **Handler exception** | Logged, doesn't block other handlers | try/except per handler in `_run_all_handlers()` |
+
+### Testing Strategy
+
+**Unit Tests** (`tests/unit/test_cores/test_safe_exit_manager.py`):
+- Singleton pattern
+- Process register/unregister
+- Signal handler installation
+- Handler priority sorting
+- Thread safety (concurrent register/unregister)
+
+**Integration Tests** (`tests/integration/test_safe_exit_*.py`):
+- Backup abort → containers restart
+- Restore abort → containers stay stopped
+- DR abort → temp cleanup
+- subprocess termination (SIGTERM → SIGKILL)
+
+**Manual Testing**:
+```bash
+# Backup abort
+sudo kopi-docka backup
+# Press Ctrl+C during volume backup
+docker ps  # Should show containers UP
+
+# Restore abort
+sudo kopi-docka restore
+# Press Ctrl+C during restore
+docker ps  # Should show containers DOWN (intentional)
+
+# DR abort
+sudo kopi-docka disaster-recovery
+# Press Ctrl+C during bundle creation
+ls -la /tmp/kopi-docka-recovery-*  # Should NOT exist
+```
+
+### Key Learnings from Implementation
+
+1. **subprocess.run() → subprocess.Popen()**: Required for PID registration before process completion
+2. **LIFO container restart**: Safer for dependency chains (reverse stop order)
+3. **finally blocks NOT interrupt-safe**: Signal handlers bypass `finally` - use SafeExitManager instead
+4. **Dead code discovered**: Plan assumptions wrong in 3 managers (always verify!)
+5. **DRY principle**: One subprocess tracking implementation (run_command), one cleanup system (SafeExitManager)
+
+---
+
 ## Additional sequence diagrams (detailed) 🔁
 
 ### BackupManager detailed sequence
