@@ -28,7 +28,6 @@ zu logischen Backup-Units (Compose-Stapel oder Standalone-Container).
 from __future__ import annotations
 
 import json
-import subprocess
 from typing import List, Dict, Optional, Any
 from pathlib import Path
 
@@ -38,7 +37,6 @@ from ..types import BackupUnit, ContainerInfo, VolumeInfo
 from ..helpers.constants import (
     DOCKER_COMPOSE_PROJECT_LABEL,
     DOCKER_COMPOSE_CONFIG_LABEL,
-    DOCKER_COMPOSE_SERVICE_LABEL,
     DATABASE_IMAGES,
 )
 

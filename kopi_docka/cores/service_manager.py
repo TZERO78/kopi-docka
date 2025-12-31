@@ -51,7 +51,6 @@ from ..helpers.ui_utils import (
     print_header,
     print_info,
     print_success,
-    print_warning,
     print_error,
     run_command,
 )

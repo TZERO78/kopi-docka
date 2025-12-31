@@ -233,12 +233,20 @@ def main():
     Note: Typer handles unknown commands itself with a nice box-formatted error.
     Root privileges are checked in initialize_context() for non-safe commands.
     We only handle:
-    - KeyboardInterrupt: Clean exit
+    - KeyboardInterrupt: Clean exit (fallback - SafeExitManager handles signals)
     - Unexpected errors: Show debug tip
     """
+    # Install SafeExitManager signal handlers for graceful shutdown (v5.5.0)
+    # This ensures cleanup happens on SIGINT/SIGTERM (Ctrl+C, systemctl stop)
+    from .cores.safe_exit_manager import SafeExitManager
+
+    SafeExitManager.get_instance().install_handlers()
+
     try:
         app()
     except KeyboardInterrupt:
+        # Fallback handler - SafeExitManager should handle SIGINT and exit with code 130
+        # This path is reached if KeyboardInterrupt is raised before signal handler is active
         console.print("\n[yellow]Interrupted.[/yellow]")
         sys.exit(130)
     except typer.Exit:

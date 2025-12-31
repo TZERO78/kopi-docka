@@ -32,7 +32,6 @@ from ..helpers.constants import (
 from ..helpers.ui_utils import (
     print_success,
     print_error,
-    print_warning,
     print_error_panel,
 )
 from ..cores import (
@@ -314,6 +313,39 @@ def cmd_restore(
         raise typer.Exit(code=1)
 
 
+def cmd_show_docker_config(
+    ctx: typer.Context,
+    snapshot_id: str,
+    config_path: Optional[Path] = None,
+):
+    """Extract and show docker_config snapshot for manual restore.
+
+    This command extracts Docker daemon configuration from a FULL scope backup
+    and provides step-by-step instructions for manual restore.
+
+    IMPORTANT: Docker daemon configuration is NOT automatically restored for safety.
+    You must manually review and apply configuration changes.
+
+    Args:
+        ctx: Typer context
+        snapshot_id: Snapshot ID to extract (docker_config type)
+        config_path: Optional config file path
+    """
+    _override_config(ctx, config_path)
+    cfg = ensure_config(ctx)
+    repo = ensure_repository(ctx)
+
+    try:
+        rm = RestoreManager(cfg)
+        success = rm.show_docker_config(snapshot_id)
+
+        if not success:
+            raise typer.Exit(code=1)
+    except Exception as e:
+        print_error_panel(f"Docker config extraction failed: {e}")
+        raise typer.Exit(code=1)
+
+
 # -------------------------
 # Registration
 # -------------------------
@@ -413,3 +445,29 @@ def register(app: typer.Typer):
             no_recreate_networks=no_recreate_networks,
             config_path=config,
         )
+
+    @app.command("show-docker-config")
+    def _show_docker_config_cmd(
+        ctx: typer.Context,
+        snapshot_id: str = typer.Argument(
+            ...,
+            help="Snapshot ID of docker_config type to extract",
+        ),
+        config: Optional[Path] = typer.Option(
+            None,
+            "--config",
+            help="Path to configuration file",
+        ),
+    ):
+        """Extract Docker daemon config from FULL scope backup (manual restore).
+
+        This command extracts docker_config snapshots to a temp directory and shows
+        step-by-step instructions for manual restore.
+
+        SAFETY: Docker daemon configuration is NOT automatically restored to prevent
+        accidental production breakage. You must manually review and apply changes.
+
+        Example:
+            kopi-docka show-docker-config k1a2b3c4d5e6f7g8
+        """
+        cmd_show_docker_config(ctx, snapshot_id=snapshot_id, config_path=config)

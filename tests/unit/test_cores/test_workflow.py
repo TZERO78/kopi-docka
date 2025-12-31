@@ -429,7 +429,7 @@ class TestBackupWorkflow:
 
         backup_calls = []
 
-        def track_backup(volume, unit, backup_id):
+        def track_backup(volume, unit, backup_id, backup_scope):
             backup_calls.append(volume.name)
             return f"snap_{volume.name}"
 

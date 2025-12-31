@@ -24,6 +24,8 @@ A wrapper around [Kopia](https://kopia.io), designed for Docker environments:
 - **🔧 Pre/Post Hooks** - Custom scripts (maintenance mode, notifications, etc.)
 - **📊 Systemd Integration** - Daemon with sd_notify and watchdog support
 - **🚀 Restore on New Hardware** - Recovery without original system
+- **🛡️ Graceful Shutdown** - SafeExitManager ensures containers restart after Ctrl+C
+- **🔔 Notifications** - Telegram, Discord, Email alerts via Apprise
 
 **[See detailed features →](docs/FEATURES.md)**
 
@@ -178,6 +180,157 @@ Daemon implementation with:
 
 ---
 
+## Backup Scopes
+
+Kopi-Docka supports three backup scopes to balance speed, size, and restore capabilities:
+
+### Scope Comparison
+
+| Scope | What's Backed Up | Restore Capability | Use Case |
+|-------|------------------|-------------------|----------|
+| **minimal** | ✅ Volumes only | ⚠️ Data only - containers must be manually recreated | Fastest backups when you always have docker-compose files available |
+| **standard** | ✅ Volumes<br>✅ Recipes (docker-compose.yml)<br>✅ Networks (IPAM config) | ✅ Full container restore | **Recommended** - Complete restore capability |
+| **full** | ✅ Volumes<br>✅ Recipes<br>✅ Networks<br>✅ Docker daemon config | ✅ Full restore + manual daemon config | Disaster recovery with Docker daemon settings |
+
+### Detailed Restore Matrix
+
+| Scope | Volumes | Container Configs | Networks | Docker Daemon Config |
+|-------|---------|-------------------|----------|---------------------|
+| **minimal** | ✅ Restored | ❌ Not backed up* | ❌ Not backed up | ❌ Not backed up |
+| **standard** | ✅ Restored | ✅ Restored | ✅ Restored | ❌ Not backed up |
+| **full** | ✅ Restored | ✅ Restored | ✅ Restored | ⚠️ Manual restore** |
+
+**Notes:**
+- \* **Minimal scope limitation:** Only volume data is backed up. After restore, you **must manually recreate containers** using your original `docker-compose.yml` files or `docker run` commands. Networks must also be manually recreated.
+- \*\* **Docker config safety:** Docker daemon configuration (`/etc/docker/daemon.json`, systemd overrides) is backed up but **not automatically restored**. This prevents accidental production breakage. Review and manually apply configuration changes.
+
+### Usage Examples
+
+**Set default scope in config wizard:**
+```bash
+sudo kopi-docka advanced config new
+# → Interactive menu will prompt for scope selection
+# → Default: standard (recommended)
+```
+
+**Set scope in config file:**
+```json
+{
+  "backup": {
+    "backup_scope": "standard"
+  }
+}
+```
+
+**Override scope via CLI flag:**
+```bash
+# Minimal - Fastest, smallest backups (volumes only)
+sudo kopi-docka backup --scope minimal
+
+# Standard - Recommended (volumes + recipes + networks)
+sudo kopi-docka backup --scope standard
+
+# Full - Complete DR including Docker daemon config
+sudo kopi-docka backup --scope full
+```
+
+### ⚠️ Minimal Scope Warning
+
+If you restore from a **minimal scope** backup, Kopi-Docka will show a prominent warning:
+
+```
+⚠️  MINIMAL Scope Backup Detected
+
+This backup contains ONLY volume data.
+Container recipes (docker-compose files) are NOT included.
+
+After restore:
+• Volumes will be restored
+• Containers must be recreated manually
+• Networks must be recreated manually
+
+Consider using --scope standard or --scope full for complete backups.
+```
+
+**Recovery steps for minimal scope backups:**
+1. `sudo kopi-docka restore` → Restores volume data
+2. Manually recreate containers: `docker compose up -d` (using your original docker-compose.yml)
+3. Manually recreate networks if needed: `docker network create ...`
+
+### 🔧 Docker Config Manual Restore
+
+For **FULL scope** backups, Docker daemon configuration is backed up but requires manual restoration:
+
+**Extract docker_config snapshot:**
+```bash
+# List docker_config snapshots
+sudo kopi-docka list --snapshots | grep docker_config
+
+# Extract configuration to temp directory
+sudo kopi-docka show-docker-config <snapshot-id>
+```
+
+**What this command does:**
+- Extracts docker_config snapshot to `/tmp/kopia-docker-config-XXXXX/`
+- Displays safety warnings about manual restore
+- Shows extracted files (`daemon.json`, systemd overrides)
+- Displays `daemon.json` contents inline (if <10KB)
+- Provides 6-step manual restore instructions
+
+**Why manual restore?**
+- Docker daemon configuration is extremely sensitive
+- Incorrect config can break Docker entirely
+- Must be reviewed before applying to production
+- Prevents accidental system breakage
+
+**Example output:**
+```
+✓ Extracted files:
+   • daemon.json (2.3 KB)
+   • docker.service.d/override.conf (0.5 KB)
+
+📄 daemon.json contents:
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  }
+}
+
+🔧 Manual Restore Instructions
+Step 1: Review extracted files
+Step 2: Backup current config
+Step 3: Apply configuration (CAREFULLY!)
+Step 4: Systemd overrides (if present)
+Step 5: Restart Docker daemon
+Step 6: Verify Docker is working
+```
+
+### Scope Selection Guidance
+
+**Choose minimal when:**
+- You need fastest possible backups
+- You always have access to original docker-compose files
+- You're comfortable manually recreating containers after restore
+- Storage space is extremely limited
+
+**Choose standard when (RECOMMENDED):**
+- You want complete restore capability
+- You prefer automated container recreation
+- You want network configurations preserved
+- You need reliable disaster recovery
+
+**Choose full when:**
+- You need complete disaster recovery capability
+- You have custom Docker daemon configuration
+- You use systemd service overrides for Docker
+- You want to preserve all Docker settings
+
+**Default:** `standard` (best balance for most users)
+
+---
+
 ## Documentation
 
 📚 **Guides:**
@@ -211,6 +364,7 @@ sudo kopi-docka setup              # Complete setup wizard
 sudo kopi-docka backup             # Full backup (standard scope)
 sudo kopi-docka restore            # Interactive restore wizard
 sudo kopi-docka restore --yes      # Non-interactive restore (CI/CD)
+sudo kopi-docka show-docker-config <snapshot-id>  # Extract docker_config for manual restore
 sudo kopi-docka disaster-recovery  # Create DR bundle
 sudo kopi-docka dry-run            # Simulate backup (preview)
 sudo kopi-docka doctor             # System health check
@@ -346,8 +500,14 @@ Kopi-Docka would not exist without these excellent tools:
   cloud and remote storage providers  
   https://rclone.org
 
-- **Typer** – clean and readable CLI framework for Python  
+- **Typer** – clean and readable CLI framework for Python
   https://typer.tiangolo.com
+
+- **Pydantic** – data validation and settings management using Python type annotations
+  https://docs.pydantic.dev
+
+- **Apprise** – universal notification library supporting 100+ services
+  https://github.com/caronc/apprise
 
 All of these tools remain under their respective licenses and are **not bundled**
 with Kopi-Docka.

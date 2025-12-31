@@ -2,7 +2,7 @@
 
 # Usage
 
-## CLI Structure (v5.3.1+)
+## CLI Structure (v6.0.0+)
 
 Kopi-Docka features a simplified CLI with primary commands and an `advanced` subcommand for power users.
 
@@ -31,7 +31,6 @@ kopi-docka
     │   ├── daemon
     │   └── write-units
     ├── system         # Dependencies
-    │   ├── install-deps
     │   └── show-deps
     └── snapshot       # Snapshots & units
         ├── list
@@ -51,6 +50,7 @@ kopi-docka
 | `setup` | **Master setup wizard** - Complete initial setup (Deps + Config + Init) |
 | `backup` | **Full backup** - All units with selected scope |
 | `restore` | **Interactive restore wizard** |
+| `show-docker-config <snapshot-id>` | **Extract docker_config** - Manual restore helper for FULL scope backups |
 | `disaster-recovery` | Create encrypted DR bundle |
 | `dry-run` | Simulate backup (no changes, preview) |
 | `doctor` | **System health check** - Dependencies, config, backend, repository |
@@ -69,7 +69,7 @@ kopi-docka
 
 | Command | Description |
 |---------|-------------|
-| `advanced repo init` | Initialize/connect repository |
+| `advanced repo init` | Initialize or connect to repository |
 | `advanced repo status` | Show repository status |
 | `advanced repo maintenance` | Run repository maintenance (cleanup/optimize) |
 | `advanced repo change-password` | Safely change repository password |
@@ -89,8 +89,7 @@ kopi-docka
 
 | Command | Description |
 |---------|-------------|
-| `advanced system install-deps` | Auto-install missing dependencies |
-| `advanced system show-deps` | Show manual installation guide |
+| `advanced system show-deps` | Show manual installation guide for dependencies |
 
 ### Advanced Snapshot Commands
 
@@ -105,14 +104,15 @@ kopi-docka
 For backward compatibility, these commands still work but are hidden from `--help`:
 
 - **Wrapper commands** (use `advanced` subcommands instead):
-  - `check` → Use `advanced system` or `doctor` instead
-  - `install-deps` → Use `advanced system install-deps`
+  - `check` → Use `doctor` instead
   - `show-deps` → Use `advanced system show-deps`
   - `init` → Use `advanced repo init`
   - `repo-*` → Use `advanced repo` subcommands
   - `change-password` → Use `advanced repo change-password`
   - `daemon` → Use `advanced service daemon`
 - **Legacy alias**: `admin` → Use `advanced` instead
+
+**Note:** The `install-deps` command was removed in v5.5.0. Dependencies must be installed manually or using [Server-Baukasten](https://github.com/TZERO78/Server-Baukasten).
 
 ### Backup Options
 
@@ -328,36 +328,158 @@ sudo kopi-docka backup                      # Separate config
 
 ---
 
-## Migration from v3.3 to v3.4
+## Exit Safety & Signal Handling
 
-Most old commands still work but are now under `admin`:
+**Kopi-Docka features a robust two-layer exit safety system** that ensures graceful cleanup when operations are interrupted (Ctrl+C, `systemctl stop`, etc.).
 
-| Old Command (v3.3) | New Command (v3.4) |
-|--------------------|-------------------|
-| `new-config` | `admin config new` |
-| `show-config` | `admin config show` |
-| `edit-config` | `admin config edit` |
-| `reset-config` | `admin config reset` |
-| `change-password` | `admin repo change-password` |
-| `init` | `admin repo init` |
-| `repo-status` | `admin repo status` |
-| `repo-maintenance` | `admin repo maintenance` |
-| `check` | `doctor` |
-| `status` | `doctor` (combined) |
-| `install-deps` | `admin system install-deps` |
-| `show-deps` | `admin system show-deps` |
-| `list` | `admin snapshot list` |
-| `estimate-size` | `admin snapshot estimate-size` |
-| `daemon` | `admin service daemon` |
-| `write-units` | `admin service write-units` |
+### What Happens on Interrupt?
 
-**Top-level commands unchanged:**
-- `setup`
-- `backup`
-- `restore`
-- `disaster-recovery`
-- `dry-run`
-- `version`
+When you press **Ctrl+C** or send **SIGTERM** during a backup/restore/DR operation:
+
+1. **Process Layer**: All running subprocesses (docker, kopia, openssl, hooks) are automatically terminated
+   - First: SIGTERM sent to all tracked processes (graceful shutdown)
+   - After 5s: SIGKILL sent to any surviving processes (force kill)
+   - Prevents zombie processes and resource leaks
+
+2. **Strategy Layer**: Context-aware cleanup based on operation type
+   - **During Backup**: Containers are automatically restarted (LIFO order) → **no downtime**
+   - **During Restore**: Containers remain stopped for data safety, temp files cleaned
+   - **During DR Bundle**: Temp directories and incomplete archives removed
+
+### Signal Behavior by Operation
+
+| Operation | Ctrl+C / SIGTERM Behavior | Result |
+|-----------|---------------------------|--------|
+| **Backup** | Containers auto-restart in reverse order | ✅ Services back online |
+| **Restore** | Containers stay stopped, temp cleanup | ⚠️ Manual restart required |
+| **Disaster Recovery** | Temp `/tmp/kopi-docka-recovery-*` deleted | ✅ Clean state |
+| **Repository Ops** | Kopia processes terminated | ✅ No orphaned locks |
+| **Hooks** | Hook processes killed after timeout | ✅ No hung scripts |
+
+### Example: Backup Interrupted
+
+```bash
+sudo kopi-docka backup
+# ... backup running ...
+# Press Ctrl+C
+
+# Output:
+Received SIGINT - starting emergency cleanup...
+EMERGENCY: Terminating 3 tracked process(es)...
+  SIGTERM -> docker stop webapp (PID 12345)
+  SIGTERM -> kopia snapshot create (PID 12346)
+ServiceContinuity: Restarting 2 container(s)...
+  Starting webapp...
+  [OK] webapp started
+Cleanup complete, exiting with code 130
+
+# Check status:
+docker ps
+# All containers are UP! No manual intervention needed.
+```
+
+### Example: Restore Interrupted
+
+```bash
+sudo kopi-docka restore
+# ... restore running ...
+# Press Ctrl+C
+
+# Output:
+Received SIGINT - starting emergency cleanup...
+DataSafety: Containers remain STOPPED for safety:
+  - webapp
+  - database
+Manually restart: docker start <container_name>
+Cleanup complete, exiting with code 130
+
+# Containers intentionally stay stopped to prevent data corruption
+# You must manually verify and restart:
+docker start webapp database
+```
+
+### Signal Types
+
+| Signal | Source | Behavior | Exit Code |
+|--------|--------|----------|-----------|
+| **SIGINT** | Ctrl+C, `kill -2` | Graceful cleanup → exit | 130 |
+| **SIGTERM** | `systemctl stop`, `kill -15` | Graceful cleanup → exit | 143 |
+| **SIGKILL** | `kill -9` (force) | ⚠️ NOT catchable - no cleanup! | 137 |
+
+**⚠️ IMPORTANT**: Always use **SIGTERM** (`systemctl stop`, `kill -15`) instead of SIGKILL (`kill -9`). SIGKILL cannot be caught and will leave containers stopped and processes orphaned.
+
+### systemd Integration
+
+When running as a systemd service, Kopi-Docka communicates its cleanup status:
+
+```bash
+# systemd knows cleanup is in progress
+sudo systemctl stop kopi-docka.service
+# ServiceContinuity handler restarts containers automatically
+# systemd receives "STOPPING=1" notification
+# Watchdog timer is reset during cleanup
+```
+
+**Features:**
+- ✅ `sd_notify(STOPPING=1)` sent at cleanup start
+- ✅ Watchdog timer reset before handler execution
+- ✅ Works without systemd (graceful fallback)
+
+### Troubleshooting
+
+**Problem**: Container failed to restart after Ctrl+C during backup
+```bash
+# Check logs
+sudo journalctl -u kopi-docka.service | grep "ServiceContinuity"
+# Look for: "[FAILED] container_name: <error>"
+
+# Manual restart
+docker start <container_name>
+```
+
+**Problem**: Zombie processes after abort
+```bash
+# Should NOT happen - but if it does:
+ps aux | grep kopia | grep defunct
+# Report issue: https://github.com/TZERO78/kopi-docka/issues
+```
+
+**Problem**: Temp directories not cleaned
+```bash
+# Should NOT happen with SafeExitManager - but if it does:
+ls -la /tmp/kopi-docka-*
+sudo rm -rf /tmp/kopi-docka-*
+```
+
+### Best Practices
+
+1. **Use SIGTERM, not SIGKILL**
+   ```bash
+   # Good
+   sudo systemctl stop kopi-docka.service
+   kill -15 <pid>
+
+   # Bad - no cleanup!
+   kill -9 <pid>
+   ```
+
+2. **Check logs after interrupt**
+   ```bash
+   sudo journalctl -u kopi-docka.service -n 50
+   ```
+
+3. **Verify containers after backup abort**
+   ```bash
+   docker ps  # Should show all containers UP
+   ```
+
+4. **After restore abort, manually verify before restart**
+   ```bash
+   # Restore was interrupted - check data integrity first
+   docker volume inspect <volume_name>
+   # Then manually restart
+   docker start <container_name>
+   ```
 
 ---
 

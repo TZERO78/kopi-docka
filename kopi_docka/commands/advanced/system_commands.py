@@ -16,50 +16,18 @@
 """
 System dependency management commands under 'admin system'.
 
-This is a thin wrapper that delegates to the legacy dependency_commands module.
-All business logic resides in kopi_docka.commands.dependency_commands.
-
-Commands:
-- admin system install-deps - Install missing system dependencies
-- admin system show-deps    - Show dependency installation guide
+This module previously provided install-deps and show-deps commands,
+but these were removed in v5.5.0 as part of the Hard/Soft Gate refactoring.
+Users should install dependencies manually.
 """
 
 import typer
 
-# Import from legacy dependency_commands - Single Source of Truth
-from ..dependency_commands import (
-    cmd_install_deps,
-    cmd_deps,  # show-deps
-)
-
-# Create system subcommand group
-system_app = typer.Typer(
-    name="system",
-    help="System dependency management commands.",
-    no_args_is_help=True,
-)
-
-
-# -------------------------
-# Registration (wrappers)
-# -------------------------
-
 
 def register(app: typer.Typer):
-    """Register system commands under 'admin system'."""
+    """Register system commands under 'admin system'.
 
-    @system_app.command("install-deps")
-    def _install_deps_cmd(
-        force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt"),
-        dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be installed"),
-    ):
-        """Install missing system dependencies."""
-        cmd_install_deps(force, dry_run)
-
-    @system_app.command("show-deps")
-    def _show_deps_cmd():
-        """Show dependency installation guide."""
-        cmd_deps()
-
-    # Add system subgroup to admin app
-    app.add_typer(system_app, name="system", help="System dependency management")
+    Note: install-deps and show-deps commands were removed in v5.5.0.
+    This function is kept for compatibility but no longer registers any commands.
+    """
+    pass

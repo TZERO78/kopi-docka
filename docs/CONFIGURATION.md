@@ -31,7 +31,17 @@ sudo kopi-docka admin config new
 ```
 
 **What it does:**
-1. **Backend Selection** - Interactive menu:
+1. **Backup Scope Selection** - Choose what to backup:
+   ```
+   1. minimal  - Volumes only (fastest, smallest)
+               ⚠️  Cannot restore containers, only data!
+   2. standard - Volumes + Recipes + Networks [RECOMMENDED]
+               ✅ Full container restore capability
+   3. full     - Everything + Docker daemon config (DR-ready)
+               ✅ Complete disaster recovery capability
+   ```
+
+2. **Backend Selection** - Interactive menu:
    ```
    1. Local Filesystem  - Local disk/NAS
    2. AWS S3           - S3-compatible (Wasabi, MinIO)
@@ -40,9 +50,10 @@ sudo kopi-docka admin config new
    5. Google Cloud     - GCS
    6. SFTP             - Remote via SSH
    7. Tailscale        - Peer-to-peer over private network
+   8. Rclone           - Universal (70+ cloud providers)
    ```
 
-2. **Backend Configuration** - Queries backend-specific values:
+3. **Backend Configuration** - Queries backend-specific values:
    - Local: Repository path
    - S3: Bucket, region, endpoint (optional)
    - B2: Bucket, prefix
@@ -50,42 +61,98 @@ sudo kopi-docka admin config new
    - GCS: Bucket, prefix
    - SFTP: Host, user, path
    - Tailscale: Peer selection (automatically detected)
+   - Rclone: Remote name and path
 
-3. **Password Setup:**
+4. **Existing Repository Detection:**
+   - If a repository already exists at the configured location:
+     ```
+     ⚠️  Existing Repository Detected
+     
+     Options:
+       1 - Enter existing password (connect to repository)
+       2 - Delete repository and start fresh
+     ```
+   - Option 1: Enter existing password (validated with 3 attempts)
+   - Option 2: Delete repository after confirmation
+
+5. **Password Setup** (for new repositories only):
    ```
    1. Secure random password (recommended)
    2. Enter custom password
    ```
 
-4. **Save Config** as JSON:
-   - Root: `/etc/kopi-docka.json`
-   - User: `~/.config/kopi-docka/config.json`
+6. **Save Config** as CONF:
+   - Root: `/etc/kopi-docka.conf` + `/etc/.kopi-docka.password`
+   - User: `~/.config/kopi-docka/config.conf` + `~/.config/kopi-docka/.config.password`
 
 **When to use:**
 - Create new config
 - Switch backend
 - After manual config reset
 
-**Example (B2 Backend):**
+**Example (B2 Backend with new repository):**
 ```bash
 sudo kopi-docka admin config new
 
-# Wizard asks:
+# Step 1: Backup Scope
+Select backup scope [2]:
+→ 2 (standard - recommended)
+
+# Step 2: Backend Selection
 Where should backups be stored?
 → 3 (Backblaze B2)
 
+# Step 3: Backend Configuration
 Bucket name: my-backup-bucket
 Path prefix: kopia
 
-Password setup:
-→ 1 (Auto-generate secure password)
+# Step 4: No existing repository detected
 
-✓ Configuration created: /etc/kopi-docka.json
+# Step 5: Password setup
+Generate secure random password?
+→ Yes
+
+✓ Configuration created: /etc/kopi-docka.conf
+  Backup scope: standard
   kopia_params: b2 --bucket my-backup-bucket --prefix kopia
+  Password file: /etc/.kopi-docka.password
 
 ⚠️ Set environment variables:
   export B2_APPLICATION_KEY_ID='...'
   export B2_APPLICATION_KEY='...'
+
+Next Steps:
+  1. Initialize repository: sudo kopi-docka advanced repo init
+  2. Test backup: sudo kopi-docka dry-run
+```
+
+**Example (Existing Repository):**
+```bash
+sudo kopi-docka admin config new
+
+# Step 1-3: Scope and backend configuration...
+
+# Step 4: Existing repository detected!
+⚠️  Existing Kopia repository detected!
+Location: /backup/kopia-repository
+
+Options:
+  1 - Enter existing password (connect to repository)
+  2 - Delete repository and start fresh
+
+Select option [1]: 1
+
+# Validate existing password
+Enter existing repository password: ****
+Validating password...
+✓ Password correct! Successfully connected.
+
+✓ Configuration created: /etc/kopi-docka.conf
+  Connected to existing repository
+
+Next Steps:
+  1. List Docker containers: sudo kopi-docka advanced snapshot list
+  2. Test backup: sudo kopi-docka dry-run
 ```
 
 **Wizard Relationship:**
@@ -94,20 +161,24 @@ Option A (Recommended):
 └─ kopi-docka setup
    ├─ 1. Dependency check
    ├─ 2. Config wizard (admin config new internally)
-   │      ├─ Select backend
-   │      ├─ Configure backend
-   │      └─ Password setup
-   ├─ 3. Repository init
+   │      ├─ Backup scope selection (minimal/standard/full)
+   │      ├─ Select backend (filesystem/S3/B2/...)
+   │      ├─ Configure backend (paths, buckets, etc.)
+   │      ├─ Detect existing repository
+   │      └─ Password setup (new or existing)
+   ├─ 3. Repository init (if needed)
    └─ 4. Connection test
 
 Option B (Manual):
 ├─ kopi-docka doctor            # Check system health
 ├─ kopi-docka admin config new  # Create configuration
+│      ├─ Backup scope selection
 │      ├─ Select backend
 │      ├─ Configure backend
-│      └─ Password setup
+│      ├─ Detect existing repository
+│      └─ Password setup (validated if existing)
 ├─ kopi-docka admin config edit # (optional)
-└─ kopi-docka admin repo init   # Initialize repository
+└─ kopi-docka advanced repo init   # Initialize repository (if new)
 ```
 
 ---
@@ -124,85 +195,130 @@ sudo kopi-docka setup
 ```
 
 The wizard guides you through:
-- ✅ Backend selection (interactive menu)
-- ✅ Backend-specific settings
-- ✅ Password setup (secure)
-- ✅ Automatic config generation
+- ✅ Backup scope selection (what to backup)
+- ✅ Backend selection (where to store backups)
+- ✅ Backend-specific settings (paths, buckets, etc.)
+- ✅ Existing repository detection (automatic)
+- ✅ Password setup (validated for existing repos)
+- ✅ Automatic config generation (.conf + .password file)
 
 ---
 
 ### Config File Locations
 
-Kopi-Docka v3.0+ uses **JSON format**:
+Kopi-Docka uses **INI/CONF format** with separate password file:
 
 **Standard paths** (in order):
-1. `/etc/kopi-docka.json` (system-wide, recommended for servers)
-2. `~/.config/kopi-docka/config.json` (user-specific)
+1. `/etc/kopi-docka.conf` (system-wide, recommended for servers)
+   - Password: `/etc/.kopi-docka.password` (chmod 600)
+2. `~/.config/kopi-docka/config.conf` (user-specific)
+   - Password: `~/.config/kopi-docka/.config.password` (chmod 600)
 
 **Custom path:**
 ```bash
-kopi-docka --config /path/to/config.json <command>
+kopi-docka --config /path/to/config.conf <command>
 ```
+
+**Password storage:**
+- By default, passwords are stored in a separate file (`.kopi-docka.password`)
+- Password file is automatically created with chmod 600 (owner read/write only)
+- Alternatively, password can be stored inline in the config (not recommended)
 
 ### Config Example
 
-```json
-{
-  "version": "3.0",
-  "kopia": {
-    "kopia_params": "filesystem --path /backup/kopia-repository",
-    "password": "your-secure-password",
-    "password_file": null,
-    "compression": "zstd",
-    "encryption": "AES256-GCM-HMAC-SHA256",
-    "cache_directory": "/var/cache/kopi-docka"
-  },
-  "backup": {
-    "base_path": "/backup/kopi-docka",
-    "parallel_workers": "auto",
-    "stop_timeout": 30,
-    "start_timeout": 60,
-    "task_timeout": 0,
-    "update_recovery_bundle": false,
-    "recovery_bundle_path": "/backup/recovery",
-    "recovery_bundle_retention": 3,
-    "exclude_patterns": [],
-    "hooks": {
-      "pre_backup": "/opt/hooks/pre-backup.sh",
-      "post_backup": "/opt/hooks/post-backup.sh",
-      "pre_restore": "/opt/hooks/pre-restore.sh",
-      "post_restore": "/opt/hooks/post-restore.sh"
-    }
-  },
-  "docker": {
-    "socket": "/var/run/docker.sock",
-    "compose_timeout": 300
-  },
-  "retention": {
-    "latest": 10,
-    "hourly": 0,
-    "daily": 7,
-    "weekly": 4,
-    "monthly": 12,
-    "annual": 3
-  },
-  "logging": {
-    "level": "INFO",
-    "file": "/var/log/kopi-docka.log",
-    "max_size_mb": 100,
-    "backup_count": 5
-  },
-  "notifications": {
-    "enabled": false,
-    "service": null,
-    "url": null,
-    "secret": null,
-    "secret_file": null,
-    "on_success": true,
-    "on_failure": true
-  }
-}
+```ini
+[kopia]
+kopia_params = filesystem --path /backup/kopia-repository
+password_file = /etc/.kopi-docka.password
+compression = zstd
+encryption = AES256-GCM-HMAC-SHA256
+cache_directory = /var/cache/kopi-docka
+
+[backup]
+base_path = /backup/kopi-docka
+parallel_workers = auto
+stop_timeout = 30
+start_timeout = 60
+task_timeout = 0
+backup_scope = standard
+update_recovery_bundle = false
+recovery_bundle_path = /backup/recovery
+recovery_bundle_retention = 3
+
+[docker]
+socket = /var/run/docker.sock
+compose_timeout = 300
+
+[retention]
+latest = 10
+hourly = 0
+daily = 7
+weekly = 4
+monthly = 12
+annual = 3
+
+[logging]
+level = INFO
+file = /var/log/kopi-docka.log
+max_size_mb = 100
+backup_count = 5
+
+[notifications]
+enabled = false
+on_success = true
+on_failure = true
 ```
+
+**Password file example** (`/etc/.kopi-docka.password`):
+```
+your-secure-generated-password-here
+```
+
+**Hooks configuration** (optional):
+```ini
+[hooks]
+pre_backup = /opt/hooks/pre-backup.sh
+post_backup = /opt/hooks/post-backup.sh
+pre_restore = /opt/hooks/pre-restore.sh
+post_restore = /opt/hooks/post-restore.sh
+```
+
+**Exclude patterns** (optional):
+```ini
+[backup]
+exclude_patterns = *.tmp
+    *.log
+    cache/*
+```
+
+### Configuration Validation
+
+**Since v5.6.0:** Kopi-Docka uses **Pydantic** for automatic configuration validation.
+
+**Benefits:**
+- ✅ **Early error detection** - Invalid configs fail at startup, not during backup
+- ✅ **Clear error messages** - Shows exactly what's wrong and where
+- ✅ **Type safety** - Ensures values have correct types (string, int, bool)
+- ✅ **Range validation** - Checks values are within sensible limits
+
+**Example error message:**
+```
+Configuration validation failed:
+  • backup -> parallel_workers: Value error, parallel_workers must be 'auto' or 1-32
+  • kopia -> kopia_params: Invalid repository type 'xyz'. Must be one of: filesystem, rclone, s3, ...
+
+Fix the errors in: /etc/kopi-docka.conf
+```
+
+**Validated fields include:**
+- Repository type must be valid (filesystem, rclone, s3, b2, azure, gcs, sftp, webdav)
+- Backup scope must be: minimal, standard, or full
+- Parallel workers: "auto" or 1-32
+- Timeouts: 1-600 seconds
+- Retention values: within sensible limits
+- Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+---
 
 ### Important Settings
 
@@ -216,6 +332,7 @@ kopi-docka --config /path/to/config.json <command>
 | `start_timeout` | Container start timeout (sec) | `60` |
 | `task_timeout` | Volume backup timeout (0=unlimited) | `0` |
 | `exclude_patterns` | Tar exclude patterns (array) | `[]` |
+| `backup_scope` | What to backup: `minimal` (volumes only), `standard` (volumes+recipes+networks), `full` (everything+docker_config) | `standard` |
 | `update_recovery_bundle` | DR bundle with every backup | `false` |
 | `recovery_bundle_retention` | DR bundles to keep | `3` |
 | `retention.latest` | Latest snapshots to keep | `10` |

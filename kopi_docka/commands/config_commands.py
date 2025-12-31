@@ -16,7 +16,6 @@
 """Configuration management commands."""
 
 import os
-import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -30,18 +29,20 @@ from ..helpers import (
     get_logger,
     generate_secure_password,
     detect_repository_type,
+    detect_existing_filesystem_repo,
+    is_cloud_backend,
 )
 from ..helpers.ui_utils import (
     print_success,
-    print_warning,
     print_error,
+    print_warning,
     print_menu,
-    print_panel,
     print_success_panel,
     print_error_panel,
     print_warning_panel,
     print_next_steps,
     prompt_confirm,
+    run_command,
 )
 from ..backends.local import LocalBackend
 from ..backends.s3 import S3Backend
@@ -91,7 +92,7 @@ def ensure_config(ctx: typer.Context) -> Config:
 # -------------------------
 
 
-def cmd_config(ctx: typer.Context, show: bool = True):
+def cmd_config(ctx: typer.Context):
     """Show current configuration."""
     cfg = ensure_config(ctx)
 
@@ -186,7 +187,73 @@ def cmd_new_config(
     cfg = Config(created_path)
 
     # ═══════════════════════════════════════════
-    # Phase 1: Repository Storage Selection & Configuration
+    # Phase 1: Backup Scope Selection
+    # ═══════════════════════════════════════════
+    console.print(
+        Panel.fit(
+            "[bold cyan]Backup Scope Selection[/bold cyan]\n\n"
+            "Choose how much data to include in backups:",
+            border_style="cyan",
+        )
+    )
+    console.print()
+
+    print_menu(
+        "Backup Scope Options",
+        [
+            (
+                "1",
+                "[yellow]minimal[/yellow]  - Volumes only (fastest, smallest)\n"
+                "          ⚠️  Cannot restore containers, only data!",
+            ),
+            (
+                "2",
+                "[green]standard[/green] - Volumes + Recipes + Networks [RECOMMENDED]\n"
+                "          ✅ Full container restore capability",
+            ),
+            (
+                "3",
+                "[blue]full[/blue]     - Everything + Docker daemon config (DR-ready)\n"
+                "          ✅ Complete disaster recovery capability",
+            ),
+        ],
+    )
+
+    scope_choice = console.input("\n[cyan]Select backup scope [2]:[/cyan] ") or "2"
+    try:
+        scope_choice = int(scope_choice)
+    except ValueError:
+        scope_choice = 2
+
+    scope_map = {1: "minimal", 2: "standard", 3: "full"}
+    backup_scope = scope_map.get(scope_choice, "standard")
+
+    if backup_scope == "minimal":
+        console.print()
+        console.print(
+            Panel.fit(
+                "[yellow]⚠️  WARNING: Minimal Scope Selected[/yellow]\n\n"
+                "You will only be able to restore volume data.\n"
+                "Containers must be recreated manually after restore.\n\n"
+                "[bold]After restore with minimal scope:[/bold]\n"
+                "  • Volumes will be restored ✅\n"
+                "  • Containers must be recreated manually ❌\n"
+                "  • Networks must be recreated manually ❌",
+                title="[yellow]Important[/yellow]",
+                border_style="yellow",
+            )
+        )
+        console.print()
+        if not prompt_confirm("Are you sure you want minimal scope?", default=True):
+            backup_scope = "standard"
+            console.print("[green]Changed to standard scope (recommended)[/green]")
+
+    cfg.set("backup", "backup_scope", backup_scope)
+    print_success(f"Backup scope set to: {backup_scope}")
+    console.print()
+
+    # ═══════════════════════════════════════════
+    # Phase 2: Repository Storage Selection & Configuration
     # ═══════════════════════════════════════════
     print_menu(
         "Repository Storage",
@@ -244,56 +311,219 @@ def cmd_new_config(
     console.print()
 
     # ═══════════════════════════════════════════
-    # Phase 2: Password Setup
+    # Phase 2.1: Check for existing repository
     # ═══════════════════════════════════════════
-    console.print(
-        Panel.fit(
-            "[bold cyan]Repository Encryption Password[/bold cyan]\n\n"
-            "This password encrypts your backups.\n"
-            "[red]If you lose this password, backups are UNRECOVERABLE![/red]",
-            border_style="cyan",
-        )
-    )
-    console.print()
+    existing_repo_detected = False
+    repo_location = None
 
-    use_generated = prompt_confirm("Generate secure random password?", default=False)
-    console.print()
+    # Check if repository already exists at the configured location
+    if not is_cloud_backend(kopia_params):
+        # Filesystem backend - check locally
+        exists, path = detect_existing_filesystem_repo(kopia_params)
+        if exists and path:
+            existing_repo_detected = True
+            repo_location = str(path)
+    # Note: Cloud backend check will happen after password is set (needs password to probe)
 
-    if use_generated:
-        password = generate_secure_password()
+    if existing_repo_detected:
         console.print(
             Panel.fit(
-                f"[bold yellow]GENERATED PASSWORD[/bold yellow]\n\n"
-                f"[bold white]{password}[/bold white]\n\n"
-                "[dim]Copy this password to:[/dim]\n"
-                "  [yellow]•[/yellow] Password manager (recommended)\n"
-                "  [yellow]•[/yellow] Encrypted USB drive\n"
-                "  [yellow]•[/yellow] Secure physical location\n\n"
-                "[red]If you lose this password, backups are UNRECOVERABLE![/red]",
-                title="[bold yellow]Save This Now![/bold yellow]",
+                f"[bold yellow]⚠️  Existing Kopia repository detected![/bold yellow]\n"
+                f"Location: [cyan]{repo_location}[/cyan]\n\n"
+                "[bold]repo init[/bold] will automatically connect to it.\n"
+                "Make sure you use the [bold]correct password[/bold] for this repository!",
+                title="[bold yellow]Repository Already Exists[/bold yellow]",
                 border_style="yellow",
             )
         )
         console.print()
-        console.input("[dim]Press Enter to continue...[/dim]")
-    else:
-        password = getpass.getpass("Enter password: ")
-        password_confirm = getpass.getpass("Confirm password: ")
 
-        if password != password_confirm:
-            print_error_panel("Passwords don't match!")
-            raise typer.Exit(1)
-
-        if len(password) < 12:
-            print_warning_panel(
-                f"Password is short ({len(password)} chars)\nRecommended: At least 12 characters"
+    # ═══════════════════════════════════════════
+    # Phase 3: Password Setup
+    # ═══════════════════════════════════════════
+    if existing_repo_detected:
+        # Repository exists - ask for existing password or delete
+        console.print(
+            Panel.fit(
+                "[bold yellow]Existing Repository Detected[/bold yellow]\n\n"
+                f"Location: [cyan]{repo_location}[/cyan]\n\n"
+                "[bold]Options:[/bold]\n"
+                "  [green]1[/green] - Enter existing password (connect to repository)\n"
+                "  [red]2[/red] - Delete repository and start fresh",
+                title="[yellow]Repository Already Exists[/yellow]",
+                border_style="yellow",
             )
-            if not prompt_confirm("Continue with this password?", default=True):
-                console.print("[dim]Aborted.[/dim]")
+        )
+        console.print()
+
+        repo_action = console.input("[cyan]Select option [1]:[/cyan] ") or "1"
+        console.print()
+
+        if repo_action == "2":
+            # Delete repository
+            console.print(
+                Panel.fit(
+                    "[bold red]⚠️  WARNING: Repository Deletion[/bold red]\n\n"
+                    "[bold]This will permanently delete:[/bold]\n"
+                    f"  • Repository at: [cyan]{repo_location}[/cyan]\n"
+                    "  • All backup snapshots\n"
+                    "  • All backup metadata\n\n"
+                    "[red]This action CANNOT be undone![/red]",
+                    title="[red]Confirm Deletion[/red]",
+                    border_style="red",
+                )
+            )
+            console.print()
+
+            if not prompt_confirm("Delete repository and all backups?", default=False):
+                console.print("[yellow]Aborted.[/yellow]")
                 raise typer.Exit(0)
 
-    # Save password to config
-    cfg.set_password(password, use_file=True)
+            # Delete the repository
+            try:
+                if not is_cloud_backend(kopia_params):
+                    # Filesystem - use rm -rf
+                    run_command(
+                        ["rm", "-rf", repo_location],
+                        description=f"Deleting repository: {repo_location}",
+                        check=True,
+                        show_output=False,
+                    )
+                else:
+                    # Cloud backend - try kopia delete
+                    console.print("[dim]Cloud backend detected - attempting cleanup...[/dim]")
+                    # For cloud backends, we'll let kopia handle it during init
+                    # Just show a warning
+                    console.print("[yellow]Note: Cloud backend cleanup will be handled by Kopia during initialization[/yellow]")
+
+                print_success(f"✓ Repository deleted: {repo_location}")
+                console.print()
+                existing_repo_detected = False  # No longer exists
+
+            except Exception as e:
+                print_error(f"Failed to delete repository: {e}")
+                raise typer.Exit(1)
+
+        # Now ask for password (either for existing repo or new one after deletion)
+        if repo_action == "1":
+            # Connecting to existing repo
+            console.print(
+                Panel.fit(
+                    "[bold cyan]Enter Existing Repository Password[/bold cyan]\n\n"
+                    "Enter the password for the existing repository.",
+                    border_style="cyan",
+                )
+            )
+            console.print()
+
+            max_attempts = 3
+            password_validated = False
+
+            for attempt in range(1, max_attempts + 1):
+                password = getpass.getpass("Enter existing repository password: ")
+                
+                # Test password immediately
+                console.print()
+                console.print("[dim]Validating password...[/dim]")
+                
+                cfg.set_password(password, use_file=True)
+                
+                try:
+                    from ..cores import KopiaRepository
+                    test_repo = KopiaRepository(cfg)
+                    test_repo.connect()
+                    
+                    # Success!
+                    console.print()
+                    print_success("✓ Password correct! Successfully connected to existing repository.")
+                    console.print()
+                    password_validated = True
+                    break
+                    
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if "invalid password" in error_msg or "password" in error_msg:
+                        console.print()
+                        print_error(f"✗ Invalid password (Attempt {attempt}/{max_attempts})")
+                        
+                        if attempt < max_attempts:
+                            console.print("[yellow]Try again or press Ctrl+C to abort.[/yellow]")
+                            console.print()
+                    else:
+                        # Other error (network, permissions, etc.)
+                        console.print()
+                        print_warning(f"Connection test failed: {e}")
+                        console.print("[yellow]Cannot validate password, but continuing...[/yellow]")
+                        console.print()
+                        password_validated = True
+                        break
+
+            if not password_validated:
+                console.print()
+                print_error_panel(
+                    f"Failed to validate password after {max_attempts} attempts.\n\n"
+                    "[bold]Options:[/bold]\n"
+                    "  • Run 'config new' again with the correct password\n"
+                    "  • Delete the repository manually and start fresh:\n"
+                    f"    [cyan]sudo rm -rf {repo_location}[/cyan]"
+                )
+                raise typer.Exit(1)
+
+        else:
+            # Deleted repo - now create new password
+            existing_repo_detected = False
+
+    if not existing_repo_detected:
+        # New repository - ask for new password
+        console.print(
+            Panel.fit(
+                "[bold cyan]Repository Encryption Password[/bold cyan]\n\n"
+                "This password encrypts your backups.\n"
+                "[red]If you lose this password, backups are UNRECOVERABLE![/red]",
+                border_style="cyan",
+            )
+        )
+        console.print()
+
+        use_generated = prompt_confirm("Generate secure random password?", default=False)
+        console.print()
+
+        if use_generated:
+            password = generate_secure_password()
+            console.print(
+                Panel.fit(
+                    f"[bold yellow]GENERATED PASSWORD[/bold yellow]\n\n"
+                    f"[bold white]{password}[/bold white]\n\n"
+                    "[dim]Copy this password to:[/dim]\n"
+                    "  [yellow]•[/yellow] Password manager (recommended)\n"
+                    "  [yellow]•[/yellow] Encrypted USB drive\n"
+                    "  [yellow]•[/yellow] Secure physical location\n\n"
+                    "[red]If you lose this password, backups are UNRECOVERABLE![/red]",
+                    title="[bold yellow]Save This Now![/bold yellow]",
+                    border_style="yellow",
+                )
+            )
+            console.print()
+            console.input("[dim]Press Enter to continue...[/dim]")
+        else:
+            password = getpass.getpass("Enter password: ")
+            password_confirm = getpass.getpass("Confirm password: ")
+
+            if password != password_confirm:
+                print_error_panel("Passwords don't match!")
+                raise typer.Exit(1)
+
+            if len(password) < 12:
+                print_warning_panel(
+                    f"Password is short ({len(password)} chars)\nRecommended: At least 12 characters"
+                )
+                if not prompt_confirm("Continue with this password?", default=True):
+                    console.print("[dim]Aborted.[/dim]")
+                    raise typer.Exit(0)
+
+        # Save password to config
+        cfg.set_password(password, use_file=True)
+    
     console.print()
 
     # ═══════════════════════════════════════════
@@ -313,14 +543,25 @@ def cmd_new_config(
         )
     )
 
-    print_next_steps(
-        [
-            "Initialize repository:\n   [cyan]sudo kopi-docka advanced repo init[/cyan]",
-            "List Docker containers:\n   [cyan]sudo kopi-docka advanced snapshot list[/cyan]",
-            "Test backup (dry-run):\n   [cyan]sudo kopi-docka dry-run[/cyan]",
-            "Create first backup:\n   [cyan]sudo kopi-docka backup[/cyan]",
-        ]
-    )
+    # Customize next steps based on existing repo detection
+    if existing_repo_detected:
+        print_next_steps(
+            [
+                "[yellow]Connect to existing repository:[/yellow]\n   [cyan]sudo kopi-docka advanced repo init[/cyan]\n   [dim](Will connect using your password)[/dim]",
+                "List Docker containers:\n   [cyan]sudo kopi-docka advanced snapshot list[/cyan]",
+                "Test backup (dry-run):\n   [cyan]sudo kopi-docka dry-run[/cyan]",
+                "Create backup:\n   [cyan]sudo kopi-docka backup[/cyan]",
+            ]
+        )
+    else:
+        print_next_steps(
+            [
+                "Initialize repository:\n   [cyan]sudo kopi-docka advanced repo init[/cyan]",
+                "List Docker containers:\n   [cyan]sudo kopi-docka advanced snapshot list[/cyan]",
+                "Test backup (dry-run):\n   [cyan]sudo kopi-docka dry-run[/cyan]",
+                "Create first backup:\n   [cyan]sudo kopi-docka backup[/cyan]",
+            ]
+        )
 
     # ═══════════════════════════════════════════
     # Optional: Setup Notifications
@@ -347,7 +588,12 @@ def cmd_new_config(
             console.print("  [dim]• parallel_workers: auto, or specific number[/dim]")
             console.print("  [dim]• retention: daily/weekly/monthly/yearly[/dim]")
             console.print()
-            subprocess.call([editor, str(created_path)])
+            run_command(
+                [editor, str(created_path)],
+                description=f"Opening {editor}",
+                check=False,
+                show_output=True,
+            )
 
     # Return config object (for use in setup wizard)
     return cfg
@@ -361,7 +607,12 @@ def cmd_edit_config(ctx: typer.Context, editor: Optional[str] = None):
         editor = os.environ.get("EDITOR", "nano")
 
     console.print(f"[cyan]Opening {cfg.config_file} in {editor}...[/cyan]")
-    subprocess.call([editor, str(cfg.config_file)])
+    run_command(
+        [editor, str(cfg.config_file)],
+        description=f"Opening {editor}",
+        check=False,
+        show_output=True,
+    )
 
     # Validate after editing
     try:
@@ -371,13 +622,135 @@ def cmd_edit_config(ctx: typer.Context, editor: Optional[str] = None):
         print_warning(f"Configuration might have issues: {e}")
 
 
+def _config_reconnect_mode(path: Optional[Path] = None):
+    """
+    Reconnect mode: Fix password in config for existing repository.
+
+    This is the safe alternative to full reset when you just need to
+    correct the password in your config to match an existing repository.
+    """
+    import getpass
+    from ..cores import KopiaRepository
+
+    console.print(
+        Panel.fit(
+            "[bold cyan]RECONNECT MODE[/bold cyan]\n\n"
+            "This will help you reconnect to an existing repository\n"
+            "by updating the password in your configuration.\n\n"
+            "[green]✓ Your existing config will be preserved[/green]\n"
+            "[green]✓ Your repository data stays intact[/green]\n"
+            "[green]✓ Only the password will be updated[/green]",
+            title="[bold]Repository Reconnection[/bold]",
+            border_style="cyan",
+        )
+    )
+    console.print()
+
+    # Find config
+    config_path = path or (
+        Path("/etc/kopi-docka.conf")
+        if os.geteuid() == 0
+        else Path.home() / ".config" / "kopi-docka" / "config.conf"
+    )
+
+    if not config_path.exists():
+        print_error_panel(
+            f"Config not found: {config_path}\n\n"
+            "[dim]Create a new config with:[/dim] [cyan]kopi-docka advanced config new[/cyan]"
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        cfg = Config(config_path)
+    except Exception as e:
+        print_error_panel(f"Failed to load config: {e}")
+        raise typer.Exit(code=1)
+
+    kopia_params = cfg.get("kopia", "kopia_params", fallback="")
+    if not kopia_params:
+        print_error_panel("No repository configured in this config file.")
+        raise typer.Exit(code=1)
+
+    console.print(f"[bold]Config:[/bold] {config_path}")
+    console.print(f"[bold]Repository:[/bold] {kopia_params}")
+    console.print()
+
+    # Password retry loop
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        console.print(f"[dim]Attempt {attempt}/{max_attempts}[/dim]")
+        new_password = getpass.getpass("Enter repository password: ")
+
+        if not new_password:
+            console.print("[yellow]Password cannot be empty.[/yellow]")
+            continue
+
+        # Save password to config BEFORE trying to connect
+        console.print("[dim]Saving password to config...[/dim]")
+        cfg.set_password(new_password, use_file=True)
+
+        # Reload config to pick up new password
+        cfg = Config(config_path)
+
+        # Try to connect
+        console.print("[cyan]Testing connection...[/cyan]")
+        try:
+            repo = KopiaRepository(cfg)
+            repo.connect()
+
+            console.print()
+            print_success_panel(
+                "Successfully reconnected to repository!\n\n"
+                f"[bold]Config:[/bold] {config_path}\n"
+                f"[bold]Repository:[/bold] {kopia_params}"
+            )
+
+            from ..helpers.ui_utils import print_next_steps
+            print_next_steps(
+                [
+                    "Show repository status: [cyan]kopi-docka advanced repo status[/cyan]",
+                    "List backup units: [cyan]kopi-docka advanced snapshot list[/cyan]",
+                    "Test backup: [cyan]kopi-docka dry-run[/cyan]",
+                ]
+            )
+            return
+
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "invalid password" in error_msg or "password" in error_msg:
+                console.print("[red]Invalid password.[/red]")
+            else:
+                console.print(f"[red]Connection failed: {e}[/red]")
+
+            if attempt < max_attempts:
+                console.print("[dim]Please try again.[/dim]")
+                console.print()
+
+    # All attempts failed
+    console.print()
+    print_error_panel(
+        f"Failed to connect after {max_attempts} attempts.\n\n"
+        "[bold]Options:[/bold]\n"
+        "  • Try again with the correct password\n"
+        "  • Check if repository exists at the configured location\n"
+        "  • Full reset if you want to start fresh:\n"
+        "    [cyan]kopi-docka advanced config reset[/cyan] (without --reconnect)"
+    )
+    raise typer.Exit(code=1)
+
+
 def cmd_reset_config(path: Optional[Path] = None):
     """
     Reset configuration completely (DANGEROUS).
 
-    This will delete the existing config and create a new one with a new password.
+    Deletes existing config and creates new one with new password.
     Use this only if you want to start fresh or have no existing backups.
+
+    Examples:
+        # Full reset (DANGEROUS - loses access to existing backups)
+        kopi-docka advanced config reset
     """
+    # Full reset mode
     console.print(
         Panel.fit(
             "[bold red]DANGER ZONE: CONFIGURATION RESET[/bold red]\n\n"
@@ -589,9 +962,6 @@ def cmd_change_password(
 def cmd_status(ctx: typer.Context):
     """Show detailed status of configured repository storage."""
     from rich.console import Console
-    from rich.table import Table
-    from rich.panel import Panel
-    from rich import box
 
     cfg = ensure_config(ctx)
     console = Console()
