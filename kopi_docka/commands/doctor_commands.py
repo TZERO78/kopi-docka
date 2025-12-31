@@ -476,7 +476,7 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
     # Verbose output
     if verbose:
         console.print("[bold]Detailed Dependency Status:[/bold]")
-        deps.print_status(verbose=True)
+        dep_manager.print_status(verbose=True)
 
 
 # -------------------------

@@ -200,7 +200,7 @@ class RestoreManager:
         if self.non_interactive:
             # Auto-select most recent session (first one)
             session_idx = 0
-            print(f"🎯 Auto-selecting most recent session (--yes mode)")
+            print("🎯 Auto-selecting most recent session (--yes mode)")
             logger.info("Auto-selected session 1 (non-interactive)")
         else:
             while True:
@@ -275,7 +275,7 @@ class RestoreManager:
 
         print(f"\n✅ Selected: {sel.unit_name} from {sel.timestamp}")
         print("\n📝 This will guide you through restoring:")
-        print(f"  - Recipe/configuration files")
+        print("  - Recipe/configuration files")
         if sel.network_snapshots:
             print(f"  - {len(sel.network_snapshots)} network(s)")
         print(f"  - {len(sel.volume_snapshots)} volumes")
@@ -373,7 +373,7 @@ class RestoreManager:
         # Step 2: Select machine
         if self.non_interactive:
             machine_idx = 0
-            print(f"🎯 Auto-selecting first machine (--yes mode)")
+            print("🎯 Auto-selecting first machine (--yes mode)")
             logger.info("Auto-selected first machine (non-interactive)")
         else:
             while True:
@@ -464,7 +464,7 @@ class RestoreManager:
         # Select session
         if self.non_interactive:
             session_idx = 0
-            print(f"🎯 Auto-selecting most recent session (--yes mode)")
+            print("🎯 Auto-selecting most recent session (--yes mode)")
         else:
             while True:
                 try:
@@ -532,7 +532,7 @@ class RestoreManager:
         print(f"\n✅ Selected: {sel.unit_name} from {sel.timestamp}")
         print(f"   Source machine: {selected_machine.hostname}")
         print("\n📝 This will restore:")
-        print(f"  - Recipe/configuration files")
+        print("  - Recipe/configuration files")
         if sel.network_snapshots:
             print(f"  - {len(sel.network_snapshots)} network(s)")
         print(f"  - {len(sel.volume_snapshots)} volumes")
@@ -825,7 +825,7 @@ class RestoreManager:
                 if restore_dir.exists():
                     shutil.rmtree(restore_dir)
                     logger.debug(f"Cleaned up restore directory: {restore_dir}")
-                    print(f"\n🧹 Temporary restore directory cleaned up")
+                    print("\n🧹 Temporary restore directory cleaned up")
             except Exception as cleanup_error:
                 logger.warning(
                     f"Could not clean up restore directory {restore_dir}: {cleanup_error}",
@@ -897,7 +897,7 @@ class RestoreManager:
                 # Read networks configuration
                 networks_file = networks_dir / "networks.json"
                 if not networks_file.exists():
-                    print(f"   ⚠️ Warning: networks.json not found in snapshot")
+                    print("   ⚠️ Warning: networks.json not found in snapshot")
                     continue
 
                 network_configs = json.loads(networks_file.read_text())
@@ -1235,43 +1235,43 @@ class RestoreManager:
 
             else:
                 # Handlungsempfehlung
-                print(f"\n   📋 Manual Restore Instructions:")
-                print(f"   " + "-" * 50)
-                print(f"")
-                print(f"   To restore this volume later, run these commands:")
-                print(f"")
-                print(f"   # 1. Stop containers")
+                print("\n   📋 Manual Restore Instructions:")
+                print("   " + "-" * 50)
+                print("")
+                print("   To restore this volume later, run these commands:")
+                print("")
+                print("   # 1. Stop containers")
                 print(f"   docker ps -q --filter 'volume={vol}' | xargs -r docker stop")
-                print(f"")
-                print(f"   # 2. Safety backup")
+                print("")
+                print("   # 2. Safety backup")
                 print(f"   docker run --rm -v {vol}:/src -v /tmp:/backup alpine \\")
                 print(
                     f"     sh -c 'tar -czf /backup/{vol}-backup-$(date +%Y%m%d-%H%M%S).tar.gz -C /src .'"
                 )
-                print(f"")
-                print(f"   # 3. Restore from Kopia")
-                print(f"   RESTORE_DIR=$(mktemp -d)")
+                print("")
+                print("   # 3. Restore from Kopia")
+                print("   RESTORE_DIR=$(mktemp -d)")
                 print(
                     f"   kopia snapshot restore {snap_id} --config-file {config_file} $RESTORE_DIR"
                 )
                 print(f"   TAR_FILE=$(find $RESTORE_DIR -name '{vol}' -type f)")
-                print(f"")
-                print(f"   # 4. Extract into volume")
+                print("")
+                print("   # 4. Extract into volume")
                 print(
                     f"   docker run --rm -v {vol}:/target -v $TAR_FILE:/backup.tar:ro debian:bookworm-slim \\"
                 )
                 print(
-                    f"     bash -c 'rm -rf /target/* /target/..?* /target/.[!.]* 2>/dev/null || true; \\"
+                    "     bash -c 'rm -rf /target/* /target/..?* /target/.[!.]* 2>/dev/null || true; \\"
                 )
                 print(
-                    f"              tar -xpf /backup.tar --numeric-owner --xattrs --acls -C /target'"
+                    "              tar -xpf /backup.tar --numeric-owner --xattrs --acls -C /target'"
                 )
-                print(f"")
-                print(f"   # 5. Cleanup and restart")
-                print(f"   rm -rf $RESTORE_DIR")
+                print("")
+                print("   # 5. Cleanup and restart")
+                print("   rm -rf $RESTORE_DIR")
                 print(f"   docker ps -a -q --filter 'volume={vol}' | xargs -r docker start")
-                print(f"")
-                print(f"   " + "-" * 50 + "\n")
+                print("")
+                print("   " + "-" * 50 + "\n")
                 logger.info(f"Volume restore deferred for {vol}", extra={"volume": vol})
 
     @contextmanager
@@ -1461,7 +1461,7 @@ class RestoreManager:
                 volume_mountpoint = result.stdout.strip()
 
                 if not volume_mountpoint:
-                    print(f"      ❌ Could not determine volume mountpoint")
+                    print("      ❌ Could not determine volume mountpoint")
                     return False
 
                 # Clear existing volume content and copy new files
@@ -1526,7 +1526,7 @@ class RestoreManager:
             print(f"      ❌ Command failed: {e}")
             return False
         except KeyboardInterrupt:
-            print(f"\n      ⚠️ Restore interrupted by user")
+            print("\n      ⚠️ Restore interrupted by user")
             logger.info("Restore interrupted", extra={"volume": vol})
             return False
         except Exception as e:
@@ -1659,7 +1659,7 @@ class RestoreManager:
                 )
 
                 if "tar archive" not in file_check.stdout.lower():
-                    print(f"      ❌ Restored file is not a tar archive")
+                    print("      ❌ Restored file is not a tar archive")
                     return False
 
                 size_mb = tar_file.stat().st_size / 1024 / 1024
@@ -1721,7 +1721,7 @@ class RestoreManager:
             print(f"      ❌ Command failed: {e}")
             return False
         except KeyboardInterrupt:
-            print(f"\n      ⚠️ Restore interrupted by user")
+            print("\n      ⚠️ Restore interrupted by user")
             logger.info("Restore interrupted", extra={"volume": vol})
             return False
         except Exception as e:
@@ -1890,7 +1890,7 @@ class RestoreManager:
                 target = default_target
                 console.print(f"\n📂 Using default target: {target} (--yes mode)")
             else:
-                target = Prompt.ask(f"\n📂 Target directory", default=default_target)
+                target = Prompt.ask("\n📂 Target directory", default=default_target)
             target_path = Path(target).expanduser()
 
             # Check write permissions (skip if running with sudo)
@@ -1931,7 +1931,7 @@ class RestoreManager:
 
             if not conflicts:
                 # No conflicts, proceed to copy
-                console.print(f"✓ Target directory is ready")
+                console.print("✓ Target directory is ready")
                 break
 
             # Conflicts found - show them
@@ -2009,7 +2009,7 @@ class RestoreManager:
                     console.print(f"[yellow]⚠️  Could not fix ownership: {e.stderr}[/yellow]")
                     logger.warning(f"Ownership change failed: {e}")
 
-            console.print(f"\n📄 Copied files:")
+            console.print("\n📄 Copied files:")
             for file in files_to_copy:
                 console.print(f"   • {file.name}")
             console.print(f"\n💡 [bold]To start:[/bold] cd {target_path} && docker compose up -d")
@@ -2026,12 +2026,12 @@ class RestoreManager:
         """
         console = Console()
         console.print("\n📋 [bold]Manual restore instructions:[/bold]")
-        console.print(f"\n1. Copy files to your deployment directory:")
+        console.print("\n1. Copy files to your deployment directory:")
         console.print(f"   sudo cp -r {recipe_dir}/* /path/to/your/project/")
-        console.print(f"\n2. Fix permissions:")
-        console.print(f"   sudo chown -R $USER:$USER /path/to/your/project/")
-        console.print(f"\n3. Start containers:")
-        console.print(f"   cd /path/to/your/project && docker compose up -d")
+        console.print("\n2. Fix permissions:")
+        console.print("   sudo chown -R $USER:$USER /path/to/your/project/")
+        console.print("\n3. Start containers:")
+        console.print("   cd /path/to/your/project && docker compose up -d")
 
     def show_docker_config(self, snapshot_id: str) -> bool:
         """
@@ -2066,7 +2066,7 @@ class RestoreManager:
             console.print()
 
             # Extract snapshot
-            console.print(f"[cyan]📥 Extracting docker_config snapshot...[/cyan]")
+            console.print("[cyan]📥 Extracting docker_config snapshot...[/cyan]")
             console.print(f"   Snapshot ID: {snapshot_id[:12]}...")
             console.print(f"   Target: {temp_dir}")
             console.print()
@@ -2137,7 +2137,7 @@ class RestoreManager:
             )
             console.print()
 
-            console.print(f"[bold green]✓ Extraction complete![/bold green]")
+            console.print("[bold green]✓ Extraction complete![/bold green]")
             console.print(f"   Files location: [cyan]{temp_dir}[/cyan]")
             console.print()
             console.print(
@@ -2146,7 +2146,7 @@ class RestoreManager:
             console.print()
 
             logger.info(
-                f"Docker config snapshot extracted",
+                "Docker config snapshot extracted",
                 extra={"snapshot_id": snapshot_id, "temp_dir": str(temp_dir)},
             )
 
@@ -2183,24 +2183,24 @@ class RestoreManager:
         if compose_files:
             # Build dynamic -f flags for all compose files
             f_flags = " ".join(f"-f {f}" for f in compose_files)
-            print(f"")
-            print(f"   💡 After copying files to your target directory:")
-            print(f"      cd /your/target/directory")
+            print("")
+            print("   💡 After copying files to your target directory:")
+            print("      cd /your/target/directory")
             print(f"      docker compose {f_flags} up -d")
             if len(compose_files) > 1:
-                print(f"")
-                print(f"   📋 Compose files (in order):")
+                print("")
+                print("   📋 Compose files (in order):")
                 for f in compose_files:
                     print(f"      • {f}")
-            print(f"")
+            print("")
         elif compose_file.exists():
             # Fallback for old backups without compose_order.json
-            print(f"")
-            print(f"   💡 After copying files to your target directory:")
-            print(f"      cd /your/target/directory")
-            print(f"      docker compose up -d")
-            print(f"")
+            print("")
+            print("   💡 After copying files to your target directory:")
+            print("      cd /your/target/directory")
+            print("      docker compose up -d")
+            print("")
         else:
-            print(f"   ⚠️  No docker-compose.yml found in backup")
+            print("   ⚠️  No docker-compose.yml found in backup")
             print(f"   Review the inspect files in: {recipe_dir}")
-            print(f"   Recreate containers with appropriate 'docker run' options")
+            print("   Recreate containers with appropriate 'docker run' options")

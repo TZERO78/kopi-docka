@@ -346,7 +346,7 @@ class DisasterRecoveryManager:
         lines = [
             "#!/bin/bash",
             "#",
-            f"# Kopi-Docka Disaster Recovery Script",
+            "# Kopi-Docka Disaster Recovery Script",
             f"# Generated: {created}",
             "#",
             "set -euo pipefail",

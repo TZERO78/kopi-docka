@@ -186,7 +186,7 @@ def prompt_select(
 
     # Get selection
     while True:
-        choice = Prompt.ask(f"\n[cyan]Select[/cyan]", default="1")
+        choice = Prompt.ask("\n[cyan]Select[/cyan]", default="1")
 
         try:
             idx = int(choice) - 1
@@ -610,9 +610,6 @@ def run_command(
         # Handle failure
         if check:
             stderr_text = result.stderr.strip() if result.stderr else ""
-            display_error = (
-                error_msg or stderr_text or f"Command exited with code {result.returncode}"
-            )
 
             # Log the error
             logger.error(
@@ -646,7 +643,7 @@ def run_command(
 
         return result
 
-    except subprocess.TimeoutExpired as e:
+    except subprocess.TimeoutExpired:
         duration = time.time() - start_time
         logger.warning(
             f"Command timed out after {timeout}s: {cmd_str}",
