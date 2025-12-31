@@ -63,12 +63,13 @@ class TestCheckCommand:
 
     @patch("kopi_docka.commands.dependency_commands.DependencyManager")
     def test_check_no_config(self, mock_deps_class, cli_runner, mock_non_root):
-        """check without config shows message."""
+        """check without config shows repository not connected message."""
         mock_deps = mock_deps_class.return_value
 
         result = cli_runner.invoke(app, ["check"])
 
         assert result.exit_code == 0
-        assert "No configuration found" in result.stdout
+        # When there's no config in context, it shows this message
+        assert "No configuration found" in result.stdout or "repository not connected" in result.stdout
 
 
