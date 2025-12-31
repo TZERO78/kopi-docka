@@ -8,5 +8,5 @@ graph LR
   BackupManager --> KopiaRepository
   KopiaRepository --> Backends
   KopiaRepository --> KopiaPolicyManager
-  HooksManager --> (user scripts)
-  Helpers --> (logging, ui_utils, system_utils)
+  HooksManager --> UserScripts[User Scripts]
+  Helpers --> Utilities[Logging, UIUtils, SystemUtils]

@@ -37,8 +37,6 @@ from ..helpers import (
     generate_secure_password,
     detect_existing_filesystem_repo,
     detect_existing_cloud_repo,
-    get_backend_type,
-    is_cloud_backend,
 )
 from ..helpers.ui_utils import (
     print_success,

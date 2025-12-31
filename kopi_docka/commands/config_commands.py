@@ -15,7 +15,6 @@
 
 """Configuration management commands."""
 
-import getpass
 import os
 from pathlib import Path
 from typing import Optional
@@ -31,7 +30,6 @@ from ..helpers import (
     generate_secure_password,
     detect_repository_type,
     detect_existing_filesystem_repo,
-    detect_existing_cloud_repo,
     is_cloud_backend,
 )
 from ..helpers.ui_utils import (
@@ -752,8 +750,6 @@ def cmd_reset_config(path: Optional[Path] = None):
         # Full reset (DANGEROUS - loses access to existing backups)
         kopi-docka advanced config reset
     """
-    import getpass
-
     # Full reset mode
     console.print(
         Panel.fit(
