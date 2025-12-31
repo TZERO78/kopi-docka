@@ -14,6 +14,7 @@ from subprocess import CompletedProcess
 from unittest.mock import patch, Mock, MagicMock, call
 
 from kopi_docka.cores.backup_manager import BackupManager
+from kopi_docka.cores.safe_exit_manager import ServiceContinuityHandler
 from kopi_docka.types import BackupUnit, ContainerInfo, VolumeInfo, BackupMetadata
 from kopi_docka.helpers.constants import (
     BACKUP_SCOPE_MINIMAL,
@@ -583,14 +584,14 @@ class TestContainerOrdering:
 
         call_order = []
 
-        def track_stop(containers):
+        def track_stop(containers, service_handler):
             call_order.append("stop")
 
         def track_backup(*args):
             call_order.append("backup")
             return "snap123"
 
-        def track_start(containers):
+        def track_start(containers, service_handler):
             call_order.append("start")
 
         with patch.object(manager, "_stop_containers", side_effect=track_stop):
@@ -611,7 +612,7 @@ class TestContainerOrdering:
 
         start_called = False
 
-        def track_start(containers):
+        def track_start(containers, service_handler):
             nonlocal start_called
             start_called = True
 
@@ -648,7 +649,7 @@ class TestHookExecution:
             True,
         )[1]
 
-        def track_stop(containers):
+        def track_stop(containers, service_handler):
             call_order.append("stop")
 
         with patch.object(manager, "_stop_containers", side_effect=track_stop):
@@ -667,7 +668,7 @@ class TestHookExecution:
 
         call_order = []
 
-        def track_start(containers):
+        def track_start(containers, service_handler):
             call_order.append("start")
 
         manager.hooks_manager.execute_post_backup.side_effect = lambda x: (
@@ -764,13 +765,14 @@ class TestStopContainers:
         """Should stop all running containers."""
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
+        service_handler = Mock()
 
         containers = [
             ContainerInfo(id="c1", name="web", image="nginx", status="running"),
             ContainerInfo(id="c2", name="db", image="postgres", status="running"),
         ]
 
-        manager._stop_containers(containers)
+        manager._stop_containers(containers, service_handler)
 
         assert mock_run.call_count == 2
         # Check docker stop was called with container IDs
@@ -783,13 +785,14 @@ class TestStopContainers:
         """Should not try to stop already stopped containers."""
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
+        service_handler = Mock()
 
         containers = [
             ContainerInfo(id="c1", name="web", image="nginx", status="running"),
             ContainerInfo(id="c2", name="db", image="postgres", status="exited"),
         ]
 
-        manager._stop_containers(containers)
+        manager._stop_containers(containers, service_handler)
 
         # Only running container should be stopped
         assert mock_run.call_count == 1
@@ -809,13 +812,14 @@ class TestStartContainers:
         """Should start all containers and wait for health check."""
         mock_run.return_value = CompletedProcess([], 0, stdout="null", stderr="")
         manager = make_backup_manager()
+        service_handler = Mock(spec=ServiceContinuityHandler)
 
         containers = [
             ContainerInfo(id="c1", name="web", image="nginx", status="running"),
             ContainerInfo(id="c2", name="db", image="postgres", status="running"),
         ]
 
-        manager._start_containers(containers)
+        manager._start_containers(containers, service_handler)
 
         # Should call docker start for each container
         start_calls = [c for c in mock_run.call_args_list if "start" in str(c)]
@@ -831,10 +835,11 @@ class TestStartContainers:
             CompletedProcess([], 0, stdout="null", stderr=""),  # health check
         ]
         manager = make_backup_manager()
+        service_handler = Mock(spec=ServiceContinuityHandler)
 
         containers = [ContainerInfo(id="c1", name="web", image="nginx", status="running")]
 
-        manager._start_containers(containers)
+        manager._start_containers(containers, service_handler)
 
         # Should have called docker start and health check
         assert mock_run.call_count >= 2

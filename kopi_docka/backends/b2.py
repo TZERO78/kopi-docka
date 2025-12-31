@@ -48,7 +48,7 @@ class B2Backend(BackendBase):
             "B2_APPLICATION_KEY": "<your-application-key>",
         }
 
-        instructions = f"""
+        instructions = """
 ⚠️  Set these environment variables before running init:
 
   export B2_APPLICATION_KEY_ID='your-key-id'

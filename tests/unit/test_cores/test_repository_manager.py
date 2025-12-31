@@ -113,11 +113,11 @@ class TestIsConnected:
     """Tests for is_connected method."""
 
     @patch("shutil.which")
-    @patch("subprocess.run")
-    def test_returns_true_when_connected(self, mock_run, mock_which):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_returns_true_when_connected(self, mock_run_command, mock_which):
         """Should return True when kopia status succeeds."""
         mock_which.return_value = "/usr/bin/kopia"
-        mock_run.return_value = CompletedProcess([], 0, stdout="{}", stderr="")
+        mock_run_command.return_value = CompletedProcess([], 0, stdout="{}", stderr="")
         repo = make_repository()
 
         result = repo.is_connected()
@@ -125,11 +125,11 @@ class TestIsConnected:
         assert result is True
 
     @patch("shutil.which")
-    @patch("subprocess.run")
-    def test_returns_false_when_not_connected(self, mock_run, mock_which):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_returns_false_when_not_connected(self, mock_run_command, mock_which):
         """Should return False when kopia status fails."""
         mock_which.return_value = "/usr/bin/kopia"
-        mock_run.return_value = CompletedProcess([], 1, stdout="", stderr="not connected")
+        mock_run_command.return_value = CompletedProcess([], 1, stdout="", stderr="not connected")
         repo = make_repository()
 
         result = repo.is_connected()
@@ -156,25 +156,25 @@ class TestIsConnected:
 class TestStatus:
     """Tests for status method."""
 
-    @patch("subprocess.run")
-    def test_returns_parsed_json(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_returns_parsed_json(self, mock_run_command):
         """Should parse JSON output from kopia status."""
         status_json = {
             "configFile": "/path/to/config",
             "formatVersion": "2",
             "storage": {"type": "filesystem"},
         }
-        mock_run.return_value = CompletedProcess([], 0, stdout=json.dumps(status_json), stderr="")
+        mock_run_command.return_value = CompletedProcess([], 0, stdout=json.dumps(status_json), stderr="")
         repo = make_repository()
 
         result = repo.status(json_output=True)
 
         assert result == status_json
 
-    @patch("subprocess.run")
-    def test_returns_raw_text_when_requested(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_returns_raw_text_when_requested(self, mock_run_command):
         """Should return raw text when json_output=False."""
-        mock_run.return_value = CompletedProcess(
+        mock_run_command.return_value = CompletedProcess(
             [], 0, stdout="Status: connected\nPath: /backup", stderr=""
         )
         repo = make_repository()
@@ -183,10 +183,10 @@ class TestStatus:
 
         assert "Status: connected" in result
 
-    @patch("subprocess.run")
-    def test_raises_on_failure(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_raises_on_failure(self, mock_run_command):
         """Should raise RuntimeError when status fails."""
-        mock_run.return_value = CompletedProcess(
+        mock_run_command.return_value = CompletedProcess(
             [], 1, stdout="", stderr="repository not connected"
         )
         repo = make_repository()
@@ -204,10 +204,10 @@ class TestStatus:
 class TestCreateSnapshot:
     """Tests for create_snapshot method."""
 
-    @patch("subprocess.run")
-    def test_returns_snapshot_id(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_returns_snapshot_id(self, mock_run_command):
         """Should return snapshot ID from Kopia output."""
-        mock_run.return_value = CompletedProcess(
+        mock_run_command.return_value = CompletedProcess(
             [], 0, stdout='{"snapshotID": "k1234567890abcdef"}', stderr=""
         )
         repo = make_repository()
@@ -216,10 +216,10 @@ class TestCreateSnapshot:
 
         assert snapshot_id == "k1234567890abcdef"
 
-    @patch("subprocess.run")
-    def test_handles_id_field(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_handles_id_field(self, mock_run_command):
         """Should also handle 'id' field (older Kopia versions)."""
-        mock_run.return_value = CompletedProcess(
+        mock_run_command.return_value = CompletedProcess(
             [], 0, stdout='{"id": "k9876543210fedcba"}', stderr=""
         )
         repo = make_repository()
@@ -228,53 +228,54 @@ class TestCreateSnapshot:
 
         assert snapshot_id == "k9876543210fedcba"
 
-    @patch("subprocess.run")
-    def test_includes_tags_in_command(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_includes_tags_in_command(self, mock_run_command):
         """Should pass tags to Kopia command."""
-        mock_run.return_value = CompletedProcess([], 0, stdout='{"snapshotID": "k123"}', stderr="")
+        mock_run_command.return_value = CompletedProcess([], 0, stdout='{"snapshotID": "k123"}', stderr="")
         repo = make_repository()
 
         repo.create_snapshot("/path", tags={"unit": "mystack", "type": "volume"})
 
-        call_args = mock_run.call_args[0][0]
+        call_args = mock_run_command.call_args[0][0]
         assert "--tags" in call_args
         assert "unit:mystack" in call_args
         assert "type:volume" in call_args
 
-    @patch("subprocess.run")
-    def test_includes_exclude_patterns(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_includes_exclude_patterns(self, mock_run_command):
         """Should pass exclude patterns to Kopia command."""
-        mock_run.return_value = CompletedProcess([], 0, stdout='{"snapshotID": "k123"}', stderr="")
+        mock_run_command.return_value = CompletedProcess([], 0, stdout='{"snapshotID": "k123"}', stderr="")
         repo = make_repository()
 
         repo.create_snapshot("/path", exclude_patterns=["*.log", "cache/*"])
 
-        call_args = mock_run.call_args[0][0]
+        call_args = mock_run_command.call_args[0][0]
         assert "--ignore" in call_args
         assert "*.log" in call_args
         assert "cache/*" in call_args
 
-    @patch("subprocess.run")
-    def test_raises_on_empty_path(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_raises_on_empty_path(self, mock_run_command):
         """Should raise ValueError for empty path."""
         repo = make_repository()
 
         with pytest.raises(ValueError, match="path cannot be empty"):
             repo.create_snapshot("")
 
-    @patch("subprocess.run")
-    def test_raises_on_missing_snapshot_id(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_raises_on_missing_snapshot_id(self, mock_run_command):
         """Should raise RuntimeError if snapshot ID not in output."""
-        mock_run.return_value = CompletedProcess([], 0, stdout='{"status": "ok"}', stderr="")
+        mock_run_command.return_value = CompletedProcess([], 0, stdout='{"status": "ok"}', stderr="")
         repo = make_repository()
 
         with pytest.raises(RuntimeError, match="Could not determine snapshot ID"):
             repo.create_snapshot("/path")
 
-    @patch("subprocess.run")
-    def test_raises_on_command_failure(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_raises_on_command_failure(self, mock_run_command):
         """Should raise RuntimeError when Kopia command fails."""
-        mock_run.return_value = CompletedProcess([], 1, stdout="", stderr="permission denied")
+        from kopi_docka.helpers.ui_utils import SubprocessError
+        mock_run_command.side_effect = SubprocessError(["kopia", "snapshot", "create"], 1, "permission denied")
         repo = make_repository()
 
         with pytest.raises(RuntimeError, match="permission denied"):
@@ -290,8 +291,8 @@ class TestCreateSnapshot:
 class TestListSnapshots:
     """Tests for list_snapshots method."""
 
-    @patch("subprocess.run")
-    def test_parses_snapshot_list(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_parses_snapshot_list(self, mock_run_command):
         """Should parse JSON array of snapshots."""
         snapshots_json = [
             {
@@ -309,7 +310,7 @@ class TestListSnapshots:
                 "stats": {"totalSize": 2048},
             },
         ]
-        mock_run.return_value = CompletedProcess(
+        mock_run_command.return_value = CompletedProcess(
             [], 0, stdout=json.dumps(snapshots_json), stderr=""
         )
         repo = make_repository()
@@ -324,8 +325,8 @@ class TestListSnapshots:
         assert result[0]["tags"]["unit"] == "mystack"
         assert result[0]["tags"]["type"] == "volume"
 
-    @patch("subprocess.run")
-    def test_removes_tag_prefix(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_removes_tag_prefix(self, mock_run_command):
         """Should remove 'tag:' prefix from tag keys."""
         snapshots_json = [
             {
@@ -335,7 +336,7 @@ class TestListSnapshots:
                 "stats": {},
             }
         ]
-        mock_run.return_value = CompletedProcess(
+        mock_run_command.return_value = CompletedProcess(
             [], 0, stdout=json.dumps(snapshots_json), stderr=""
         )
         repo = make_repository()
@@ -344,8 +345,8 @@ class TestListSnapshots:
 
         assert result[0]["tags"] == {"unit": "app", "backup_id": "uuid123"}
 
-    @patch("subprocess.run")
-    def test_filters_by_tag(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_filters_by_tag(self, mock_run_command):
         """Should filter snapshots by tag when tag_filter provided."""
         snapshots_json = [
             {
@@ -361,7 +362,7 @@ class TestListSnapshots:
                 "stats": {},
             },
         ]
-        mock_run.return_value = CompletedProcess(
+        mock_run_command.return_value = CompletedProcess(
             [], 0, stdout=json.dumps(snapshots_json), stderr=""
         )
         repo = make_repository()
@@ -371,20 +372,20 @@ class TestListSnapshots:
         assert len(result) == 1
         assert result[0]["id"] == "snap1"
 
-    @patch("subprocess.run")
-    def test_returns_empty_list_on_no_snapshots(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_returns_empty_list_on_no_snapshots(self, mock_run_command):
         """Should return empty list when no snapshots exist."""
-        mock_run.return_value = CompletedProcess([], 0, stdout="[]", stderr="")
+        mock_run_command.return_value = CompletedProcess([], 0, stdout="[]", stderr="")
         repo = make_repository()
 
         result = repo.list_snapshots()
 
         assert result == []
 
-    @patch("subprocess.run")
-    def test_handles_invalid_json(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_handles_invalid_json(self, mock_run_command):
         """Should return empty list on invalid JSON."""
-        mock_run.return_value = CompletedProcess([], 0, stdout="not valid json", stderr="")
+        mock_run_command.return_value = CompletedProcess([], 0, stdout="not valid json", stderr="")
         repo = make_repository()
 
         result = repo.list_snapshots()
@@ -401,8 +402,8 @@ class TestListSnapshots:
 class TestListAllSnapshots:
     """Tests for list_all_snapshots method."""
 
-    @patch("subprocess.run")
-    def test_includes_host_in_results(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_includes_host_in_results(self, mock_run_command):
         """Should include hostname from source."""
         snapshots_json = [
             {
@@ -418,7 +419,7 @@ class TestListAllSnapshots:
                 "stats": {},
             },
         ]
-        mock_run.return_value = CompletedProcess(
+        mock_run_command.return_value = CompletedProcess(
             [], 0, stdout=json.dumps(snapshots_json), stderr=""
         )
         repo = make_repository()
@@ -429,15 +430,15 @@ class TestListAllSnapshots:
         assert result[0]["host"] == "server1"
         assert result[1]["host"] == "server2"
 
-    @patch("subprocess.run")
-    def test_uses_all_flag(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_uses_all_flag(self, mock_run_command):
         """Should use --all flag to get all snapshots."""
-        mock_run.return_value = CompletedProcess([], 0, stdout="[]", stderr="")
+        mock_run_command.return_value = CompletedProcess([], 0, stdout="[]", stderr="")
         repo = make_repository()
 
         repo.list_all_snapshots()
 
-        call_args = mock_run.call_args[0][0]
+        call_args = mock_run_command.call_args[0][0]
         assert "--all" in call_args
 
 
@@ -450,8 +451,8 @@ class TestListAllSnapshots:
 class TestDiscoverMachines:
     """Tests for discover_machines method."""
 
-    @patch("subprocess.run")
-    def test_aggregates_by_hostname(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_aggregates_by_hostname(self, mock_run_command):
         """Should aggregate snapshots by hostname."""
         snapshots_json = [
             {
@@ -476,7 +477,7 @@ class TestDiscoverMachines:
                 "stats": {"totalSize": 5000},
             },
         ]
-        mock_run.return_value = CompletedProcess(
+        mock_run_command.return_value = CompletedProcess(
             [], 0, stdout=json.dumps(snapshots_json), stderr=""
         )
         repo = make_repository()
@@ -494,8 +495,8 @@ class TestDiscoverMachines:
         assert machines[1].backup_count == 1
         assert machines[1].units == ["db"]
 
-    @patch("subprocess.run")
-    def test_parses_timestamps_correctly(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_parses_timestamps_correctly(self, mock_run_command):
         """Should parse ISO timestamps with timezone."""
         snapshots_json = [
             {
@@ -506,7 +507,7 @@ class TestDiscoverMachines:
                 "stats": {},
             }
         ]
-        mock_run.return_value = CompletedProcess(
+        mock_run_command.return_value = CompletedProcess(
             [], 0, stdout=json.dumps(snapshots_json), stderr=""
         )
         repo = make_repository()
@@ -519,10 +520,10 @@ class TestDiscoverMachines:
         assert machines[0].last_backup.hour == 10
         assert machines[0].last_backup.minute == 30
 
-    @patch("subprocess.run")
-    def test_returns_empty_list_on_no_snapshots(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_returns_empty_list_on_no_snapshots(self, mock_run_command):
         """Should return empty list when no snapshots."""
-        mock_run.return_value = CompletedProcess([], 0, stdout="[]", stderr="")
+        mock_run_command.return_value = CompletedProcess([], 0, stdout="[]", stderr="")
         repo = make_repository()
 
         machines = repo.discover_machines()
@@ -572,15 +573,15 @@ class TestVerifyPassword:
 class TestRestoreSnapshot:
     """Tests for restore_snapshot method."""
 
-    @patch("subprocess.run")
-    def test_calls_kopia_restore(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_calls_kopia_restore(self, mock_run_command):
         """Should call kopia snapshot restore with correct args."""
-        mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
+        mock_run_command.return_value = CompletedProcess([], 0, stdout="", stderr="")
         repo = make_repository()
 
         repo.restore_snapshot("k123456", "/restore/target")
 
-        call_args = mock_run.call_args[0][0]
+        call_args = mock_run_command.call_args[0][0]
         assert "kopia" in call_args
         assert "snapshot" in call_args
         assert "restore" in call_args
@@ -597,35 +598,35 @@ class TestRestoreSnapshot:
 class TestVerifySnapshot:
     """Tests for verify_snapshot method."""
 
-    @patch("subprocess.run")
-    def test_returns_true_on_success(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_returns_true_on_success(self, mock_run_command):
         """Should return True when verification succeeds."""
-        mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
+        mock_run_command.return_value = CompletedProcess([], 0, stdout="", stderr="")
         repo = make_repository()
 
         result = repo.verify_snapshot("k123456")
 
         assert result is True
 
-    @patch("subprocess.run")
-    def test_returns_false_on_failure(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_returns_false_on_failure(self, mock_run_command):
         """Should return False when verification fails."""
-        mock_run.return_value = CompletedProcess([], 1, stdout="", stderr="verification failed")
+        mock_run_command.return_value = CompletedProcess([], 1, stdout="", stderr="verification failed")
         repo = make_repository()
 
         result = repo.verify_snapshot("k123456")
 
         assert result is False
 
-    @patch("subprocess.run")
-    def test_includes_verify_percent(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_includes_verify_percent(self, mock_run_command):
         """Should pass verify-files-percent parameter."""
-        mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
+        mock_run_command.return_value = CompletedProcess([], 0, stdout="", stderr="")
         repo = make_repository()
 
         repo.verify_snapshot("k123456", verify_percent=25)
 
-        call_args = mock_run.call_args[0][0]
+        call_args = mock_run_command.call_args[0][0]
         assert "--verify-files-percent=25" in call_args
 
 
@@ -638,27 +639,27 @@ class TestVerifySnapshot:
 class TestMaintenanceRun:
     """Tests for maintenance_run method."""
 
-    @patch("subprocess.run")
-    def test_runs_full_maintenance(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_runs_full_maintenance(self, mock_run_command):
         """Should run maintenance with --full by default."""
-        mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
+        mock_run_command.return_value = CompletedProcess([], 0, stdout="", stderr="")
         repo = make_repository()
 
         repo.maintenance_run(full=True)
 
-        call_args = mock_run.call_args[0][0]
+        call_args = mock_run_command.call_args[0][0]
         assert "maintenance" in call_args
         assert "--full" in call_args
 
-    @patch("subprocess.run")
-    def test_runs_quick_maintenance(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_runs_quick_maintenance(self, mock_run_command):
         """Should run maintenance without --full when full=False."""
-        mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
+        mock_run_command.return_value = CompletedProcess([], 0, stdout="", stderr="")
         repo = make_repository()
 
         repo.maintenance_run(full=False)
 
-        call_args = mock_run.call_args[0][0]
+        call_args = mock_run_command.call_args[0][0]
         assert "maintenance" in call_args
         assert "--full" not in call_args
 
@@ -718,8 +719,8 @@ class TestParseSingleJsonLine:
 class TestListBackupUnits:
     """Tests for list_backup_units method."""
 
-    @patch("subprocess.run")
-    def test_extracts_units_from_recipe_snapshots(self, mock_run):
+    @patch("kopi_docka.cores.repository_manager.run_command")
+    def test_extracts_units_from_recipe_snapshots(self, mock_run_command):
         """Should extract unique units from recipe snapshots."""
         snapshots_json = [
             {
@@ -751,7 +752,7 @@ class TestListBackupUnits:
                 "stats": {},
             },
         ]
-        mock_run.return_value = CompletedProcess(
+        mock_run_command.return_value = CompletedProcess(
             [], 0, stdout=json.dumps(snapshots_json), stderr=""
         )
         repo = make_repository()

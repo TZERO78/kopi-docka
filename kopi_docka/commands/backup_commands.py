@@ -190,7 +190,7 @@ def cmd_backup(
     dep_manager.check_hard_gate()
 
     cfg = ensure_config(ctx)
-    repo = ensure_repository(ctx)
+    ensure_repository(ctx)  # Validates repository connection
 
     # Validate scope
     if scope not in BACKUP_SCOPES:
@@ -295,7 +295,7 @@ def cmd_restore(
 
     _override_config(ctx, config_path)
     cfg = ensure_config(ctx)
-    repo = ensure_repository(ctx)
+    ensure_repository(ctx)  # Validates repository connection
 
     try:
         rm = RestoreManager(
@@ -333,7 +333,7 @@ def cmd_show_docker_config(
     """
     _override_config(ctx, config_path)
     cfg = ensure_config(ctx)
-    repo = ensure_repository(ctx)
+    ensure_repository(ctx)  # Validates repository connection
 
     try:
         rm = RestoreManager(cfg)

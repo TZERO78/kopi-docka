@@ -58,7 +58,8 @@ def setup_i18n(lang: Optional[str] = None) -> Callable[[str], str]:
         _translate = translation.gettext
     except (FileNotFoundError, OSError):
         # Fallback: no translation (return original string)
-        _translate = lambda x: x
+        def _translate(x: str) -> str:
+            return x
 
     return _translate
 

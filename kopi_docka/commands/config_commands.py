@@ -1140,7 +1140,7 @@ def _display_filesystem_status(console, status):
     if not details.get("exists"):
         console.print(
             Panel(
-                f"[red]⚠️  Repository path does not exist![/red]\nCreate it first or run: [cyan]kopi-docka init[/cyan]",
+                "[red]⚠️  Repository path does not exist![/red]\nCreate it first or run: [cyan]kopi-docka init[/cyan]",
                 title="Warning",
                 border_style="red",
             )
@@ -1197,7 +1197,7 @@ def _display_generic_status(console, status, backend_type):
     if not status.get("configured"):
         console.print(
             Panel(
-                f"[yellow]⚠️  Repository not configured![/yellow]\nRun: [cyan]kopi-docka advanced config new[/cyan]",
+                "[yellow]⚠️  Repository not configured![/yellow]\nRun: [cyan]kopi-docka advanced config new[/cyan]",
                 title="Warning",
                 border_style="yellow",
             )
@@ -1205,7 +1205,7 @@ def _display_generic_status(console, status, backend_type):
     elif not status.get("available"):
         console.print(
             Panel(
-                f"[yellow]⚠️  Repository not available![/yellow]\nCheck configuration and connectivity.",
+                "[yellow]⚠️  Repository not available![/yellow]\nCheck configuration and connectivity.",
                 title="Warning",
                 border_style="yellow",
             )
