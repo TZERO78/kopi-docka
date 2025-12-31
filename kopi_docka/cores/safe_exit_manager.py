@@ -97,8 +97,9 @@ class SafeExitManager:
         self._original_sigterm = signal.signal(signal.SIGTERM, self._signal_handler)
         logger.debug("SafeExitManager: Signal handlers installed")
 
-    def _signal_handler(self, signum: int, frame) -> None:
+    def _signal_handler(self, signum: int, frame) -> None:  # noqa: ARG002
         """Handle SIGINT/SIGTERM with graceful cleanup."""
+        del frame  # Required by signal handler signature but unused
         sig_name = "SIGINT" if signum == signal.SIGINT else "SIGTERM"
 
         if self._cleanup_in_progress:
