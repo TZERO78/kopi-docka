@@ -5,6 +5,104 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.0.0] - 2025-12-31
+
+### 🎉 Major Release: Stability & Safety
+
+Version 6.0.0 represents a mature, production-ready release with a focus on **operational safety** and **code quality**. This release stabilizes the v5.x feature set and introduces critical safety mechanisms for graceful shutdown handling.
+
+### ⚠️ DEPRECATION NOTICE
+
+**Deprecated Methods (will be removed in v7.0.0):**
+- ⚠️ `create_snapshot_from_stdin()` - deprecated since v5.0.0, still functional but raises `DeprecationWarning`
+- ⚠️ `from_stdin` parameter - deprecated, use directory paths for block-level deduplication
+- ✅ **Recommended:** Use `create_snapshot()` with directory paths instead
+
+### ✨ Added
+
+**SafeExitManager - Graceful Shutdown Architecture:**
+- New `SafeExitManager` singleton with two-layer architecture:
+  - **Process Layer**: Automatic subprocess tracking (SIGTERM → 5s → SIGKILL)
+  - **Strategy Layer**: Context-aware cleanup handlers with priorities
+- Three handler types:
+  - `ServiceContinuityHandler` (Priority 10): Restarts containers on backup abort (LIFO order)
+  - `DataSafetyHandler` (Priority 20): Keeps containers stopped during restore abort
+  - `CleanupHandler` (Priority 50): Generic cleanup for temp dirs, DR bundles
+- Signal handlers for SIGINT/SIGTERM installed on startup
+- Prevents: zombie processes, orphaned stopped containers, temp dir accumulation, held Kopia locks
+
+**Pydantic Configuration Validation:**
+- Config class now uses Pydantic v2 for schema validation
+- Type-safe configuration loading with automatic validation
+- Clear error messages for invalid configuration values
+- Backward compatible with existing config files
+
+**Improved Config Wizard UX:**
+- New wizard flow with existing repository detection
+- Support for `--reinit` flag to reconfigure existing repositories
+- Kopia parameters displayed in change-password panel
+- Better error handling and user guidance
+
+**Repository Helper (`repo_helper.py`):**
+- New helper for repository detection and validation
+- Centralized logic for existing repo checks
+- Used by config wizard and repository commands
+
+### 🔧 Changed
+
+**Core Manager Integration:**
+- `BackupManager`: Integrated SafeExitManager for container restart on abort
+- `RestoreManager`: Integrated SafeExitManager for data safety on abort
+- `DisasterRecoveryManager`: Integrated SafeExitManager for bundle cleanup
+- `HooksManager`: Integrated SafeExitManager for hook process cleanup
+
+**run_command() Hardening:**
+- All subprocesses automatically tracked by SafeExitManager
+- Proper cleanup on application termination
+- No more orphaned processes after Ctrl+C
+
+**Dead Code Cleanup:**
+- Removed unused imports across all modules
+- Cleaned up commented-out code blocks
+- Improved code consistency
+
+### 🧪 Testing
+
+**New Test Coverage:**
+- 676 lines of unit tests for SafeExitManager
+- 572 lines of integration tests for abort scenarios
+- Manual testing guide: `tests/MANUAL_TESTING_SAFE_EXIT.md`
+- Tests for: singleton pattern, process tracking, handler priorities, LIFO restart order, thread safety
+
+**Test Scenarios:**
+- Container restart on backup abort (LIFO order)
+- Containers remain stopped on restore abort
+- Temp directory cleanup on DR abort
+- Subprocess termination (SIGTERM → SIGKILL escalation)
+- Concurrent operation handling
+
+### 📝 Documentation
+
+**Updated Documentation:**
+- ARCHITECTURE.md: Added SafeExitManager section with diagrams
+- FEATURES.md: Updated for v6.0.0 capabilities
+- DEVELOPMENT.md: Added safety testing guidelines
+- USAGE.md: Updated CLI reference
+
+### 🔗 Migration from v5.x
+
+**For existing users:**
+1. **Backup behavior unchanged** - same CLI, same results
+2. **Graceful shutdown automatic** - no configuration needed
+3. **Old configs work** - Pydantic validation is backward compatible
+4. **Ctrl+C safe** - containers auto-restart after backup abort
+
+**Breaking change migration:**
+- If using `create_snapshot_from_stdin()`: Switch to `create_snapshot()` with directory path
+- TAR-based workflows: Update to use direct Kopia snapshots (better deduplication)
+
+---
+
 ## [5.5.1] - 2025-12-28
 
 ### ✨ Added

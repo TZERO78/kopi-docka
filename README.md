@@ -24,6 +24,8 @@ A wrapper around [Kopia](https://kopia.io), designed for Docker environments:
 - **🔧 Pre/Post Hooks** - Custom scripts (maintenance mode, notifications, etc.)
 - **📊 Systemd Integration** - Daemon with sd_notify and watchdog support
 - **🚀 Restore on New Hardware** - Recovery without original system
+- **🛡️ Graceful Shutdown** - SafeExitManager ensures containers restart after Ctrl+C
+- **🔔 Notifications** - Telegram, Discord, Email alerts via Apprise
 
 **[See detailed features →](docs/FEATURES.md)**
 

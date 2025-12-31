@@ -2,7 +2,7 @@
 
 # Usage
 
-## CLI Structure (v5.5.1+)
+## CLI Structure (v6.0.0+)
 
 Kopi-Docka features a simplified CLI with primary commands and an `advanced` subcommand for power users.
 

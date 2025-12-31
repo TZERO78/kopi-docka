@@ -681,6 +681,114 @@ ls -la /tmp/kopi-docka-recovery-*  # Should NOT exist
 
 ---
 
+## Additional Core Components 🧩
+
+### NotificationManager (kopi_docka.cores.notification_manager.NotificationManager)
+
+Manages backup notifications via Apprise (Telegram, Discord, Email, Webhooks) using a fire-and-forget pattern.
+
+| Method | Signature | Purpose |
+|---|---|---|
+| __init__ | (config: Config) | Initialize manager with configuration |
+| notify_backup_success | (stats: BackupStats) -> None | Send success notification with backup statistics |
+| notify_backup_failure | (error: str, stats: BackupStats) -> None | Send failure notification with error details |
+| send_test_notification | () -> bool | Send test notification to verify configuration |
+
+**Helper Dataclass:** `BackupStats` — Statistics for notification templates (unit_count, volume_count, duration, total_size, etc.)
+
+---
+
+### DryRunManager (kopi_docka.cores.dry_run_manager.DryRunReport)
+
+Simulates cold backup operations without modifying containers and generates detailed preview reports.
+
+| Method | Signature | Purpose |
+|---|---|---|
+| __init__ | (config: Config) | Initialize the report generator |
+| generate_report | (units: List[BackupUnit]) -> None | Generate and display dry-run report with estimates |
+| estimate_backup_time | (unit: BackupUnit) -> float | Estimate backup duration for a unit (seconds) |
+
+**Report includes:** System info, discovered units, volume sizes, estimated durations, configuration review.
+
+---
+
+### DependencyManager (kopi_docka.cores.dependency_manager.DependencyManager)
+
+Simplified dependency management with Hard/Soft Gate System (Docker + Kopia = Must-Have, rest = Soft/Optional).
+
+| Method | Signature | Purpose |
+|---|---|---|
+| __init__ | (config: Config) | Initialize the manager |
+| check_hard_gate | () -> bool | Check MUST_HAVE dependencies (Docker, Kopia) — non-skippable |
+| check_soft_gate | (tools: List[str], skip: bool = False) -> bool | Check optional tools — skippable with flag |
+| is_installed | (name: str) -> bool | Check if specific dependency is installed |
+| check_all | () -> Dict[str, ToolInfo] | Check all dependencies and return status |
+| get_missing | () -> List[str] | Return list of missing dependencies |
+| get_version | (name: str) -> Optional[str] | Get version of installed dependency |
+| show_status | () -> None | Display dependency status report |
+
+**Enum:** `DependencyCategory` — Categories: `MUST_HAVE`, `SOFT`, `BACKEND`, `OPTIONAL`
+
+---
+
+### ServiceHelper (kopi_docka.cores.service_helper.ServiceHelper)
+
+High-level wrapper for systemctl and journalctl operations to manage kopi-docka systemd services.
+
+| Method | Signature | Purpose |
+|---|---|---|
+| __init__ | (config: Config) | Initialize the helper |
+| get_service_status | () -> ServiceStatus | Get kopi-docka.service status |
+| get_timer_status | () -> TimerStatus | Get kopi-docka.timer status |
+| get_schedule | () -> Optional[str] | Read current OnCalendar value |
+| check_lock_status | () -> LockStatus | Check lock file status (read-only) |
+| clear_stale_lock | () -> bool | Remove stale lock file |
+| get_backup_logs | (lines: int = 50) -> str | Get backup logs via journalctl |
+| get_last_backup_info | () -> Optional[Dict] | Parse logs for last backup info |
+| run_action | (action: str) -> bool | Execute systemctl action (start/stop/restart/enable/disable) |
+| daemon_reload | () -> bool | Reload systemd daemon configuration |
+| validate_config | () -> bool | Validate service/timer configuration |
+| repair_config | () -> bool | Repair configuration to timer-triggered mode |
+| trigger_backup_now | () -> bool | Start backup immediately via one-shot service |
+| update_schedule | (schedule: str) -> bool | Update OnCalendar in timer file |
+| check_units_installed | () -> bool | Check if systemd units are installed |
+
+**Helper Dataclasses:** `ServiceStatus`, `TimerStatus`, `LockStatus`
+
+---
+
+## Additional Helpers 🔧
+
+### repo_helper (kopi_docka.helpers.repo_helper)
+
+Repository detection and validation for filesystem and cloud backends (S3, B2, Azure, GCS, SFTP).
+
+| Function | Signature | Purpose |
+|---|---|---|
+| detect_existing_filesystem_repo | (path: str) -> bool | Detect if filesystem-based Kopia repository exists |
+| detect_existing_cloud_repo | (kopia_params: Dict) -> bool | Detect if cloud-based Kopia repository exists |
+| get_backend_type | (kopia_params: Dict) -> str | Extract backend type from kopia_params |
+| is_cloud_backend | (backend_type: str) -> bool | Check if backend is a cloud/remote backend |
+
+---
+
+### DependencyHelper (kopi_docka.helpers.dependency_helper.DependencyHelper)
+
+Lightweight utility for CLI tool detection (existence, path, version).
+
+| Method | Signature | Purpose |
+|---|---|---|
+| exists | (tool: str) -> bool | Check if tool exists in PATH |
+| get_path | (tool: str) -> Optional[str] | Get full path to tool |
+| get_version | (tool: str) -> Optional[str] | Get tool version with robust parsing |
+| check | (tool: str) -> ToolInfo | Get complete information about a tool |
+| check_all | (tools: List[str]) -> Dict[str, ToolInfo] | Check multiple tools at once |
+| missing | (tools: List[str]) -> List[str] | Return list of missing tools |
+
+**Helper Dataclass:** `ToolInfo` — Information about a CLI tool (name, installed, path, version)
+
+---
+
 ## Additional sequence diagrams (detailed) 🔁
 
 ### BackupManager detailed sequence

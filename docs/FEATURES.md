@@ -737,12 +737,23 @@ sudo kopi-docka admin service manage
 
 ---
 
-## What's New in v5.5.1
+## What's New in v6.0.0
+
+### 🛡️ Graceful Shutdown & SafeExitManager
+**Production-safe Ctrl+C handling with automatic container restart**
+
+Kopi-Docka v6.0.0 introduces the SafeExitManager for graceful shutdown handling:
+
+- **Process Layer**: Automatic subprocess tracking (SIGTERM → 5s → SIGKILL)
+- **Strategy Layer**: Context-aware cleanup handlers with priorities
+- **Backup Abort**: Containers automatically restart in LIFO order
+- **Restore Abort**: Containers remain stopped for data safety
+- **Signal Handlers**: SIGINT/SIGTERM installed on startup
 
 ### 🏷️ Backup Scope Tracking & Restore Warnings
 **Automatic scope detection and restore capability warnings**
 
-Kopi-Docka v5.5.1 enhances backup scope features with automatic tracking and intelligent restore warnings.
+Kopi-Docka v6.0.0 enhances backup scope features with automatic tracking and intelligent restore warnings.
 
 **Scope Tag Tracking:**
 ```bash
@@ -885,6 +896,109 @@ sudo kopi-docka advanced config new
    - ✅ Full container restore capability
 3. **full** - Everything + Docker daemon config (DR-ready)
    - ✅ Complete disaster recovery capability
+
+---
+
+## 🔔 Notification System
+
+Kopi-Docka integrates with multiple notification platforms through Apprise for backup success/failure alerts.
+
+**Supported Platforms:**
+- Telegram
+- Discord
+- Slack
+- Email (SMTP)
+- Webhooks
+- Pushover
+- ntfy
+- And 80+ more via Apprise
+
+**Configuration:**
+```json
+{
+  "notifications": {
+    "enabled": true,
+    "apprise_urls": [
+      "tgram://bot_token/chat_id",
+      "discord://webhook_id/webhook_token"
+    ],
+    "on_success": true,
+    "on_failure": true
+  }
+}
+```
+
+**CLI Commands:**
+```bash
+# Test notification setup
+sudo kopi-docka advanced notification test
+
+# Enable/disable notifications
+sudo kopi-docka advanced notification enable
+sudo kopi-docka advanced notification disable
+
+# Show notification status
+sudo kopi-docka advanced notification status
+```
+
+**Notification Content:**
+- Backup success: Units backed up, duration, snapshot count
+- Backup failure: Error message, failed unit, stack trace
+
+For detailed configuration, see [NOTIFICATIONS.md](NOTIFICATIONS.md).
+
+---
+
+## 🔍 Dry-Run Mode
+
+Simulate backup operations without making any changes to preview what would happen.
+
+**Command:**
+```bash
+sudo kopi-docka dry-run
+```
+
+**What Gets Simulated:**
+1. **System Information**
+   - OS, Python version, Kopi-Docka version
+   - Available disk space
+
+2. **Discovery Preview**
+   - Found Docker stacks and standalone containers
+   - Total volumes and their sizes
+   - Database containers detected
+
+3. **Time & Size Estimates**
+   - Estimated backup duration per unit
+   - Total data size to backup
+   - Compression ratio estimate
+
+4. **Configuration Review**
+   - Current backup scope
+   - Selected backend
+   - Retention policy
+
+**Example Output:**
+```
+╭───────────────────── Dry-Run Report ─────────────────────╮
+│ System: Linux 6.1.0 | Python 3.12.3 | Kopi-Docka 6.0.0   │
+│ Disk: 234 GB available                                    │
+├──────────────────────────────────────────────────────────┤
+│ Discovered Units:                                         │
+│   • wordpress (stack) - 3 containers, 2 volumes           │
+│   • nginx (standalone) - 1 container, 1 volume            │
+├──────────────────────────────────────────────────────────┤
+│ Estimated Duration: ~5 minutes                            │
+│ Total Data: 12.4 GB                                       │
+│ Backup Scope: standard                                    │
+╰──────────────────────────────────────────────────────────╯
+```
+
+**Use Cases:**
+- Verify configuration before first backup
+- Check what will be backed up
+- Estimate backup duration and size
+- Validate hooks are configured correctly
 
 ---
 
@@ -1305,6 +1419,7 @@ Output includes:
 | `admin service` | daemon, write-units | Systemd integration |
 | `admin system` | install-deps, show-deps | Dependency management |
 | `admin snapshot` | list, estimate-size | Snapshot & unit management |
+| `advanced notification` | test, status, enable, disable | Notification management |
 
 ---
 
