@@ -45,12 +45,14 @@ from ..cores.repository_manager import KopiaRepository
 from ..cores.kopia_policy_manager import KopiaPolicyManager
 from ..cores.hooks_manager import HooksManager
 from ..cores.notification_manager import NotificationManager, BackupStats
+from ..cores.safe_exit_manager import SafeExitManager, ServiceContinuityHandler
 from ..helpers.constants import (
     CONTAINER_STOP_TIMEOUT,
     CONTAINER_START_TIMEOUT,
     RECIPE_BACKUP_DIR,
     VOLUME_BACKUP_DIR,
     NETWORK_BACKUP_DIR,
+    DOCKER_CONFIG_BACKUP_DIR,
     BACKUP_SCOPE_MINIMAL,
     BACKUP_SCOPE_STANDARD,
     BACKUP_SCOPE_FULL,
@@ -108,6 +110,11 @@ class BackupManager:
             backup_scope=backup_scope,
         )
 
+        # Setup ServiceContinuityHandler for emergency container restart on abort
+        safe_exit = SafeExitManager.get_instance()
+        service_handler = ServiceContinuityHandler()
+        safe_exit.register_handler(service_handler)
+
         try:
             # Apply retention policies up front
             self._ensure_policies(unit)
@@ -127,12 +134,12 @@ class BackupManager:
                 f"Stopping {len(unit.containers)} containers...",
                 extra={"unit_name": unit.name},
             )
-            self._stop_containers(unit.containers)
+            self._stop_containers(unit.containers, service_handler)
 
             # 2) Recipes (skip for minimal scope)
             if backup_scope != BACKUP_SCOPE_MINIMAL:
                 logger.info("Backing up recipes...", extra={"unit_name": unit.name})
-                recipe_snapshot = self._backup_recipes(unit, backup_id)
+                recipe_snapshot = self._backup_recipes(unit, backup_id, backup_scope)
                 if recipe_snapshot:
                     metadata.kopia_snapshot_ids.append(recipe_snapshot)
             else:
@@ -143,7 +150,7 @@ class BackupManager:
             # 2.5) Networks (standard and full scopes)
             if backup_scope in [BACKUP_SCOPE_STANDARD, BACKUP_SCOPE_FULL]:
                 logger.info("Backing up networks...", extra={"unit_name": unit.name})
-                network_snapshot, network_count = self._backup_networks(unit, backup_id)
+                network_snapshot, network_count = self._backup_networks(unit, backup_id, backup_scope)
                 if network_snapshot:
                     metadata.kopia_snapshot_ids.append(network_snapshot)
                     metadata.networks_backed_up = network_count
@@ -153,6 +160,18 @@ class BackupManager:
                     extra={"unit_name": unit.name},
                 )
 
+            # 2.6) Docker daemon config (full scope only)
+            if backup_scope == BACKUP_SCOPE_FULL:
+                logger.info("Backing up Docker daemon configuration...", extra={"unit_name": unit.name})
+                docker_config_snapshot = self._backup_docker_config(unit, backup_id, backup_scope)
+                if docker_config_snapshot:
+                    metadata.kopia_snapshot_ids.append(docker_config_snapshot)
+                    metadata.docker_config_backed_up = True
+                else:
+                    metadata.docker_config_backed_up = False
+            else:
+                metadata.docker_config_backed_up = False
+
             # 3) Volumes (parallel)
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 futures = []
@@ -160,7 +179,7 @@ class BackupManager:
                     futures.append(
                         (
                             volume.name,
-                            executor.submit(self._backup_volume, volume, unit, backup_id),
+                            executor.submit(self._backup_volume, volume, unit, backup_id, backup_scope),
                         )
                     )
 
@@ -198,7 +217,10 @@ class BackupManager:
                 f"Starting {len(unit.containers)} containers...",
                 extra={"unit_name": unit.name},
             )
-            self._start_containers(unit.containers)
+            self._start_containers(unit.containers, service_handler)
+
+            # Unregister ServiceContinuityHandler (cleanup complete)
+            safe_exit.unregister_handler(service_handler)
 
             # 5) Post-backup hook
             logger.info("Executing post-backup hook...", extra={"unit_name": unit.name})
@@ -262,8 +284,8 @@ class BackupManager:
 
         return metadata
 
-    def _stop_containers(self, containers: List[ContainerInfo]):
-        """Stop containers gracefully."""
+    def _stop_containers(self, containers: List[ContainerInfo], service_handler: ServiceContinuityHandler):
+        """Stop containers gracefully and register them for emergency restart."""
         for c in containers:
             if c.is_running:
                 try:
@@ -273,13 +295,15 @@ class BackupManager:
                         timeout=self.stop_timeout + 10,  # Docker timeout + safety margin
                     )
                     logger.debug(f"Stopped container: {c.name}", extra={"container": c.name})
+                    # Register with ServiceContinuityHandler for emergency restart on abort
+                    service_handler.register_container(c.id, c.name)
                 except SubprocessError as e:
                     logger.error(
                         f"Failed to stop container {c.name}: {e.stderr}",
                         extra={"container": c.name},
                     )
 
-    def _start_containers(self, containers: List[ContainerInfo]):
+    def _start_containers(self, containers: List[ContainerInfo], service_handler: ServiceContinuityHandler):
         """Start containers in original order and wait (healthcheck if present)."""
         for c in containers:
             try:
@@ -289,6 +313,8 @@ class BackupManager:
                     timeout=30,
                 )
                 logger.debug(f"Started container: {c.name}", extra={"container": c.name})
+                # Unregister from emergency restart (normal startup successful)
+                service_handler.unregister_container(c.id)
                 self._wait_container_healthy(c, timeout=self.start_timeout)
             except SubprocessError as e:
                 logger.error(
@@ -376,7 +402,7 @@ class BackupManager:
 
         return staging_dir
 
-    def _backup_recipes(self, unit: BackupUnit, backup_id: str) -> Optional[str]:
+    def _backup_recipes(self, unit: BackupUnit, backup_id: str, backup_scope: str) -> Optional[str]:
         """Backup compose files and container inspect data (with secret redaction)."""
         import shutil
 
@@ -485,6 +511,7 @@ class BackupManager:
                     "type": "recipe",
                     "unit": unit.name,
                     "backup_id": backup_id,
+                    "backup_scope": backup_scope,
                     "timestamp": datetime.now().isoformat(),
                 },
             )
@@ -496,7 +523,7 @@ class BackupManager:
             # Note: Keep staging directory on error for debugging
             return None
 
-    def _backup_networks(self, unit: BackupUnit, backup_id: str) -> Tuple[Optional[str], int]:
+    def _backup_networks(self, unit: BackupUnit, backup_id: str, backup_scope: str) -> Tuple[Optional[str], int]:
         """
         Backup custom Docker networks used by this unit.
 
@@ -590,6 +617,7 @@ class BackupManager:
                     "type": "networks",
                     "unit": unit.name,
                     "backup_id": backup_id,
+                    "backup_scope": backup_scope,
                     "timestamp": datetime.now().isoformat(),
                     "network_count": str(len(network_configs)),
                 },
@@ -609,7 +637,72 @@ class BackupManager:
             # Note: Keep staging directory on error for debugging
             return None, 0
 
-    def _backup_volume(self, volume: VolumeInfo, unit: BackupUnit, backup_id: str) -> Optional[str]:
+    def _backup_docker_config(
+        self, unit: BackupUnit, backup_id: str, backup_scope: str
+    ) -> Optional[str]:
+        """
+        Backup Docker daemon configuration for disaster recovery.
+
+        Only backs up known configuration files, not entire /etc/docker directory.
+        Errors are non-fatal - logs warning and returns None.
+
+        Args:
+            unit: Backup unit context
+            backup_id: Unique backup run identifier
+            backup_scope: Backup scope (always "full" when this is called)
+
+        Returns:
+            Snapshot ID if successful, None otherwise
+        """
+        import shutil
+
+        try:
+            staging_dir = self._prepare_staging_dir(DOCKER_CONFIG_BACKUP_DIR, unit.name)
+            files_backed_up = []
+
+            # 1. Main Docker daemon configuration
+            daemon_json = Path("/etc/docker/daemon.json")
+            if daemon_json.exists() and daemon_json.is_file():
+                try:
+                    shutil.copy2(daemon_json, staging_dir / "daemon.json")
+                    files_backed_up.append("daemon.json")
+                except PermissionError as e:
+                    logger.warning(f"Cannot read {daemon_json}: {e}")
+
+            # 2. systemd service overrides
+            systemd_overrides = Path("/etc/systemd/system/docker.service.d")
+            if systemd_overrides.exists() and systemd_overrides.is_dir():
+                try:
+                    override_dir = staging_dir / "docker.service.d"
+                    shutil.copytree(systemd_overrides, override_dir)
+                    files_backed_up.append("docker.service.d/")
+                except PermissionError as e:
+                    logger.warning(f"Cannot read {systemd_overrides}: {e}")
+
+            if not files_backed_up:
+                logger.info("No Docker config files found (normal on default installations)")
+                return None
+
+            logger.info(f"Backing up Docker daemon config: {', '.join(files_backed_up)}")
+
+            # Create snapshot with backup_scope tag
+            return self.repo.create_snapshot(
+                str(staging_dir),
+                tags={
+                    "type": "docker_config",
+                    "unit": unit.name,
+                    "backup_id": backup_id,
+                    "backup_scope": backup_scope,
+                    "timestamp": datetime.now().isoformat(),
+                    "files": ",".join(files_backed_up),
+                },
+            )
+
+        except Exception as e:
+            logger.warning(f"Docker config backup failed (non-fatal): {e}", exc_info=True)
+            return None
+
+    def _backup_volume(self, volume: VolumeInfo, unit: BackupUnit, backup_id: str, backup_scope: str) -> Optional[str]:
         """Backup a single volume using the configured backup format.
 
         Dispatcher that routes to the appropriate backup method based on
@@ -619,6 +712,7 @@ class BackupManager:
             volume: Volume to backup
             unit: Parent backup unit
             backup_id: Unique ID for this backup run
+            backup_scope: Backup scope (minimal/standard/full)
 
         Returns:
             Snapshot ID if successful, None otherwise
@@ -626,12 +720,12 @@ class BackupManager:
         backup_format = BACKUP_FORMAT_DEFAULT
 
         if backup_format == BACKUP_FORMAT_DIRECT:
-            return self._backup_volume_direct(volume, unit, backup_id)
+            return self._backup_volume_direct(volume, unit, backup_id, backup_scope)
         else:
-            return self._backup_volume_tar(volume, unit, backup_id)
+            return self._backup_volume_tar(volume, unit, backup_id, backup_scope)
 
     def _backup_volume_direct(
-        self, volume: VolumeInfo, unit: BackupUnit, backup_id: str
+        self, volume: VolumeInfo, unit: BackupUnit, backup_id: str, backup_scope: str
     ) -> Optional[str]:
         """Backup a single volume via direct Kopia snapshot (v5.0+).
 
@@ -643,6 +737,7 @@ class BackupManager:
             volume: Volume to backup
             unit: Parent backup unit
             backup_id: Unique ID for this backup run
+            backup_scope: Backup scope (minimal/standard/full)
 
         Returns:
             Snapshot ID if successful, None otherwise
@@ -685,6 +780,7 @@ class BackupManager:
                     "unit": unit.name,
                     "volume": volume.name,
                     "backup_id": backup_id,
+                    "backup_scope": backup_scope,
                     "timestamp": datetime.now().isoformat(),
                     "size_bytes": str(getattr(volume, "size_bytes", 0) or "0"),
                     "backup_format": BACKUP_FORMAT_DIRECT,
@@ -711,7 +807,7 @@ class BackupManager:
             return None
 
     def _backup_volume_tar(
-        self, volume: VolumeInfo, unit: BackupUnit, backup_id: str
+        self, volume: VolumeInfo, unit: BackupUnit, backup_id: str, backup_scope: str
     ) -> Optional[str]:
         """Backup a single volume via tar stream → Kopia (legacy).
 
@@ -765,6 +861,7 @@ class BackupManager:
                         "unit": unit.name,
                         "volume": volume.name,
                         "backup_id": backup_id,
+                        "backup_scope": backup_scope,
                         "timestamp": datetime.now().isoformat(),
                         "size_bytes": str(getattr(volume, "size_bytes", 0) or "0"),
                         "backup_format": BACKUP_FORMAT_TAR,

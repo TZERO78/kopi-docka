@@ -193,7 +193,7 @@ kopi-docka doctor
 ✓ System Information
   OS: Linux
   Python: 3.12.3
-  Kopi-Docka: 5.5.0
+  Kopi-Docka: 6.0.0
 
 ✓ Core Dependencies
   docker       [MUST_HAVE]   ✓ Installed   20.10.23   /usr/bin/docker

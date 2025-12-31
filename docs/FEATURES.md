@@ -737,6 +737,271 @@ sudo kopi-docka admin service manage
 
 ---
 
+## What's New in v6.0.0
+
+### 🛡️ Graceful Shutdown & SafeExitManager
+**Production-safe Ctrl+C handling with automatic container restart**
+
+Kopi-Docka v6.0.0 introduces the SafeExitManager for graceful shutdown handling:
+
+- **Process Layer**: Automatic subprocess tracking (SIGTERM → 5s → SIGKILL)
+- **Strategy Layer**: Context-aware cleanup handlers with priorities
+- **Backup Abort**: Containers automatically restart in LIFO order
+- **Restore Abort**: Containers remain stopped for data safety
+- **Signal Handlers**: SIGINT/SIGTERM installed on startup
+
+### 🏷️ Backup Scope Tracking & Restore Warnings
+**Automatic scope detection and restore capability warnings**
+
+Kopi-Docka v6.0.0 enhances backup scope features with automatic tracking and intelligent restore warnings.
+
+**Scope Tag Tracking:**
+```bash
+# All snapshots now include backup_scope tag
+kopia snapshot list --tags | grep backup_scope
+# → backup_scope=standard
+# → backup_scope=full
+# → backup_scope=minimal
+```
+
+**Restore Scope Detection:**
+- RestoreManager automatically reads `backup_scope` tag from snapshots
+- **MINIMAL scope backups** show prominent warning panel during restore
+- Warns that only volume data will be restored
+- Explains that containers/networks must be manually recreated
+- Legacy snapshots without tag default to "standard" (backward compatible)
+
+**Example Warning:**
+```
+⚠️  MINIMAL Scope Backup Detected
+
+This backup contains ONLY volume data.
+Container recipes (docker-compose files) are NOT included.
+
+After restore:
+• Volumes will be restored
+• Containers must be recreated manually
+• Networks must be recreated manually
+
+Consider using --scope standard or --scope full for complete backups.
+```
+
+### 🐳 Docker Config Backup (FULL Scope)
+**Complete disaster recovery with Docker daemon configuration**
+
+FULL scope backups now include Docker daemon configuration files:
+- `/etc/docker/daemon.json` (if present)
+- `/etc/systemd/system/docker.service.d/` (systemd overrides)
+
+**Automatic Backup:**
+```bash
+# Use FULL scope to include docker_config
+sudo kopi-docka backup --scope full
+
+# Set as default in config
+{
+  "backup": {
+    "backup_scope": "full"
+  }
+}
+```
+
+**What's Backed Up:**
+- Docker daemon settings (log drivers, storage drivers, etc.)
+- Systemd service overrides
+- Docker runtime configuration
+- Non-fatal on errors (logs warning, continues backup)
+
+### 🔧 Docker Config Manual Restore Command
+**Safe, guided restoration of Docker daemon configuration**
+
+New command for extracting and reviewing docker_config snapshots:
+
+```bash
+# List docker_config snapshots
+sudo kopi-docka list --snapshots | grep docker_config
+
+# Extract configuration to temp directory
+sudo kopi-docka show-docker-config <snapshot-id>
+```
+
+**Command Features:**
+- Extracts snapshot to `/tmp/kopia-docker-config-XXXXX/`
+- Displays safety warnings about manual restore
+- Shows extracted files with sizes
+- Displays `daemon.json` contents (if <10KB)
+- Provides 6-step manual restore instructions
+- Prevents accidental production breakage
+
+**Why Manual Restore?**
+- Docker daemon configuration is extremely sensitive
+- Incorrect config can break Docker entirely
+- Must be reviewed before applying to production
+- Prevents system-wide Docker failures
+
+**Example Usage:**
+```bash
+$ sudo kopi-docka show-docker-config k1a2b3c4d5e6f7g8
+
+Docker Config Manual Restore
+⚠️  Safety Notice:
+Docker daemon configuration is NOT automatically restored.
+You must manually review and apply changes to avoid production issues.
+
+✓ Extracted files:
+   • daemon.json (2.3 KB)
+   • docker.service.d/override.conf (0.5 KB)
+
+📄 daemon.json contents:
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  }
+}
+
+🔧 Manual Restore Instructions
+Step 1: Review extracted files
+Step 2: Backup current config
+Step 3: Apply configuration (CAREFULLY!)
+Step 4: Systemd overrides (if present)
+Step 5: Restart Docker daemon
+Step 6: Verify Docker is working
+
+Files location: /tmp/kopia-docker-config-abc123/
+```
+
+### ⚙️ Config Wizard Scope Selection
+**Interactive backup scope selection during setup**
+
+The config wizard now includes backup scope selection:
+
+```bash
+sudo kopi-docka advanced config new
+# → Interactive menu prompts for scope
+```
+
+**Wizard Features:**
+- Three clear options: minimal / standard / full
+- Descriptions explain restore capabilities
+- Default is "standard" (recommended)
+- Warning confirmation for minimal scope
+- Easy to understand implications
+
+**Scope Options in Wizard:**
+1. **minimal** - Volumes only (fastest, smallest)
+   - ⚠️ Cannot restore containers, only data!
+2. **standard** - Volumes + Recipes + Networks [RECOMMENDED]
+   - ✅ Full container restore capability
+3. **full** - Everything + Docker daemon config (DR-ready)
+   - ✅ Complete disaster recovery capability
+
+---
+
+## 🔔 Notification System
+
+Kopi-Docka integrates with multiple notification platforms through Apprise for backup success/failure alerts.
+
+**Supported Platforms:**
+- Telegram
+- Discord
+- Slack
+- Email (SMTP)
+- Webhooks
+- Pushover
+- ntfy
+- And 80+ more via Apprise
+
+**Configuration:**
+```json
+{
+  "notifications": {
+    "enabled": true,
+    "apprise_urls": [
+      "tgram://bot_token/chat_id",
+      "discord://webhook_id/webhook_token"
+    ],
+    "on_success": true,
+    "on_failure": true
+  }
+}
+```
+
+**CLI Commands:**
+```bash
+# Test notification setup
+sudo kopi-docka advanced notification test
+
+# Enable/disable notifications
+sudo kopi-docka advanced notification enable
+sudo kopi-docka advanced notification disable
+
+# Show notification status
+sudo kopi-docka advanced notification status
+```
+
+**Notification Content:**
+- Backup success: Units backed up, duration, snapshot count
+- Backup failure: Error message, failed unit, stack trace
+
+For detailed configuration, see [NOTIFICATIONS.md](NOTIFICATIONS.md).
+
+---
+
+## 🔍 Dry-Run Mode
+
+Simulate backup operations without making any changes to preview what would happen.
+
+**Command:**
+```bash
+sudo kopi-docka dry-run
+```
+
+**What Gets Simulated:**
+1. **System Information**
+   - OS, Python version, Kopi-Docka version
+   - Available disk space
+
+2. **Discovery Preview**
+   - Found Docker stacks and standalone containers
+   - Total volumes and their sizes
+   - Database containers detected
+
+3. **Time & Size Estimates**
+   - Estimated backup duration per unit
+   - Total data size to backup
+   - Compression ratio estimate
+
+4. **Configuration Review**
+   - Current backup scope
+   - Selected backend
+   - Retention policy
+
+**Example Output:**
+```
+╭───────────────────── Dry-Run Report ─────────────────────╮
+│ System: Linux 6.1.0 | Python 3.12.3 | Kopi-Docka 6.0.0   │
+│ Disk: 234 GB available                                    │
+├──────────────────────────────────────────────────────────┤
+│ Discovered Units:                                         │
+│   • wordpress (stack) - 3 containers, 2 volumes           │
+│   • nginx (standalone) - 1 container, 1 volume            │
+├──────────────────────────────────────────────────────────┤
+│ Estimated Duration: ~5 minutes                            │
+│ Total Data: 12.4 GB                                       │
+│ Backup Scope: standard                                    │
+╰──────────────────────────────────────────────────────────╯
+```
+
+**Use Cases:**
+- Verify configuration before first backup
+- Check what will be backed up
+- Estimate backup duration and size
+- Validate hooks are configured correctly
+
+---
+
 ## What's New in v4.1.0
 
 ### 🤖 Non-Interactive Restore Mode
@@ -1154,6 +1419,7 @@ Output includes:
 | `admin service` | daemon, write-units | Systemd integration |
 | `admin system` | install-deps, show-deps | Dependency management |
 | `admin snapshot` | list, estimate-size | Snapshot & unit management |
+| `advanced notification` | test, status, enable, disable | Notification management |
 
 ---
 
@@ -1250,7 +1516,49 @@ sudo kopi-docka restore
 
 ---
 
-### 🔧 Pre/Post Backup Hooks
+### � Smart Repository Re-initialization
+**Fix password mismatches without losing access to backups**
+
+When your config has the wrong password for an existing repository (the "chicken-egg" problem), use the reconnect option:
+
+```bash
+# Safe reconnect: keeps config, only fixes password
+sudo kopi-docka advanced config reset --reconnect
+```
+
+**What --reconnect does:**
+
+1. **Keeps your existing config** (backend, paths, settings)
+2. **Prompts for the correct password** (max 3 attempts)
+3. **Tests connection** before saving
+4. **Updates only the password** in your config
+
+**Use Cases:**
+- Wrong password in config for existing repo
+- Reconnecting after restoring config from backup
+- Taking over a repository from another system
+- Password file was deleted/corrupted
+
+**Alternative: Full Re-initialization**
+
+If you need the interactive wizard with Connect/Overwrite options (e.g., to delete and recreate a repository):
+
+```bash
+# Smart re-init with detection wizard
+sudo kopi-docka advanced repo init --reinit
+```
+
+**Supported Backends:**
+- ✅ Filesystem (local paths, NFS, CIFS)
+- ✅ S3 (AWS, MinIO, Wasabi)
+- ✅ B2 (Backblaze)
+- ✅ Azure Blob Storage
+- ✅ Google Cloud Storage
+- ✅ SFTP
+
+---
+
+### �🔧 Pre/Post Backup Hooks
 **Run custom scripts before and after backups - perfect for maintenance mode**
 
 See detailed guide: [Hooks Documentation](HOOKS.md)

@@ -2246,3 +2246,197 @@ class TestVolumeRestoreTar:
                 import shutil
 
                 shutil.rmtree(real_temp_dir)
+
+# =============================================================================
+# Backup Scope Detection Tests
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestBackupScopeDetection:
+    """Tests for backup scope detection and warnings in RestoreManager."""
+
+    def test_get_backup_scope_minimal_from_volume_snapshot(self):
+        """Should detect minimal scope from volume snapshot tags."""
+        rm = make_manager()
+
+        rp = RestorePoint(
+            unit_name="mystack",
+            timestamp=datetime.now(timezone.utc),
+            backup_id="backup-123",
+            volume_snapshots=[
+                {"tags": {"backup_scope": "minimal", "type": "volume"}}
+            ],
+        )
+
+        scope = rm._get_backup_scope(rp)
+        assert scope == "minimal"
+
+    def test_get_backup_scope_standard_from_recipe_snapshot(self):
+        """Should detect standard scope from recipe snapshot tags."""
+        rm = make_manager()
+
+        rp = RestorePoint(
+            unit_name="mystack",
+            timestamp=datetime.now(timezone.utc),
+            backup_id="backup-456",
+            recipe_snapshots=[
+                {"tags": {"backup_scope": "standard", "type": "recipe"}}
+            ],
+        )
+
+        scope = rm._get_backup_scope(rp)
+        assert scope == "standard"
+
+    def test_get_backup_scope_full_from_docker_config_snapshot(self):
+        """Should detect full scope from docker_config snapshot tags."""
+        rm = make_manager()
+
+        rp = RestorePoint(
+            unit_name="mystack",
+            timestamp=datetime.now(timezone.utc),
+            backup_id="backup-789",
+            docker_config_snapshots=[
+                {"tags": {"backup_scope": "full", "type": "docker_config"}}
+            ],
+        )
+
+        scope = rm._get_backup_scope(rp)
+        assert scope == "full"
+
+    def test_get_backup_scope_defaults_to_standard_for_legacy_snapshots(self):
+        """Should default to 'standard' for snapshots without backup_scope tag."""
+        rm = make_manager()
+
+        rp = RestorePoint(
+            unit_name="mystack",
+            timestamp=datetime.now(timezone.utc),
+            backup_id="backup-old",
+            volume_snapshots=[
+                {"tags": {"type": "volume"}}  # No backup_scope tag
+            ],
+        )
+
+        scope = rm._get_backup_scope(rp)
+        assert scope == "standard"
+
+    def test_get_backup_scope_defaults_to_standard_for_empty_restore_point(self):
+        """Should default to 'standard' for empty restore points."""
+        rm = make_manager()
+
+        rp = RestorePoint(
+            unit_name="mystack",
+            timestamp=datetime.now(timezone.utc),
+            backup_id="backup-empty",
+        )
+
+        scope = rm._get_backup_scope(rp)
+        assert scope == "standard"
+
+    def test_get_backup_scope_reads_from_first_snapshot(self):
+        """Should read scope from first available snapshot."""
+        rm = make_manager()
+
+        rp = RestorePoint(
+            unit_name="mystack",
+            timestamp=datetime.now(timezone.utc),
+            backup_id="backup-multi",
+            volume_snapshots=[
+                {"tags": {"backup_scope": "full", "type": "volume"}},
+                {"tags": {"backup_scope": "full", "type": "volume"}},
+            ],
+            recipe_snapshots=[
+                {"tags": {"backup_scope": "full", "type": "recipe"}},
+            ],
+        )
+
+        scope = rm._get_backup_scope(rp)
+        assert scope == "full"
+
+    def test_show_scope_warnings_minimal_displays_message(self, capsys):
+        """Should display warning for minimal scope backups."""
+        rm = make_manager()
+
+        rp = RestorePoint(
+            unit_name="mystack",
+            timestamp=datetime.now(timezone.utc),
+            backup_id="backup-123",
+        )
+
+        rm._show_scope_warnings("minimal", rp)
+
+        # Check captured output contains minimal warning
+        captured = capsys.readouterr()
+        assert "MINIMAL" in captured.out or "minimal" in captured.out.lower()
+        assert "Containers must be recreated manually" in captured.out
+
+    
+    def test_show_scope_warnings_docker_config_displays_info(self, capsys):
+        """Should display info message when docker_config snapshots are present."""
+        rm = make_manager()
+
+        rp = RestorePoint(
+            unit_name="mystack",
+            timestamp=datetime.now(timezone.utc),
+            backup_id="backup-456",
+            docker_config_snapshots=[
+                {"tags": {"backup_scope": "full", "type": "docker_config"}}
+            ],
+        )
+
+        rm._show_scope_warnings("full", rp)
+
+        # Check captured output contains docker config info
+        captured = capsys.readouterr()
+        assert "docker" in captured.out.lower() or "daemon" in captured.out.lower()
+
+    
+    def test_show_scope_warnings_standard_no_warning(self, capsys):
+        """Should not display warning for standard scope."""
+        rm = make_manager()
+
+        rp = RestorePoint(
+            unit_name="mystack",
+            timestamp=datetime.now(timezone.utc),
+            backup_id="backup-789",
+        )
+
+        rm._show_scope_warnings("standard", rp)
+
+        # For standard scope without docker_config, no warnings
+        captured = capsys.readouterr()
+        assert "MINIMAL" not in captured.out
+        assert "docker" not in captured.out.lower()
+
+    
+    def test_docker_config_snapshots_grouped_correctly(self):
+        """Should group docker_config snapshots in restore points."""
+        rm = make_manager()
+        rm.repo.list_snapshots.return_value = [
+            {
+                "tags": {
+                    "unit": "mystack",
+                    "backup_id": "backup-123",
+                    "type": "docker_config",
+                    "backup_scope": "full",
+                    "timestamp": "2025-12-28T10:00:00Z",
+                }
+            },
+            {
+                "tags": {
+                    "unit": "mystack",
+                    "backup_id": "backup-123",
+                    "type": "volume",
+                    "backup_scope": "full",
+                    "timestamp": "2025-12-28T10:00:00Z",
+                }
+            },
+        ]
+
+        restore_points = rm._find_restore_points()
+
+        assert len(restore_points) == 1
+        rp = restore_points[0]
+        assert len(rp.docker_config_snapshots) == 1
+        assert len(rp.volume_snapshots) == 1
+        assert rp.docker_config_snapshots[0]["tags"]["type"] == "docker_config"

@@ -17,6 +17,12 @@ from .file_operations import (
 )
 from .ui_utils import run_command, SubprocessError
 from .dependency_helper import DependencyHelper, ToolInfo
+from .repo_helper import (
+    detect_existing_filesystem_repo,
+    detect_existing_cloud_repo,
+    get_backend_type,
+    is_cloud_backend,
+)
 
 __all__ = [
     "Config",
@@ -36,4 +42,8 @@ __all__ = [
     "SubprocessError",
     "DependencyHelper",
     "ToolInfo",
+    "detect_existing_filesystem_repo",
+    "detect_existing_cloud_repo",
+    "get_backend_type",
+    "is_cloud_backend",
 ]

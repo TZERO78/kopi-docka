@@ -259,8 +259,8 @@ class TestHookEnvironmentVariables:
         config = make_mock_config(str(hook_script))
         manager = HooksManager(config)
 
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+        with patch("kopi_docka.cores.hooks_manager.run_command") as mock_run:
+            mock_run.return_value = (0, "", "")
 
             manager.execute_hook(HOOK_PRE_BACKUP, unit_name="mystack")
 
@@ -279,8 +279,8 @@ class TestHookEnvironmentVariables:
         config = make_mock_config(str(hook_script))
         manager = HooksManager(config)
 
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+        with patch("kopi_docka.cores.hooks_manager.run_command") as mock_run:
+            mock_run.return_value = (0, "", "")
 
             manager.execute_hook(HOOK_PRE_BACKUP, unit_name=None)
 
@@ -301,8 +301,8 @@ class TestHookEnvironmentVariables:
         # Set a test env var
         os.environ["TEST_VAR"] = "test_value"
 
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+        with patch("kopi_docka.cores.hooks_manager.run_command") as mock_run:
+            mock_run.return_value = (0, "", "")
 
             manager.execute_hook(HOOK_PRE_BACKUP)
 
@@ -490,7 +490,7 @@ class TestHookErrorHandling:
         config = make_mock_config(str(hook_script))
         manager = HooksManager(config)
 
-        with patch("subprocess.run") as mock_run:
+        with patch("kopi_docka.cores.hooks_manager.run_command") as mock_run:
             mock_run.side_effect = Exception("Unexpected error")
 
             result = manager.execute_hook(HOOK_PRE_BACKUP)
@@ -506,7 +506,7 @@ class TestHookErrorHandling:
         config = make_mock_config(str(hook_script))
         manager = HooksManager(config)
 
-        with patch("subprocess.run") as mock_run:
+        with patch("kopi_docka.cores.hooks_manager.run_command") as mock_run:
             mock_run.side_effect = PermissionError("Permission denied")
 
             result = manager.execute_hook(HOOK_PRE_BACKUP)

@@ -31,7 +31,13 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 from rich import box
 
-from ..helpers import Config, get_logger, generate_secure_password
+from ..helpers import (
+    Config,
+    get_logger,
+    generate_secure_password,
+    detect_existing_filesystem_repo,
+    detect_existing_cloud_repo,
+)
 from ..helpers.ui_utils import (
     print_success,
     print_error,
@@ -188,12 +194,294 @@ def _print_kopia_native_status(repo: KopiaRepository) -> None:
 
 
 # -------------------------
+# Smart Init Helpers
+# -------------------------
+
+# Detection functions are imported from helpers.repo_helper
+# Local wrappers for backward compatibility
+def _detect_existing_filesystem_repo(kopia_params: str) -> tuple[bool, Optional[Path]]:
+    """Wrapper for detect_existing_filesystem_repo from helpers."""
+    return detect_existing_filesystem_repo(kopia_params)
+
+
+def _detect_existing_cloud_repo(kopia_params: str, password: str) -> tuple[bool, Optional[str]]:
+    """Wrapper for detect_existing_cloud_repo from helpers."""
+    return detect_existing_cloud_repo(kopia_params, password)
+
+
+def _smart_init_wizard(repo_path: Path) -> str:
+    """
+    Interactive wizard for existing repository detection.
+
+    Shows options to the user when an existing Kopia repository is detected.
+
+    Args:
+        repo_path: Path to the detected existing repository
+
+    Returns:
+        One of: "connect", "overwrite", "abort"
+    """
+    console.print()
+    console.print(
+        Panel.fit(
+            f"[bold yellow]Existing Kopia repository detected![/bold yellow]\n\n"
+            f"[bold]Path:[/bold] {repo_path}\n\n"
+            "This directory already contains a Kopia repository.\n"
+            "What would you like to do?\n\n"
+            "[bold cyan][1] Connect[/bold cyan] - Use existing repo (try current password)\n"
+            "[bold red][2] Overwrite[/bold red] - Delete and create new repo\n"
+            "[bold dim][3] Abort[/bold dim] - Cancel and exit",
+            title="[bold]Repository Already Exists[/bold]",
+            border_style="yellow",
+        )
+    )
+    console.print()
+
+    while True:
+        choice = typer.prompt(
+            "Your choice",
+            default="1",
+            show_default=True,
+        )
+
+        if choice in ("1", "connect", "c"):
+            return "connect"
+        elif choice in ("2", "overwrite", "o"):
+            return "overwrite"
+        elif choice in ("3", "abort", "a", "q"):
+            return "abort"
+        else:
+            console.print("[yellow]Invalid choice. Please enter 1, 2, or 3.[/yellow]")
+
+
+def _smart_init_wizard_cloud(location: str) -> str:
+    """
+    Interactive wizard for existing cloud repository detection.
+
+    Similar to _smart_init_wizard but for cloud backends (S3, B2, etc.).
+    Note: Overwrite for cloud means re-creating the repo in the same bucket/prefix.
+
+    Args:
+        location: Cloud location string (e.g., "s3://my-bucket")
+
+    Returns:
+        One of: "connect", "overwrite", "abort"
+    """
+    console.print()
+    console.print(
+        Panel.fit(
+            f"[bold yellow]Existing Kopia repository detected in cloud![/bold yellow]\n\n"
+            f"[bold]Location:[/bold] {location}\n\n"
+            "A Kopia repository already exists at this location.\n"
+            "What would you like to do?\n\n"
+            "[bold cyan][1] Connect[/bold cyan] - Use existing repo (try current password)\n"
+            "[bold red][2] Overwrite[/bold red] - Delete cloud data and create new repo\n"
+            "[bold dim][3] Abort[/bold dim] - Cancel and exit\n\n"
+            "[dim]Note: Overwrite will delete ALL data in the repository prefix![/dim]",
+            title="[bold]Cloud Repository Already Exists[/bold]",
+            border_style="yellow",
+        )
+    )
+    console.print()
+
+    while True:
+        choice = typer.prompt(
+            "Your choice",
+            default="1",
+            show_default=True,
+        )
+
+        if choice in ("1", "connect", "c"):
+            return "connect"
+        elif choice in ("2", "overwrite", "o"):
+            return "overwrite"
+        elif choice in ("3", "abort", "a", "q"):
+            return "abort"
+        else:
+            console.print("[yellow]Invalid choice. Please enter 1, 2, or 3.[/yellow]")
+
+
+def _connect_with_password_retry(
+    repo: "KopiaRepository", cfg: Config, max_attempts: int = 3
+) -> bool:
+    """
+    Try to connect to existing repository with password retry loop.
+
+    Prompts for password and saves it to config before each connection attempt.
+    This solves the "chicken-egg" problem where config has wrong password.
+
+    Args:
+        repo: KopiaRepository instance
+        cfg: Config instance for password persistence
+        max_attempts: Maximum number of password attempts (default: 3)
+
+    Returns:
+        True if connection succeeded, False if all attempts failed
+    """
+    console.print()
+    console.print("[cyan]Attempting to connect to existing repository...[/cyan]")
+
+    # First try with current password from config
+    try:
+        repo.connect()
+        print_success("Connected successfully with current password!")
+        return True
+    except Exception as e:
+        logger.debug(f"Initial connect failed: {e}")
+        console.print("[yellow]Current password didn't work.[/yellow]")
+
+    # Password retry loop
+    for attempt in range(1, max_attempts + 1):
+        console.print()
+        console.print(f"[dim]Attempt {attempt}/{max_attempts}[/dim]")
+
+        try:
+            new_password = getpass.getpass("Enter repository password: ")
+
+            if not new_password:
+                console.print("[yellow]Password cannot be empty.[/yellow]")
+                continue
+
+            # Save password IMMEDIATELY before connect attempt
+            console.print("[dim]Saving password to config...[/dim]")
+            cfg.set_password(new_password, use_file=True)
+
+            # Reload config in repo to pick up new password
+            repo.config = Config(cfg.config_file)
+
+            # Try connect
+            repo.connect()
+            print_success("Connected successfully!")
+            return True
+
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "invalid password" in error_msg or "password" in error_msg:
+                console.print("[red]Invalid password.[/red]")
+            else:
+                console.print(f"[red]Connection failed: {e}[/red]")
+
+            if attempt < max_attempts:
+                console.print("[dim]Please try again.[/dim]")
+
+    # All attempts exhausted
+    console.print()
+    print_error(f"Failed to connect after {max_attempts} attempts.")
+    return False
+
+
+def _overwrite_repository(repo: "KopiaRepository", repo_path: Path) -> bool:
+    """
+    Overwrite existing repository after safety confirmation.
+
+    Disconnects from current repo, deletes the directory, recreates it,
+    and initializes a fresh repository.
+
+    Args:
+        repo: KopiaRepository instance
+        repo_path: Path to the repository to overwrite
+
+    Returns:
+        True if overwrite and re-init succeeded, False if user aborted
+    """
+    # Resolve symlinks for accurate display
+    try:
+        resolved_path = repo_path.resolve()
+    except (OSError, RuntimeError):
+        resolved_path = repo_path
+
+    console.print()
+    console.print(
+        Panel.fit(
+            f"[bold red]⚠️  WARNING: DESTRUCTIVE OPERATION ⚠️[/bold red]\n\n"
+            f"This will [bold red]PERMANENTLY DELETE[/bold red] the repository at:\n\n"
+            f"   [bold]{resolved_path}[/bold]\n\n"
+            "[yellow]All existing backups will be LOST![/yellow]\n"
+            "This action CANNOT be undone!",
+            title="[bold red]Confirm Overwrite[/bold red]",
+            border_style="red",
+        )
+    )
+    console.print()
+
+    # Explicit confirmation - must type 'yes'
+    confirm = typer.prompt(
+        "Type 'yes' to confirm deletion",
+        default="no",
+        show_default=True,
+    )
+
+    if confirm.lower() != "yes":
+        console.print("[dim]Aborted. Repository was NOT deleted.[/dim]")
+        return False
+
+    console.print()
+    console.print("[cyan]Overwriting repository...[/cyan]")
+
+    try:
+        # Step 1: Disconnect if connected
+        with contextlib.suppress(Exception):
+            repo.disconnect()
+            console.print("[dim]  ✓ Disconnected from repository[/dim]")
+
+        # Step 2: Delete directory (handle symlinks properly)
+        if resolved_path.exists():
+            # Check if path is a symlink - remove link, not target
+            if repo_path.is_symlink():
+                repo_path.unlink()
+                console.print(f"[dim]  ✓ Removed symlink {repo_path}[/dim]")
+            else:
+                shutil.rmtree(resolved_path)
+                console.print(f"[dim]  ✓ Deleted {resolved_path}[/dim]")
+
+        # Step 3: Recreate directory
+        resolved_path.mkdir(parents=True, exist_ok=True)
+        console.print(f"[dim]  ✓ Created empty directory {resolved_path}[/dim]")
+
+        # Step 4: Initialize fresh repository
+        console.print("[cyan]Initializing new repository...[/cyan]")
+        repo.initialize()
+
+        console.print()
+        print_success("Repository overwritten and re-initialized successfully!")
+        return True
+
+    except PermissionError as e:
+        print_error(f"Permission denied: {e}")
+        print_warning("You may need to run with elevated privileges or check ownership.")
+        return False
+    except OSError as e:
+        # Handle various OS errors (disk full, read-only filesystem, etc.)
+        print_error(f"Filesystem error: {e}")
+        if "Read-only" in str(e):
+            print_warning("The filesystem appears to be read-only.")
+        elif "No space" in str(e):
+            print_warning("Not enough disk space available.")
+        return False
+    except Exception as e:
+        print_error(f"Overwrite failed: {e}")
+        logger.exception("Unexpected error during repository overwrite")
+        return False
+
+
+# -------------------------
 # Commands
 # -------------------------
 
 
-def cmd_init(ctx: typer.Context, config: Optional[Path] = None):
-    """Initialize (or connect to) the Kopia repository."""
+def cmd_init(
+    ctx: typer.Context,
+    config: Optional[Path] = None,
+):
+    """
+    Initialize (or connect to) the Kopia repository.
+
+    Creates a new repository at the configured location.
+    If a repository already exists, Kopia will connect to it.
+
+    Examples:
+        kopi-docka advanced repo init
+    """
     import getpass
 
     _override_config(ctx, config)
@@ -818,7 +1106,7 @@ def cmd_change_password(
     console.print()
     console.print(
         Panel.fit(
-            f"[bold]Repository:[/bold] {repo.repo_path}\n"
+            f"[bold]Repository:[/bold] {repo.kopia_params}\n"
             f"[bold]Profile:[/bold]    {repo.profile_name}",
             title="[bold cyan]Change Repository Password[/bold cyan]",
             border_style="cyan",

@@ -42,10 +42,6 @@ class TestRootCheck:
         result = cli_runner.invoke(app, ["version"])
         assert result.exit_code == 0
 
-        # show-deps
-        result = cli_runner.invoke(app, ["show-deps"])
-        assert result.exit_code == 0
-
         # show-config (might fail on missing config, but not due to root)
         result = cli_runner.invoke(app, ["show-config"])
         # Exit code might be 1 due to missing config, but should not be 13 (EACCES)
@@ -68,13 +64,6 @@ class TestRootCheck:
         output = result.stdout + result.stderr
         assert "Root-Rechte" in output or "benötigt Root" in output
 
-    def test_install_deps_requires_root(self, cli_runner, mock_non_root):
-        """Install-deps command should require root."""
-        result = cli_runner.invoke(app, ["install-deps", "--dry-run"])
-
-        assert result.exit_code == 13
-        output = result.stdout + result.stderr
-        assert "Root-Rechte" in output or "benötigt Root" in output
 
 
 @pytest.mark.unit

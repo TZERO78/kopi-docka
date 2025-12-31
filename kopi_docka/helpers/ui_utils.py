@@ -10,7 +10,7 @@ import shlex
 import subprocess
 import sys
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import typer
 from rich import box
@@ -27,14 +27,11 @@ console = Console()
 logger = get_logger(__name__)
 
 
-def require_sudo(command_name: str = "this command") -> None:
+def require_sudo() -> None:
     """
     Check if running with sudo/root privileges.
 
     Exits with clear error message if not running as root.
-
-    Args:
-        command_name: Name of command requiring sudo (for error message)
 
     Raises:
         typer.Exit: If not running as root
@@ -475,6 +472,7 @@ def run_command(
     - Live output streaming for long-running commands
     - Rich error panels instead of raw stderr dumps
     - Integrated logging with duration tracking
+    - Automatic subprocess tracking for zombie prevention (v5.5.0)
 
     Args:
         cmd: Command to execute. Can be a string ("docker ps") or list (["docker", "ps"]).
@@ -512,6 +510,9 @@ def run_command(
             env={"KOPIA_PASSWORD": "secret"}
         )
     """
+    # Lazy import to avoid circular dependency
+    from ..cores.safe_exit_manager import SafeExitManager
+
     # Convert string command to list
     if isinstance(cmd, str):
         cmd_list = shlex.split(cmd)
@@ -528,27 +529,73 @@ def run_command(
         run_env.update(env)
 
     start_time = time.time()
+    safe_exit = SafeExitManager.get_instance()
+    cleanup_id = None
+    process = None
 
     try:
         if show_output:
             # Live output mode: no spinner, stream to console
             console.print(f"[cyan]→[/cyan] {escape(description)}")
-            result = subprocess.run(
+
+            # Start process without capturing output
+            process = subprocess.Popen(
                 cmd_list,
                 env=run_env,
-                timeout=timeout,
                 text=True,
                 # Don't capture - let output flow to terminal
+                stdout=None,
+                stderr=None,
             )
+
+            # Register for cleanup tracking
+            cleanup_id = safe_exit.register_process(process.pid, cmd_str[:50])
+
+            # Wait for completion
+            try:
+                process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+                raise
+
+            # Build result object
+            result = subprocess.CompletedProcess(
+                args=cmd_list,
+                returncode=process.returncode,
+                stdout="",  # Not captured in live mode
+                stderr="",
+            )
+
         else:
             # Spinner mode: capture output, show spinner
             with console.status(f"[cyan]{description}...[/cyan]", spinner="dots"):
-                result = subprocess.run(
+                # Start process with captured output
+                process = subprocess.Popen(
                     cmd_list,
                     env=run_env,
-                    timeout=timeout,
-                    capture_output=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                     text=True,
+                )
+
+                # Register for cleanup tracking
+                cleanup_id = safe_exit.register_process(process.pid, cmd_str[:50])
+
+                # Wait for completion and capture output
+                try:
+                    stdout, stderr = process.communicate(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    stdout, stderr = process.communicate()
+                    raise
+
+                # Build result object
+                result = subprocess.CompletedProcess(
+                    args=cmd_list,
+                    returncode=process.returncode,
+                    stdout=stdout or "",
+                    stderr=stderr or "",
                 )
 
         duration = time.time() - start_time
@@ -630,3 +677,8 @@ def run_command(
             stdout="",
             stderr=f"Command timed out after {timeout} seconds",
         )
+
+    finally:
+        # Always deregister process from tracking
+        if cleanup_id is not None:
+            safe_exit.unregister_process(cleanup_id)

@@ -198,6 +198,374 @@ class TestBackupScope:
 
 
 # =============================================================================
+# Backup Scope Tag Tests
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestBackupScopeTag:
+    """Tests for backup_scope tag in snapshots."""
+
+    def test_volume_snapshot_includes_scope_tag_minimal(self):
+        """Volume snapshots should include backup_scope tag (minimal)."""
+        manager = make_backup_manager()
+        manager.repo.create_snapshot.return_value = "snap-vol-123"
+
+        volume = VolumeInfo(
+            name="mydata",
+            driver="local",
+            mountpoint="/tmp/test_volume",
+            size_bytes=2048,
+        )
+        unit = make_backup_unit(name="mystack")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            volume.mountpoint = tmpdir
+            manager._backup_volume_direct(volume, unit, "backup-id-123", BACKUP_SCOPE_MINIMAL)
+
+        # Verify tags include backup_scope
+        call_args = manager.repo.create_snapshot.call_args
+        tags = call_args[1]["tags"]
+        assert tags["backup_scope"] == BACKUP_SCOPE_MINIMAL
+        assert tags["type"] == "volume"
+        assert tags["backup_id"] == "backup-id-123"
+
+    def test_volume_snapshot_includes_scope_tag_standard(self):
+        """Volume snapshots should include backup_scope tag (standard)."""
+        manager = make_backup_manager()
+        manager.repo.create_snapshot.return_value = "snap-vol-456"
+
+        volume = VolumeInfo(
+            name="mydata",
+            driver="local",
+            mountpoint="/tmp/test_volume",
+            size_bytes=2048,
+        )
+        unit = make_backup_unit(name="mystack")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            volume.mountpoint = tmpdir
+            manager._backup_volume_direct(volume, unit, "backup-id-456", BACKUP_SCOPE_STANDARD)
+
+        call_args = manager.repo.create_snapshot.call_args
+        tags = call_args[1]["tags"]
+        assert tags["backup_scope"] == BACKUP_SCOPE_STANDARD
+
+    def test_volume_snapshot_includes_scope_tag_full(self):
+        """Volume snapshots should include backup_scope tag (full)."""
+        manager = make_backup_manager()
+        manager.repo.create_snapshot.return_value = "snap-vol-789"
+
+        volume = VolumeInfo(
+            name="mydata",
+            driver="local",
+            mountpoint="/tmp/test_volume",
+            size_bytes=2048,
+        )
+        unit = make_backup_unit(name="mystack")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            volume.mountpoint = tmpdir
+            manager._backup_volume_direct(volume, unit, "backup-id-789", BACKUP_SCOPE_FULL)
+
+        call_args = manager.repo.create_snapshot.call_args
+        tags = call_args[1]["tags"]
+        assert tags["backup_scope"] == BACKUP_SCOPE_FULL
+
+    @patch("pathlib.Path.write_text")
+    @patch("pathlib.Path.mkdir")
+    @patch("pathlib.Path.iterdir", return_value=[])
+    @patch("kopi_docka.cores.backup_manager.run_command")
+    def test_recipe_snapshot_includes_scope_tag(
+        self, mock_run, mock_iterdir, mock_mkdir, mock_write_text
+    ):
+        """Recipe snapshots should include backup_scope tag."""
+        manager = make_backup_manager()
+        manager.repo.create_snapshot.return_value = "snap-recipe-123"
+
+        # Mock docker inspect response
+        inspect_data = [{"Config": {"Env": ["VAR=value"]}}]
+        mock_run.return_value = CompletedProcess(
+            [], 0, stdout=json.dumps(inspect_data), stderr=""
+        )
+
+        unit = make_backup_unit(name="mystack")
+        unit.compose_files = []  # No compose files for simplicity
+
+        manager._backup_recipes(unit, "backup-id-123", BACKUP_SCOPE_FULL)
+
+        call_args = manager.repo.create_snapshot.call_args
+        tags = call_args[1]["tags"]
+        assert tags["backup_scope"] == BACKUP_SCOPE_FULL
+        assert tags["type"] == "recipe"
+        assert tags["backup_id"] == "backup-id-123"
+
+    @patch("pathlib.Path.write_text")
+    @patch("pathlib.Path.mkdir")
+    @patch("pathlib.Path.iterdir", return_value=[])
+    @patch("kopi_docka.cores.backup_manager.run_command")
+    def test_network_snapshot_includes_scope_tag(
+        self, mock_run, mock_iterdir, mock_mkdir, mock_write_text
+    ):
+        """Network snapshots should include backup_scope tag."""
+        manager = make_backup_manager()
+        manager.repo.create_snapshot.return_value = "snap-network-123"
+
+        # Mock network inspect response
+        network_data = [{"Name": "mynet", "Driver": "bridge", "IPAM": {}}]
+        mock_run.return_value = CompletedProcess(
+            [], 0, stdout=json.dumps(network_data), stderr=""
+        )
+
+        unit = make_backup_unit(name="mystack")
+        # Add custom network to container inspect data
+        unit.containers[0].inspect_data = {
+            "NetworkSettings": {"Networks": {"mynet": {}, "bridge": {}}}
+        }
+
+        snapshot_id, count = manager._backup_networks(unit, "backup-id-123", BACKUP_SCOPE_STANDARD)
+
+        assert snapshot_id == "snap-network-123"
+        call_args = manager.repo.create_snapshot.call_args
+        tags = call_args[1]["tags"]
+        assert tags["backup_scope"] == BACKUP_SCOPE_STANDARD
+        assert tags["type"] == "networks"
+        assert tags["backup_id"] == "backup-id-123"
+
+    @patch("kopi_docka.cores.backup_manager.subprocess.Popen")
+    def test_volume_tar_snapshot_includes_scope_tag(self, mock_popen):
+        """TAR volume snapshots should include backup_scope tag."""
+        manager = make_backup_manager()
+        manager.exclude_patterns = []
+
+        volume = VolumeInfo(
+            name="mydata",
+            driver="local",
+            mountpoint="/var/lib/docker/volumes/mydata/_data",
+            size_bytes=2048,
+        )
+        unit = make_backup_unit(name="mystack")
+
+        # Mock tar process
+        mock_process = Mock()
+        mock_process.stdout = Mock()
+        mock_process.returncode = 0
+        mock_process.wait.return_value = None
+        mock_popen.return_value = mock_process
+
+        manager.repo.create_snapshot_from_stdin = Mock(return_value="snap-tar-123")
+
+        manager._backup_volume_tar(volume, unit, "backup-id-123", BACKUP_SCOPE_MINIMAL)
+
+        # Verify snapshot tags
+        call_args = manager.repo.create_snapshot_from_stdin.call_args
+        tags = call_args[1]["tags"]
+        assert tags["backup_scope"] == BACKUP_SCOPE_MINIMAL
+        assert tags["type"] == "volume"
+        assert tags["backup_id"] == "backup-id-123"
+
+    @patch("kopi_docka.cores.backup_manager.run_command")
+    def test_all_snapshots_have_same_scope_in_backup_unit(self, mock_run):
+        """All snapshots in a backup_unit should have the same backup_scope tag."""
+        mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
+        manager = make_backup_manager()
+        manager.repo.create_snapshot.return_value = "snap123"
+        unit = make_backup_unit(volumes=2)
+
+        # Make volume paths exist
+        with patch.object(Path, "exists", return_value=True):
+            with patch.object(Path, "is_dir", return_value=True):
+                with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
+                    with patch.object(
+                        manager, "_backup_networks", return_value=("net_snap", 1)
+                    ):
+                        metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_FULL)
+
+        # Check that all snapshot calls used the same backup_scope
+        scopes = set()
+        for call_args in manager.repo.create_snapshot.call_args_list:
+            tags = call_args[1].get("tags", {}) if call_args[1] else call_args[0][1]
+            if "backup_scope" in tags:
+                scopes.add(tags["backup_scope"])
+
+        # All snapshots should share the same backup_scope
+        assert len(scopes) == 1
+        assert BACKUP_SCOPE_FULL in scopes
+
+
+# =============================================================================
+# Docker Config Backup Tests
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestBackupDockerConfig:
+    """Tests for _backup_docker_config method."""
+
+    @patch("pathlib.Path.mkdir")
+    @patch("pathlib.Path.iterdir", return_value=[])
+    @patch("shutil.copy2")
+    def test_backs_up_daemon_json_when_present(self, mock_copy2, mock_iterdir, mock_mkdir):
+        """Should backup daemon.json when it exists."""
+        manager = make_backup_manager()
+        manager.repo.create_snapshot.return_value = "snap-docker-123"
+        unit = make_backup_unit(name="mystack")
+
+        # Create a mock that returns True for daemon.json, False for systemd
+        original_path = Path
+
+        class MockPath(type(Path())):
+            def exists(self):
+                return "/etc/docker/daemon.json" in str(self)
+
+            def is_file(self):
+                return "/etc/docker/daemon.json" in str(self)
+
+            def is_dir(self):
+                return False
+
+        with patch("kopi_docka.cores.backup_manager.Path", MockPath):
+            result = manager._backup_docker_config(unit, "backup-id-123", BACKUP_SCOPE_FULL)
+
+        assert result == "snap-docker-123"
+        mock_copy2.assert_called_once()
+
+        # Verify snapshot tags
+        call_args = manager.repo.create_snapshot.call_args
+        tags = call_args[1]["tags"]
+        assert tags["type"] == "docker_config"
+        assert tags["backup_scope"] == BACKUP_SCOPE_FULL
+        assert tags["backup_id"] == "backup-id-123"
+        assert "daemon.json" in tags["files"]
+
+    @patch("pathlib.Path.mkdir")
+    @patch("pathlib.Path.iterdir", return_value=[])
+    @patch("shutil.copytree")
+    def test_backs_up_systemd_overrides_when_present(self, mock_copytree, mock_iterdir, mock_mkdir):
+        """Should backup systemd overrides when they exist."""
+        manager = make_backup_manager()
+        manager.repo.create_snapshot.return_value = "snap-docker-456"
+        unit = make_backup_unit(name="mystack")
+
+        # Create a mock that returns True for systemd, False for daemon.json
+        class MockPath(type(Path())):
+            def exists(self):
+                return "docker.service.d" in str(self)
+
+            def is_file(self):
+                return False
+
+            def is_dir(self):
+                return "docker.service.d" in str(self)
+
+        with patch("kopi_docka.cores.backup_manager.Path", MockPath):
+            result = manager._backup_docker_config(unit, "backup-id-456", BACKUP_SCOPE_FULL)
+
+        assert result == "snap-docker-456"
+        mock_copytree.assert_called_once()
+
+        # Verify snapshot tags
+        call_args = manager.repo.create_snapshot.call_args
+        tags = call_args[1]["tags"]
+        assert tags["type"] == "docker_config"
+        assert "docker.service.d/" in tags["files"]
+
+    @patch("pathlib.Path.mkdir")
+    @patch("pathlib.Path.iterdir", return_value=[])
+    @patch("pathlib.Path.exists", return_value=False)
+    def test_returns_none_when_no_config_files_exist(self, mock_exists, mock_iterdir, mock_mkdir):
+        """Should return None when no config files are found."""
+        manager = make_backup_manager()
+        unit = make_backup_unit(name="mystack")
+
+        result = manager._backup_docker_config(unit, "backup-id-789", BACKUP_SCOPE_FULL)
+
+        assert result is None
+        manager.repo.create_snapshot.assert_not_called()
+
+    @patch("pathlib.Path.mkdir")
+    @patch("pathlib.Path.iterdir", return_value=[])
+    @patch("shutil.copy2", side_effect=PermissionError("Access denied"))
+    def test_handles_permission_error_gracefully(self, mock_copy2, mock_iterdir, mock_mkdir):
+        """Should handle permission errors and return None."""
+        manager = make_backup_manager()
+        unit = make_backup_unit(name="mystack")
+
+        # Create a mock that returns True for daemon.json but copy2 will fail
+        class MockPath(type(Path())):
+            def exists(self):
+                return "/etc/docker/daemon.json" in str(self)
+
+            def is_file(self):
+                return "/etc/docker/daemon.json" in str(self)
+
+            def is_dir(self):
+                return False
+
+        with patch("kopi_docka.cores.backup_manager.Path", MockPath):
+            result = manager._backup_docker_config(unit, "backup-id-999", BACKUP_SCOPE_FULL)
+
+        # Should return None since no files were successfully backed up
+        assert result is None
+
+    @patch("kopi_docka.cores.backup_manager.run_command")
+    def test_full_scope_calls_docker_config_backup(self, mock_run):
+        """FULL scope should call _backup_docker_config."""
+        mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
+        manager = make_backup_manager()
+        unit = make_backup_unit()
+
+        with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
+            with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
+                with patch.object(manager, "_backup_volume", return_value="vol_snap"):
+                    with patch.object(
+                        manager, "_backup_docker_config", return_value="docker_snap"
+                    ) as mock_docker_config:
+                        metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_FULL)
+
+        mock_docker_config.assert_called_once()
+        assert metadata.docker_config_backed_up is True
+        assert "docker_snap" in metadata.kopia_snapshot_ids
+
+    @patch("kopi_docka.cores.backup_manager.run_command")
+    def test_standard_scope_skips_docker_config_backup(self, mock_run):
+        """STANDARD scope should NOT call _backup_docker_config."""
+        mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
+        manager = make_backup_manager()
+        unit = make_backup_unit()
+
+        with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
+            with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
+                with patch.object(manager, "_backup_volume", return_value="vol_snap"):
+                    with patch.object(
+                        manager, "_backup_docker_config"
+                    ) as mock_docker_config:
+                        metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_STANDARD)
+
+        mock_docker_config.assert_not_called()
+        assert metadata.docker_config_backed_up is False
+
+    @patch("kopi_docka.cores.backup_manager.run_command")
+    def test_docker_config_failure_does_not_fail_backup(self, mock_run):
+        """Docker config backup failure should not fail the entire backup."""
+        mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
+        manager = make_backup_manager()
+        unit = make_backup_unit()
+
+        with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
+            with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
+                with patch.object(manager, "_backup_volume", return_value="vol_snap"):
+                    with patch.object(
+                        manager, "_backup_docker_config", return_value=None
+                    ):  # Simulate failure
+                        metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_FULL)
+
+        # Backup should still succeed
+        assert metadata.success is True
+        assert metadata.docker_config_backed_up is False
+
+
+# =============================================================================
 # Container Stop/Start Order Tests
 # =============================================================================
 
@@ -681,7 +1049,7 @@ class TestBackupVolumeDirect:
         with tempfile.TemporaryDirectory() as tmpdir:
             volume.mountpoint = tmpdir
 
-            result = manager._backup_volume_direct(volume, unit, "backup-uuid-123")
+            result = manager._backup_volume_direct(volume, unit, "backup-uuid-123", BACKUP_SCOPE_STANDARD)
 
         assert result == "snap123"
 
@@ -705,7 +1073,7 @@ class TestBackupVolumeDirect:
         )
         unit = make_backup_unit()
 
-        result = manager._backup_volume_direct(volume, unit, "backup-id")
+        result = manager._backup_volume_direct(volume, unit, "backup-id", BACKUP_SCOPE_STANDARD)
 
         assert result is None
 
@@ -724,7 +1092,7 @@ class TestBackupVolumeDirect:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             volume.mountpoint = tmpdir
-            manager._backup_volume_direct(volume, unit, "backup-id")
+            manager._backup_volume_direct(volume, unit, "backup-id", BACKUP_SCOPE_STANDARD)
 
         call_args = manager.repo.create_snapshot.call_args
         assert call_args[1]["exclude_patterns"] == ["*.log", "cache/*"]
@@ -751,7 +1119,7 @@ class TestParallelBackup:
         # Track which volumes were backed up
         backed_up_volumes = []
 
-        def track_backup(volume, unit, backup_id):
+        def track_backup(volume, unit, backup_id, backup_scope):
             backed_up_volumes.append(volume.name)
             return f"snap_{volume.name}"
 
@@ -778,7 +1146,7 @@ class TestParallelBackup:
         # First volume fails (returns None), others succeed
         call_count = [0]
 
-        def backup_with_failure(volume, unit, backup_id):
+        def backup_with_failure(volume, unit, backup_id, backup_scope):
             call_count[0] += 1
             if call_count[0] == 1:
                 return None  # First volume fails
@@ -808,7 +1176,7 @@ class TestParallelBackup:
         # Second volume raises exception, others succeed
         call_count = [0]
 
-        def backup_with_exception(volume, unit, backup_id):
+        def backup_with_exception(volume, unit, backup_id, backup_scope):
             call_count[0] += 1
             if call_count[0] == 2:
                 raise Exception("Volume backup failed: disk error")
@@ -1069,7 +1437,7 @@ class TestEdgeCases:
         )
 
         # Mock _backup_recipes to simulate empty compose files
-        def mock_backup_recipes(unit, backup_id):
+        def mock_backup_recipes(unit, backup_id, backup_scope):
             # Should handle empty compose_files gracefully
             if not unit.compose_files:
                 return None  # Or could return empty snapshot
@@ -1332,7 +1700,7 @@ class TestBackupVolumeTar:
         # Mock repo.create_snapshot_from_stdin
         manager.repo.create_snapshot_from_stdin = Mock(return_value="snap123")
 
-        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123")
+        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123", BACKUP_SCOPE_STANDARD)
 
         assert result == "snap123"
 
@@ -1377,7 +1745,7 @@ class TestBackupVolumeTar:
 
         manager.repo.create_snapshot_from_stdin = Mock(return_value="snap123")
 
-        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123")
+        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123", BACKUP_SCOPE_STANDARD)
 
         # Verify exclude patterns are in command
         tar_call = mock_popen.call_args[0][0]
@@ -1417,7 +1785,7 @@ class TestBackupVolumeTar:
 
         manager.repo.create_snapshot_from_stdin = Mock(return_value="snap123")
 
-        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123")
+        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123", BACKUP_SCOPE_STANDARD)
 
         # Verify snapshot tags
         call_args = manager.repo.create_snapshot_from_stdin.call_args
@@ -1451,7 +1819,7 @@ class TestBackupVolumeTar:
 
         manager.repo.create_snapshot_from_stdin = Mock(return_value="snap123")
 
-        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123")
+        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123", BACKUP_SCOPE_STANDARD)
 
         # Should return None on tar failure
         assert result is None
@@ -1473,7 +1841,7 @@ class TestBackupVolumeTar:
         # Mock Popen to raise exception
         mock_popen.side_effect = Exception("Tar command failed")
 
-        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123")
+        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123", BACKUP_SCOPE_STANDARD)
 
         # Should handle exception and return None
         assert result is None
@@ -1501,7 +1869,7 @@ class TestBackupVolumeTar:
 
         manager.repo.create_snapshot_from_stdin = Mock(return_value="snap123")
 
-        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123")
+        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123", BACKUP_SCOPE_STANDARD)
 
         # Verify Popen was called with stdout=PIPE
         call_kwargs = mock_popen.call_args[1]
@@ -1548,7 +1916,7 @@ class TestBackupRecipes:
         unit = make_backup_unit(containers=1)
         unit.compose_files = []  # No compose files for simplicity
 
-        result = manager._backup_recipes(unit, "backup-id")
+        result = manager._backup_recipes(unit, "backup-id", BACKUP_SCOPE_STANDARD)
 
         assert result == "snap123"
         manager.repo.create_snapshot.assert_called_once()
@@ -1644,7 +2012,7 @@ class TestBackupNetworks:
             "NetworkSettings": {"Networks": {"mynet": {}, "bridge": {}}}
         }
 
-        snapshot_id, count = manager._backup_networks(unit, "backup-id")
+        snapshot_id, count = manager._backup_networks(unit, "backup-id", BACKUP_SCOPE_STANDARD)
 
         assert snapshot_id == "net_snap123"
         assert count == 1
@@ -1658,7 +2026,7 @@ class TestBackupNetworks:
         for container in unit.containers:
             container.inspect_data = {"NetworkSettings": {"Networks": {"bridge": {}, "host": {}}}}
 
-        snapshot_id, count = manager._backup_networks(unit, "backup-id")
+        snapshot_id, count = manager._backup_networks(unit, "backup-id", BACKUP_SCOPE_STANDARD)
 
         assert snapshot_id is None
         assert count == 0
@@ -2066,7 +2434,7 @@ class TestPrepareStagingDir:
         with patch.object(manager, "_prepare_staging_dir", return_value=staging_path) as mock_prepare:
             with patch("pathlib.Path.mkdir"), \
                  patch("pathlib.Path.write_text"):
-                result = manager._backup_recipes(unit, "backup123")
+                result = manager._backup_recipes(unit, "backup123", BACKUP_SCOPE_STANDARD)
 
                 # Verify _prepare_staging_dir was called with correct args
                 mock_prepare.assert_called_once_with("recipes", "testapp")
@@ -2116,7 +2484,7 @@ class TestPrepareStagingDir:
         with patch.object(manager, "_prepare_staging_dir", return_value=staging_path) as mock_prepare:
             with patch("kopi_docka.cores.backup_manager.run_command", return_value=mock_result), \
                  patch("pathlib.Path.write_text"):
-                snapshot_id, network_count = manager._backup_networks(unit, "backup456")
+                snapshot_id, network_count = manager._backup_networks(unit, "backup456", BACKUP_SCOPE_STANDARD)
 
                 # Verify _prepare_staging_dir was called with correct args
                 mock_prepare.assert_called_once_with("networks", "myapp")

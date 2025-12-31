@@ -7,10 +7,8 @@ Defines the interface that all backend implementations must follow.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..i18n import _
 
 
 class BackendBase(ABC):

@@ -118,20 +118,23 @@ make test-coverage
 
 ## Status & Development
 
-### Current Version: v3.3.0
+### Current Version: v5.5.1
 
-Version 3.3.0 brings **production-ready features** for advanced backup scenarios:
-- ✅ **Backup Scope Selection** - minimal/standard/full
-- ✅ **Docker Network Backup** - Complete IPAM configuration
-- ✅ **Pre/Post Backup Hooks** - Custom scripts for maintenance mode
-- ✅ **Conflict Detection** - Interactive restore with conflict resolution
+Version 5.5.1 brings **enhanced backup scope tracking and Docker config backup**:
+- ✅ **Backup Scope Tracking** - All snapshots include backup_scope tag (minimal/standard/full)
+- ✅ **Docker Config Backup** - FULL scope backs up Docker daemon configuration
+- ✅ **Restore Scope Detection** - Automatic warnings for minimal scope backups
+- ✅ **Enhanced Setup Wizard** - Interactive scope selection with clear descriptions
+- ✅ **Manual Docker Config Restore** - New `show-docker-config` command for safe daemon.json restoration
+- ✅ **Hard/Soft Gate Dependencies** - Simplified dependency system (v5.5.0)
+- ✅ **Think Simple Philosophy** - User-managed dependencies, no auto-install
 - ✅ Modular structure (helpers, cores, commands)
 - ✅ JSON config with hooks support
 - ✅ Production-ready systemd integration
 - ✅ Comprehensive journald logging
 
 **The project lives from testing and feedback!** Current priorities:
-1. **Testing** - Thoroughly test new v3.3.0 features
+1. **Testing** - Thoroughly test new v5.5.1 features (scope tracking, docker config backup)
 2. **Bug-Fixing** - Fix known issues
 3. **Stability** - Improve robustness
 4. **Documentation** - User guides and best practices

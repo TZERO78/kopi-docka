@@ -33,8 +33,6 @@ from rich import box
 # Note: From advanced/ we need ...helpers (go up two levels)
 from ...helpers import Config, get_logger, extract_filesystem_path
 from ...helpers.ui_utils import (
-    print_success,
-    print_error,
     print_warning,
     print_error_panel,
 )
