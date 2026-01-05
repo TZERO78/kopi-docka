@@ -155,9 +155,15 @@ pipx ensurepath
 # Install Kopi-Docka
 pipx install kopi-docka
 
+# Make available for sudo (pipx installs to ~/.local/bin)
+sudo ln -s ~/.local/bin/kopi-docka /usr/local/bin/kopi-docka
+
 # Verify
 kopi-docka version
+sudo kopi-docka version
 ```
+
+> **Why the symlink?** pipx installs to `~/.local/bin/` which is not in root's PATH. The symlink makes `sudo kopi-docka` work. Alternative: use full path `sudo ~/.local/bin/kopi-docka` or `sudo -E kopi-docka`.
 
 **With pip (System-wide):**
 ```bash
@@ -295,6 +301,31 @@ kopi-docka version
 ---
 
 ## Troubleshooting
+
+### "command not found" when using sudo kopi-docka
+
+**Problem:** After pipx installation, `sudo kopi-docka` fails with "command not found".
+
+**Cause:** pipx installs to `~/.local/bin/` which is not in root's PATH.
+
+**Solutions:**
+
+**Option 1: Create symlink (recommended)**
+```bash
+sudo ln -s ~/.local/bin/kopi-docka /usr/local/bin/kopi-docka
+```
+
+**Option 2: Use full path**
+```bash
+sudo ~/.local/bin/kopi-docka backup
+```
+
+**Option 3: Preserve PATH**
+```bash
+sudo -E env "PATH=$PATH" kopi-docka backup
+```
+
+---
 
 ### "Cannot proceed - required dependencies missing"
 

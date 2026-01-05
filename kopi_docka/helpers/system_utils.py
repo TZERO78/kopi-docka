@@ -45,11 +45,29 @@ def _is_remote_path(path_str: str) -> bool:
 
 def _disk_probe_base(path: str) -> str:
     """
-    Ensure we pass a local filesystem path to psutil. For remote URLs
-    fall back to '/' to avoid exceptions.
+    Return a valid filesystem path for disk space probing.
+    
+    For remote URLs (s3://, b2://, etc.): returns '/'
+    For local paths: walks up to nearest existing parent, falls back to '/'
+    
+    Args:
+        path: Path to probe (local or remote URL)
+        
+    Returns:
+        Existing filesystem path safe for psutil.disk_usage()
     """
+    if _is_remote_path(path):
+        return "/"
+    
     try:
-        return "/" if _is_remote_path(path) else str(Path(path))
+        probe_path = Path(path)
+        # Walk up directory tree to find first existing parent
+        while not probe_path.exists():
+            parent = probe_path.parent
+            if parent == probe_path:  # Reached filesystem root
+                return "/"
+            probe_path = parent
+        return str(probe_path)
     except Exception:
         return "/"
 

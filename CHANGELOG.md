@@ -5,6 +5,22 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.0.1] - 2026-01-05
+
+### 🐛 Fixed
+- **dry-run crash on fresh installation (#57):** Fixed `[Errno 2] No such file or directory` error when configured work directory doesn't exist yet
+  - `_disk_probe_base()` now walks up directory tree to find nearest existing parent
+  - Handles edge cases: non-existent nested paths, remote URLs, filesystem root
+  - Added 17 unit tests for comprehensive coverage
+
+### 📝 Documentation
+- **pipx installation improvements (#56):** Added instructions for making `sudo kopi-docka` work after pipx installation
+  - README.md: Added symlink command after pipx install
+  - docs/INSTALLATION.md: Added troubleshooting section with 3 solution options
+  - Explains why pipx's `~/.local/bin/` is not in root's PATH
+
+---
+
 ## [6.0.0] - 2025-12-31
 
 ### 🎉 Major Release: Stability & Safety
