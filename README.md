@@ -55,6 +55,9 @@ kopia --version
 # Recommended: pipx (isolated environment)
 pipx install kopi-docka
 
+# Make available for sudo (pipx installs to ~/.local/bin)
+sudo ln -s ~/.local/bin/kopi-docka /usr/local/bin/kopi-docka
+
 # Or: pip (system-wide)
 pip install kopi-docka
 
