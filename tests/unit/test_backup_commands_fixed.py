@@ -52,6 +52,7 @@ class TestBackupCommand:
         output = result.stdout + result.stderr
         assert "Root-Rechte" in output or "benötigt Root" in output
 
+    @patch("kopi_docka.cores.dependency_manager.DependencyManager")
     @patch("kopi_docka.commands.backup_commands.DockerDiscovery")
     @patch("kopi_docka.commands.backup_commands.BackupManager")
     @patch("kopi_docka.commands.backup_commands.KopiaRepository")
@@ -60,12 +61,17 @@ class TestBackupCommand:
         mock_repo_class,
         mock_manager_class,
         mock_discovery_class,
+        mock_dep_manager_class,
         capsys,
         mock_root,
         mock_ctx,
         mock_backup_unit,
     ):
         """backup processes all discovered units (direct function test)."""
+        # Mock DependencyManager to bypass hard gate check
+        mock_dep_manager = mock_dep_manager_class.return_value
+        mock_dep_manager.check_hard_gate.return_value = None
+
         # Setup mocks
         mock_discovery = mock_discovery_class.return_value
         mock_discovery.discover_backup_units.return_value = [mock_backup_unit]
@@ -106,10 +112,17 @@ class TestRestoreCommand:
         output = result.stdout + result.stderr
         assert "Root-Rechte" in output or "benötigt Root" in output
 
+    @patch("kopi_docka.cores.dependency_manager.DependencyManager")
     @patch("kopi_docka.commands.backup_commands.RestoreManager")
     @patch("kopi_docka.commands.backup_commands.KopiaRepository")
-    def test_restore_interactive(self, mock_repo_class, mock_restore_class, mock_root, mock_ctx):
+    def test_restore_interactive(
+        self, mock_repo_class, mock_restore_class, mock_dep_manager_class, mock_root, mock_ctx
+    ):
         """restore launches interactive wizard (direct function test)."""
+        # Mock DependencyManager to bypass hard gate check
+        mock_dep_manager = mock_dep_manager_class.return_value
+        mock_dep_manager.check_hard_gate.return_value = None
+
         mock_repo = mock_repo_class.return_value
         mock_repo.is_connected.return_value = True
         mock_ctx.obj["repository"] = mock_repo

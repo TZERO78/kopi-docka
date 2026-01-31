@@ -20,16 +20,21 @@ class TestVersionCommand:
 
         assert result.exit_code == 0
         assert "Kopi-Docka" in result.stdout
-        assert "1.0.0" in result.stdout or "2.0.0" in result.stdout
+        assert "1.0.0" in result.stdout or "2.0.0" in result.stdout or "6.0.0" in result.stdout
 
     def test_version_command_format(self, cli_runner):
         """Version output should have correct format."""
         result = cli_runner.invoke(app, ["version"])
 
         assert result.exit_code == 0
+        # Look for version line anywhere in output (config creation message may appear first)
         lines = result.stdout.strip().split("\n")
-        assert len(lines) >= 1
-        assert lines[0].startswith("Kopi-Docka")
+        version_line = None
+        for line in lines:
+            if line.startswith("Kopi-Docka"):
+                version_line = line
+                break
+        assert version_line is not None, f"Expected 'Kopi-Docka' line in output: {result.stdout}"
 
 
 @pytest.mark.unit

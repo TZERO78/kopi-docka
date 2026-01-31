@@ -78,6 +78,7 @@ class TestBackupCommand:
         output = result.stdout + result.stderr
         assert "Root-Rechte" in output or "benötigt Root" in output
 
+    @patch("kopi_docka.cores.dependency_manager.DependencyManager")
     @patch("kopi_docka.commands.backup_commands.DockerDiscovery")
     @patch("kopi_docka.commands.backup_commands.BackupManager")
     @patch("kopi_docka.commands.backup_commands.KopiaRepository")
@@ -86,6 +87,7 @@ class TestBackupCommand:
         mock_repo_class,
         mock_manager_class,
         mock_discovery_class,
+        mock_dep_manager_class,
         cli_runner,
         mock_root,
         tmp_config,
@@ -93,6 +95,7 @@ class TestBackupCommand:
     ):
         """backup processes all discovered units."""
         # Setup mocks
+        mock_dep_manager_class.return_value.check_hard_gate.return_value = None
         mock_discovery = mock_discovery_class.return_value
         mock_discovery.discover_backup_units.return_value = [mock_backup_unit]
 
@@ -119,6 +122,7 @@ class TestBackupCommand:
         assert "completed" in result.stdout
         mock_manager.backup_unit.assert_called_once()
 
+    @patch("kopi_docka.cores.dependency_manager.DependencyManager")
     @patch("kopi_docka.commands.backup_commands.DockerDiscovery")
     @patch("kopi_docka.commands.backup_commands.BackupManager")
     @patch("kopi_docka.commands.backup_commands.KopiaRepository")
@@ -127,12 +131,14 @@ class TestBackupCommand:
         mock_repo_class,
         mock_manager_class,
         mock_discovery_class,
+        mock_dep_manager_class,
         cli_runner,
         mock_root,
         tmp_config,
         mock_backup_unit,
     ):
         """backup --unit NAME processes only specified unit."""
+        mock_dep_manager_class.return_value.check_hard_gate.return_value = None
         mock_discovery = mock_discovery_class.return_value
         mock_discovery.discover_backup_units.return_value = [mock_backup_unit]
 
@@ -150,6 +156,7 @@ class TestBackupCommand:
         assert result.exit_code == 0
         mock_manager.backup_unit.assert_called_once()
 
+    @patch("kopi_docka.cores.dependency_manager.DependencyManager")
     @patch("kopi_docka.commands.backup_commands.DockerDiscovery")
     @patch("kopi_docka.commands.backup_commands.DryRunReport")
     @patch("kopi_docka.commands.backup_commands.KopiaRepository")
@@ -158,12 +165,14 @@ class TestBackupCommand:
         mock_repo_class,
         mock_report_class,
         mock_discovery_class,
+        mock_dep_manager_class,
         cli_runner,
         mock_root,
         tmp_config,
         mock_backup_unit,
     ):
         """backup --dry-run simulates without actual backup."""
+        mock_dep_manager_class.return_value.check_hard_gate.return_value = None
         mock_discovery = mock_discovery_class.return_value
         mock_discovery.discover_backup_units.return_value = [mock_backup_unit]
 
@@ -177,6 +186,7 @@ class TestBackupCommand:
         assert result.exit_code == 0
         mock_report.generate.assert_called_once()
 
+    @patch("kopi_docka.cores.dependency_manager.DependencyManager")
     @patch("kopi_docka.commands.backup_commands.DockerDiscovery")
     @patch("kopi_docka.commands.backup_commands.BackupManager")
     @patch("kopi_docka.commands.backup_commands.KopiaRepository")
@@ -185,12 +195,14 @@ class TestBackupCommand:
         mock_repo_class,
         mock_manager_class,
         mock_discovery_class,
+        mock_dep_manager_class,
         cli_runner,
         mock_root,
         tmp_config,
         mock_backup_unit,
     ):
         """backup shows errors from BackupManager."""
+        mock_dep_manager_class.return_value.check_hard_gate.return_value = None
         mock_discovery = mock_discovery_class.return_value
         mock_discovery.discover_backup_units.return_value = [mock_backup_unit]
 
@@ -224,12 +236,14 @@ class TestRestoreCommand:
         output = result.stdout + result.stderr
         assert "Root-Rechte" in output or "benötigt Root" in output
 
+    @patch("kopi_docka.cores.dependency_manager.DependencyManager")
     @patch("kopi_docka.commands.backup_commands.RestoreManager")
     @patch("kopi_docka.commands.backup_commands.KopiaRepository")
     def test_restore_interactive(
-        self, mock_repo_class, mock_restore_class, cli_runner, mock_root, tmp_config
+        self, mock_repo_class, mock_restore_class, mock_dep_manager_class, cli_runner, mock_root, tmp_config
     ):
         """restore launches interactive wizard."""
+        mock_dep_manager_class.return_value.check_hard_gate.return_value = None
         mock_repo = mock_repo_class.return_value
         mock_repo.is_connected.return_value = True
 
@@ -240,12 +254,14 @@ class TestRestoreCommand:
         assert result.exit_code == 0
         mock_restore.interactive_restore.assert_called_once()
 
+    @patch("kopi_docka.cores.dependency_manager.DependencyManager")
     @patch("kopi_docka.commands.backup_commands.RestoreManager")
     @patch("kopi_docka.commands.backup_commands.KopiaRepository")
     def test_restore_handles_errors(
-        self, mock_repo_class, mock_restore_class, cli_runner, mock_root, tmp_config
+        self, mock_repo_class, mock_restore_class, mock_dep_manager_class, cli_runner, mock_root, tmp_config
     ):
         """restore handles errors gracefully."""
+        mock_dep_manager_class.return_value.check_hard_gate.return_value = None
         mock_repo = mock_repo_class.return_value
         mock_repo.is_connected.return_value = True
 

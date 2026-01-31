@@ -199,7 +199,7 @@ class DryRunReport:
         # Estimated operations (cold backup sequence)
         print("Operations:")
         print(f"  1. Stop {len(unit.running_containers)} containers")
-        print(f"  2. Backup recipes (compose + inspect data)")
+        print("  2. Backup recipes (compose + inspect data)")
         print(f"  3. Backup {len(unit.volumes)} volumes")
         print(f"  4. Start {len(unit.running_containers)} containers")
 
@@ -233,7 +233,7 @@ class DryRunReport:
         print(
             f"Estimated Total Time: {self.utils.format_duration(estimated_total.total_seconds())}"
         )
-        print(f"Estimated Downtime per Unit: ~20–60 seconds")
+        print("Estimated Downtime per Unit: ~20–60 seconds")
 
         # Disk space requirements (compression estimate)
         compression_ratio = 0.5  # assume ~50% compression overall
@@ -331,7 +331,7 @@ class DryRunReport:
                         print(f"  ⚠ Rotation: {will_remove} old bundle(s) will be removed")
             else:
                 print(f"  ⚠ Bundle directory does not exist: {bundle_dir}")
-                print(f"    Will be created during backup")
+                print("    Will be created during backup")
 
             # Estimated bundle contents
             print("\n  Estimated Bundle Contents:")
@@ -351,7 +351,7 @@ class DryRunReport:
             )
 
             if is_cloud:
-                print(f"\n  ✓ Cloud Repository Detected")
+                print("\n  ✓ Cloud Repository Detected")
                 print("    Bundle will include reconnection guidance")
         else:
             print("Recovery Bundle: WILL NOT BE UPDATED")

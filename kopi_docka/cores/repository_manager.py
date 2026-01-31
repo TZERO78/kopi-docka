@@ -34,7 +34,10 @@ import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, IO, List, Optional, Union
+from typing import Any, Dict, IO, List, Optional, TYPE_CHECKING, Union
+
+if TYPE_CHECKING:
+    from ..types import MachineInfo
 
 from ..helpers.config import Config
 from ..helpers.logging import get_logger
@@ -405,7 +408,7 @@ class KopiaRepository:
 
         # Debug: Log the actual command being executed
         logger.debug(
-            f"Executing Kopia snapshot create",
+            "Executing Kopia snapshot create",
             extra={
                 "path": path,
                 "tags": tags,
@@ -420,7 +423,7 @@ class KopiaRepository:
 
         # Debug: Log raw Kopia response
         logger.debug(
-            f"Kopia snapshot created",
+            "Kopia snapshot created",
             extra={
                 "snapshot_id": snap_id,
                 "raw_response_preview": proc.stdout[:500] if proc.stdout else "empty",

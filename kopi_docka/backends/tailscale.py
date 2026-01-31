@@ -406,9 +406,6 @@ class TailscaleBackend(BackendBase):
     def _start_tailscale(self) -> bool:
         """Start Tailscale"""
         from kopi_docka.helpers import ui_utils as utils
-        from kopi_docka.i18n import get_current_language
-
-        lang = get_current_language()
 
         try:
             run_command(["sudo", "tailscale", "up"], "Starting Tailscale", timeout=30)

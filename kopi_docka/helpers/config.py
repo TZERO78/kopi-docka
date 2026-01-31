@@ -664,7 +664,7 @@ class Config:
             try:
                 if os.path.exists(temp_path):
                     os.unlink(temp_path)
-            except:
+            except OSError:
                 pass
             logger.error(f"Failed to save configuration: {e}")
             raise e

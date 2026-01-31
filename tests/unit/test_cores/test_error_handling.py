@@ -232,8 +232,8 @@ class TestKopiaConnectionFailure:
         repo.profile_name = "test"
 
         with patch("shutil.which", return_value="/usr/bin/kopia"):
-            with patch("subprocess.run") as mock_run:
-                mock_run.return_value = CompletedProcess([], 1, stdout="", stderr="not connected")
+            with patch("kopi_docka.cores.repository_manager.run_command") as mock_run_command:
+                mock_run_command.return_value = CompletedProcess([], 1, stdout="", stderr="not connected")
 
                 result = repo.is_connected()
 
@@ -250,9 +250,10 @@ class TestKopiaConnectionFailure:
         repo.kopia_params = "filesystem --path /backup"
         repo.profile_name = "test"
 
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = CompletedProcess(
-                [], 1, stdout="", stderr="repository not connected"
+        with patch("kopi_docka.cores.repository_manager.run_command") as mock_run_command:
+            from kopi_docka.helpers.ui_utils import SubprocessError
+            mock_run_command.side_effect = SubprocessError(
+                ["kopia", "snapshot", "create"], 1, "repository not connected"
             )
 
             with pytest.raises(RuntimeError, match="repository not connected"):
@@ -274,10 +275,11 @@ class TestInvalidInputHandling:
 
         manager = BackupManager.__new__(BackupManager)
         manager.stop_timeout = 30
+        service_handler = Mock()
 
         with patch("kopi_docka.cores.backup_manager.run_command") as mock_run:
             # Should not call docker stop for empty list
-            manager._stop_containers([])
+            manager._stop_containers([], service_handler)
 
             mock_run.assert_not_called()
 
@@ -428,8 +430,8 @@ class TestMalformedData:
         repo.kopia_params = "filesystem --path /backup"
         repo.profile_name = "test"
 
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = CompletedProcess(
+        with patch("kopi_docka.cores.repository_manager.run_command") as mock_run_command:
+            mock_run_command.return_value = CompletedProcess(
                 [], 0, stdout="not valid json at all", stderr=""
             )
 
@@ -459,8 +461,8 @@ class TestMalformedData:
             }
         ]
 
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = CompletedProcess(
+        with patch("kopi_docka.cores.repository_manager.run_command") as mock_run_command:
+            mock_run_command.return_value = CompletedProcess(
                 [], 0, stdout=json.dumps(snapshots_json), stderr=""
             )
 

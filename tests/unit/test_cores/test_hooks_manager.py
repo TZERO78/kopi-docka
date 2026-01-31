@@ -34,6 +34,27 @@ def make_mock_config(hook_script: str = None) -> Mock:
     return config
 
 
+@pytest.fixture(autouse=True)
+def mock_executable_check():
+    """
+    Auto-mock os.access for X_OK checks in hook tests.
+
+    This is needed because CI environments may have noexec tmpfs,
+    making chmod +x ineffective for actual execution checks.
+    We only mock os.X_OK checks, leaving other access checks intact.
+    """
+    original_access = os.access
+
+    def patched_access(path, mode):
+        if mode == os.X_OK:
+            # For hook scripts, always return True (we're testing logic, not permissions)
+            return True
+        return original_access(path, mode)
+
+    with patch("os.access", side_effect=patched_access):
+        yield
+
+
 # =============================================================================
 # Hook Execution Success Tests
 # =============================================================================
@@ -45,17 +66,15 @@ class TestHookExecution:
 
     def test_execute_hook_success(self, tmp_path):
         """Hook executes successfully and returns True."""
-        # Create executable hook script
+        # Create hook script (executable check is auto-mocked by fixture)
         hook_script = tmp_path / "test-hook.sh"
         hook_script.write_text("#!/bin/bash\nexit 0\n")
-        hook_script.chmod(hook_script.stat().st_mode | stat.S_IEXEC)
 
         config = make_mock_config(str(hook_script))
         manager = HooksManager(config)
 
-        with patch("subprocess.run") as mock_run:
+        with patch("kopi_docka.cores.hooks_manager.run_command") as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout="Success", stderr="")
-
             result = manager.execute_hook(HOOK_PRE_BACKUP, "testunit")
 
         assert result is True
@@ -65,21 +84,19 @@ class TestHookExecution:
         """Hook execution captures stdout and stderr."""
         hook_script = tmp_path / "test-hook.sh"
         hook_script.write_text("#!/bin/bash\necho 'Hook output'\nexit 0\n")
-        hook_script.chmod(hook_script.stat().st_mode | stat.S_IEXEC)
 
         config = make_mock_config(str(hook_script))
         manager = HooksManager(config)
 
-        with patch("subprocess.run") as mock_run:
+        with patch("kopi_docka.cores.hooks_manager.run_command") as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout="Hook output\n", stderr="")
-
             result = manager.execute_hook(HOOK_PRE_BACKUP)
 
         assert result is True
-        # Verify subprocess.run was called with capture_output=True
+        # Verify run_command was called with check=False (to handle non-zero exits)
+        mock_run.assert_called_once()
         call_kwargs = mock_run.call_args[1]
-        assert call_kwargs["capture_output"] is True
-        assert call_kwargs["text"] is True
+        assert call_kwargs["check"] is False
 
     def test_no_hook_configured_returns_true(self, tmp_path):
         """When no hook is configured, execution returns True."""
@@ -99,7 +116,7 @@ class TestHookExecution:
         config = make_mock_config(str(hook_script))
         manager = HooksManager(config)
 
-        with patch("subprocess.run") as mock_run:
+        with patch("kopi_docka.cores.hooks_manager.run_command") as mock_run:
             mock_run.return_value = Mock(returncode=1, stdout="", stderr="Error occurred")
 
             result = manager.execute_hook(HOOK_PRE_BACKUP)
@@ -151,7 +168,7 @@ class TestHookScriptValidation:
         manager = HooksManager(config)
 
         with patch("pathlib.Path.expanduser", return_value=hook_script):
-            with patch("subprocess.run") as mock_run:
+            with patch("kopi_docka.cores.hooks_manager.run_command") as mock_run:
                 mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
 
                 result = manager.execute_hook(HOOK_PRE_BACKUP)
@@ -177,8 +194,14 @@ class TestHookTimeout:
         config = make_mock_config(str(hook_script))
         manager = HooksManager(config)
 
-        with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = subprocess.TimeoutExpired(cmd=str(hook_script), timeout=1)
+        # Import SubprocessError from the hooks_manager module
+        from kopi_docka.helpers.ui_utils import SubprocessError
+
+        with patch("kopi_docka.cores.hooks_manager.run_command") as mock_run:
+            # run_command raises SubprocessError on timeout
+            mock_run.side_effect = SubprocessError(
+                cmd=[str(hook_script)], returncode=-1, stderr="timeout after 1s"
+            )
 
             result = manager.execute_hook(HOOK_PRE_BACKUP, timeout=1)
 
@@ -188,17 +211,15 @@ class TestHookTimeout:
         """Hook respects custom timeout parameter."""
         hook_script = tmp_path / "test-hook.sh"
         hook_script.write_text("#!/bin/bash\nexit 0\n")
-        hook_script.chmod(hook_script.stat().st_mode | stat.S_IEXEC)
 
         config = make_mock_config(str(hook_script))
         manager = HooksManager(config)
 
-        with patch("subprocess.run") as mock_run:
+        with patch("kopi_docka.cores.hooks_manager.run_command") as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
-
             manager.execute_hook(HOOK_PRE_BACKUP, timeout=60)
 
-        # Verify timeout was passed to subprocess.run
+        # Verify timeout was passed to run_command
         call_kwargs = mock_run.call_args[1]
         assert call_kwargs["timeout"] == 60
 
@@ -211,7 +232,7 @@ class TestHookTimeout:
         config = make_mock_config(str(hook_script))
         manager = HooksManager(config)
 
-        with patch("subprocess.run") as mock_run:
+        with patch("kopi_docka.cores.hooks_manager.run_command") as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
 
             manager.execute_hook(HOOK_PRE_BACKUP)
@@ -239,7 +260,7 @@ class TestHookEnvironmentVariables:
         config = make_mock_config(str(hook_script))
         manager = HooksManager(config)
 
-        with patch("subprocess.run") as mock_run:
+        with patch("kopi_docka.cores.hooks_manager.run_command") as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
 
             manager.execute_hook(HOOK_PRE_BACKUP)
@@ -343,7 +364,7 @@ class TestExecutedHooksTracking:
         config = make_mock_config(str(hook_script))
         manager = HooksManager(config)
 
-        with patch("subprocess.run") as mock_run:
+        with patch("kopi_docka.cores.hooks_manager.run_command") as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
 
             manager.execute_hook(HOOK_PRE_BACKUP)
@@ -361,7 +382,7 @@ class TestExecutedHooksTracking:
         config = make_mock_config(str(hook_script))
         manager = HooksManager(config)
 
-        with patch("subprocess.run") as mock_run:
+        with patch("kopi_docka.cores.hooks_manager.run_command") as mock_run:
             mock_run.return_value = Mock(returncode=1, stdout="", stderr="Error")
 
             manager.execute_hook(HOOK_PRE_BACKUP)
@@ -378,7 +399,7 @@ class TestExecutedHooksTracking:
         config = make_mock_config(str(hook_script))
         manager = HooksManager(config)
 
-        with patch("subprocess.run") as mock_run:
+        with patch("kopi_docka.cores.hooks_manager.run_command") as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
 
             manager.execute_hook(HOOK_PRE_BACKUP)
@@ -398,7 +419,7 @@ class TestExecutedHooksTracking:
         config = make_mock_config(str(hook_script))
         manager = HooksManager(config)
 
-        with patch("subprocess.run") as mock_run:
+        with patch("kopi_docka.cores.hooks_manager.run_command") as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
 
             manager.execute_hook(HOOK_PRE_BACKUP)

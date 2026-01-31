@@ -80,10 +80,10 @@ class TestBackupWorkflow:
         )[1]
 
         # Mock container operations
-        def track_stop(containers):
+        def track_stop(containers, service_handler):
             call_order.append("stop")
 
-        def track_start(containers):
+        def track_start(containers, service_handler):
             call_order.append("start")
 
         # Mock volume backup
@@ -154,7 +154,7 @@ class TestBackupWorkflow:
 
         start_called = False
 
-        def track_start(containers):
+        def track_start(containers, service_handler):
             nonlocal start_called
             start_called = True
 
@@ -360,7 +360,7 @@ class TestBackupWorkflow:
 
         start_called = False
 
-        def track_start(containers):
+        def track_start(containers, service_handler):
             nonlocal start_called
             start_called = True
 

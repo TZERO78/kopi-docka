@@ -814,9 +814,9 @@ class TestBackupStatus:
 class TestEncryptedArchive:
     """Tests for _create_encrypted_archive() method."""
 
+    @patch("kopi_docka.cores.disaster_recovery_manager.run_command")
     @patch("tarfile.open")
-    @patch("subprocess.run")
-    def test_create_encrypted_archive_success(self, mock_subprocess, mock_tarfile, tmp_path):
+    def test_create_encrypted_archive_success(self, mock_tarfile, mock_run_command, tmp_path):
         """Encrypted archive is created with tar.gz + openssl."""
         config = make_mock_config()
         manager = DisasterRecoveryManager(config)
@@ -831,8 +831,8 @@ class TestEncryptedArchive:
         mock_tar = MagicMock()
         mock_tarfile.return_value.__enter__.return_value = mock_tar
 
-        # Mock openssl subprocess
-        mock_subprocess.return_value = Mock(returncode=0)
+        # Mock run_command (for openssl)
+        mock_run_command.return_value = None
 
         password = manager._create_encrypted_archive(src_dir, out_file)
 
@@ -845,19 +845,19 @@ class TestEncryptedArchive:
         call_args = mock_tarfile.call_args
         assert call_args[0][1] == "w:gz"
 
-        # Check openssl was called
-        mock_subprocess.assert_called_once()
-        openssl_call = mock_subprocess.call_args[0][0]
+        # Check run_command was called with openssl
+        mock_run_command.assert_called_once()
+        openssl_call = mock_run_command.call_args[0][0]
         assert openssl_call[0] == "openssl"
         assert openssl_call[1] == "enc"
         assert openssl_call[2] == "-aes-256-cbc"
         assert openssl_call[3] == "-salt"
         assert openssl_call[4] == "-pbkdf2"
-        assert f"pass:{password}" in openssl_call
+        assert any(f"pass:{password}" in str(arg) for arg in openssl_call)
 
+    @patch("kopi_docka.cores.disaster_recovery_manager.run_command")
     @patch("tarfile.open")
-    @patch("subprocess.run")
-    def test_create_encrypted_archive_cleanup_tar(self, mock_subprocess, mock_tarfile, tmp_path):
+    def test_create_encrypted_archive_cleanup_tar(self, mock_tarfile, mock_run_command, tmp_path):
         """Unencrypted tar.gz is removed after encryption."""
         config = make_mock_config()
         manager = DisasterRecoveryManager(config)
@@ -872,7 +872,7 @@ class TestEncryptedArchive:
 
         mock_tar = MagicMock()
         mock_tarfile.return_value.__enter__.return_value = mock_tar
-        mock_subprocess.return_value = Mock(returncode=0)
+        mock_run_command.return_value = None
 
         manager._create_encrypted_archive(src_dir, out_file)
 
