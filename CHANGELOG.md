@@ -5,6 +5,31 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.0.2] - 2026-01-31
+
+### 🐛 Fixed
+- **Prevent parallel backup execution (#61):** Added global process lock to prevent concurrent `kopi-docka backup` runs
+  - New `ProcessLock` helper using `fcntl.flock()` for kernel-managed locking
+  - Lock file at `/run/kopi-docka.lock` (fallback: `/tmp/kopi-docka.lock`)
+  - Second backup attempt exits gracefully with "Backup already running (PID: X), skipping"
+  - Auto-release on process termination (no stale locks)
+  - Added 16 unit tests for lock functionality
+
+- **Setup wizard Kopia installation crash:** Fixed `ImportError` when user selected "Install Kopia automatically"
+  - Removed dead import of non-existent `cmd_install_deps` function
+  - New interactive 3-option menu: run official installer, show manual instructions, or exit
+  - Supports Ubuntu/Debian, Fedora/RHEL, Arch Linux, macOS via official Kopia installer
+  - Re-checks Kopia availability after installation attempt
+
+### ✨ Added
+- **ProcessLock helper** (`kopi_docka/helpers/process_lock.py`)
+  - Non-blocking file lock using `fcntl.flock()`
+  - Context manager support
+  - PID tracking for debugging
+  - Cross-process safe
+
+---
+
 ## [6.0.1] - 2026-01-05
 
 ### 🐛 Fixed

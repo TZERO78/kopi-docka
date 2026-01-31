@@ -26,9 +26,11 @@ This is the "one command to set everything up" experience.
 """
 
 
+import subprocess
 import typer
 from rich.console import Console
 from rich.panel import Panel
+from rich.prompt import Prompt
 
 from ..helpers import get_logger
 from ..cores.dependency_manager import DependencyManager
@@ -43,6 +45,102 @@ from ..helpers.ui_utils import (
 
 logger = get_logger(__name__)
 console = Console()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Kopia Installation Helper
+# ═══════════════════════════════════════════════════════════════════════════════
+
+KOPIA_INSTALL_INSTRUCTIONS = """
+[bold cyan]Ubuntu/Debian:[/bold cyan]
+  curl -s https://kopia.io/signing-key | sudo gpg --dearmor -o /etc/apt/keyrings/kopia-keyring.gpg
+  echo "deb [signed-by=/etc/apt/keyrings/kopia-keyring.gpg] http://packages.kopia.io/apt/ stable main" | sudo tee /etc/apt/sources.list.d/kopia.list
+  sudo apt update && sudo apt install kopia
+
+[bold cyan]Fedora/RHEL/CentOS:[/bold cyan]
+  sudo rpm --import https://kopia.io/signing-key
+  sudo dnf install -y dnf-plugins-core
+  sudo dnf config-manager --add-repo https://kopia.io/repo/rpm/stable.repo
+  sudo dnf install kopia
+
+[bold cyan]Arch Linux (AUR):[/bold cyan]
+  yay -S kopia-bin
+
+[bold cyan]macOS (Homebrew):[/bold cyan]
+  brew install kopia
+
+[bold cyan]Universal (Official Script):[/bold cyan]
+  curl -s https://kopia.io/install.sh | sudo bash
+"""
+
+
+def _handle_missing_kopia():
+    """
+    Handle missing Kopia installation with user-friendly guidance.
+    
+    Offers:
+    1. Display installation instructions for various platforms
+    2. Option to run official Kopia installer script
+    3. Option to install manually and re-run setup
+    """
+    console.print()
+    console.print(Panel(
+        "[bold red]✗ Kopia not found[/bold red]\n\n"
+        "Kopia is the backup engine that powers Kopi-Docka.\n"
+        "It must be installed before continuing.\n\n"
+        "[bold]Choose an option:[/bold]\n"
+        "  [cyan][1][/cyan] Run official Kopia installer (recommended)\n"
+        "  [cyan][2][/cyan] Show manual installation instructions\n"
+        "  [cyan][3][/cyan] Exit and install manually",
+        title="Missing Dependency",
+        border_style="red"
+    ))
+    
+    choice = Prompt.ask(
+        "Select option",
+        choices=["1", "2", "3"],
+        default="1"
+    )
+    
+    if choice == "1":
+        _run_kopia_installer()
+    elif choice == "2":
+        console.print(Panel(
+            KOPIA_INSTALL_INSTRUCTIONS,
+            title="Kopia Installation Instructions",
+            border_style="cyan"
+        ))
+        console.print("\n[yellow]After installing Kopia, run:[/yellow] [cyan]kopi-docka setup[/cyan]\n")
+        raise typer.Exit(0)
+    else:
+        console.print("\n[dim]Install Kopia and run:[/dim] [cyan]kopi-docka setup[/cyan]\n")
+        raise typer.Exit(0)
+
+
+def _run_kopia_installer():
+    """Run the official Kopia installer script."""
+    console.print()
+    console.print("[cyan]Running official Kopia installer...[/cyan]")
+    console.print("[dim]Source: https://kopia.io/install.sh[/dim]\n")
+    
+    try:
+        # Run the official installer
+        result = subprocess.run(
+            ["bash", "-c", "curl -s https://kopia.io/install.sh | sudo bash"],
+            check=False,
+        )
+        
+        if result.returncode != 0:
+            print_warning("Installer returned non-zero exit code")
+            console.print("[dim]You may need to install manually.[/dim]")
+            
+    except Exception as e:
+        print_error(f"Failed to run installer: {e}")
+        console.print(Panel(
+            KOPIA_INSTALL_INSTRUCTIONS,
+            title="Manual Installation Required",
+            border_style="yellow"
+        ))
 
 
 def cmd_setup_wizard(
@@ -89,15 +187,12 @@ def cmd_setup_wizard(
         status = dep_mgr.check_all()
 
         if not status.get("kopia", False):
-            print_warning("Kopia not found!")
-            if prompt_confirm("Install Kopia automatically?", default=True):
-                from ..commands.dependency_commands import cmd_install_deps
-
-                cmd_install_deps(dry_run=False, tools=["kopia"])
-            else:
-                print_error("Kopia is required")
-                console.print("   [dim]Install manually: https://kopia.io/docs/installation/[/dim]")
+            _handle_missing_kopia()
+            # Re-check after potential installation
+            if not dep_mgr.check_kopia():
+                print_error("Kopia is still not installed. Setup cannot continue.")
                 raise typer.Exit(1)
+            print_success("Kopia installed successfully!")
         else:
             print_success("Kopia found")
 
