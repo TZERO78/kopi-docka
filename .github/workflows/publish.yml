@@ -39,3 +39,5 @@ jobs:
     # 5. Auf PyPI veröffentlichen (mit Trusted Publishers - KEIN Token!)
     - name: Publish to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        skip-existing: true  # Verhindert Fehler bei Tag-Updates (PyPI erlaubt kein Überschreiben)
