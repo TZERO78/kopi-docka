@@ -184,12 +184,43 @@ def cmd_backup(
     """Run a cold backup for selected units (or all)."""
     _override_config(ctx, config_path)
 
+    # ═══════════════════════════════════════════════════════════════════════════
+    # GLOBAL LOCK: Prevent parallel backup execution (#61)
+    # ═══════════════════════════════════════════════════════════════════════════
+    from kopi_docka.helpers.process_lock import ProcessLock
+    
+    lock = ProcessLock()
+    if not lock.acquire():
+        holder_pid = lock.get_holder_pid()
+        console.print(
+            f"[yellow]⚠ Backup already running (PID: {holder_pid}), skipping.[/yellow]"
+        )
+        logger.warning(f"Backup skipped - lock held by PID {holder_pid}")
+        # Exit 0 = not an error, just skipped
+        raise typer.Exit(code=0)
+    
+    try:
+        _run_backup(ctx, unit, dry_run, update_recovery_bundle, scope, config_path)
+    finally:
+        lock.release()
+
+
+def _run_backup(
+    ctx: typer.Context,
+    unit: Optional[List[str]] = None,
+    dry_run: bool = False,
+    update_recovery_bundle: Optional[bool] = None,
+    scope: str = BACKUP_SCOPE_STANDARD,
+    config_path: Optional[Path] = None,
+):
+    """Internal backup implementation (called with lock held)."""
+    cfg = ensure_config(ctx)
+
     # HARD GATE: Check required dependencies (docker + kopia)
     from kopi_docka.cores.dependency_manager import DependencyManager
     dep_manager = DependencyManager()
     dep_manager.check_hard_gate()
 
-    cfg = ensure_config(ctx)
     repo = ensure_repository(ctx)
 
     # Validate scope
