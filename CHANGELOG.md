@@ -5,6 +5,24 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.2.0] - 2026-02-07
+
+### ✨ Added
+- **Disaster Recovery: Single-file encrypted ZIP export (#58):** New `disaster-recovery export` subcommand replaces the legacy 3-file bundle format
+  - Single AES-256 encrypted ZIP file instead of separate `.tar.gz.enc`, `.PASSWORD`, and `.README` files
+  - No external dependencies: uses native Python `pyzipper` library instead of `tar` and `openssl`
+  - Automatic passphrase generation with interactive confirmation (word-based or random)
+  - SSH stream mode (`--stream`) for zero-disk-footprint exports via `ssh user@server "sudo kopi-docka disaster-recovery export --stream --passphrase 'xxx'" > recovery.zip`
+  - Automatic file ownership (sets to SUDO_USER when running via sudo)
+  - Cross-platform extraction with standard tools (7-Zip, WinZip, unzip)
+  - `--passphrase-type words|random` for choosing passphrase style
+  - New dependency: `pyzipper>=0.3.6`
+
+### ⚠️ Deprecated
+- **Legacy 3-file DR bundle format:** Running `disaster-recovery` without `export` subcommand now shows a deprecation warning. The legacy format (tar.gz.enc + PASSWORD + README using tar/openssl) will be removed in a future release.
+
+---
+
 ## [6.1.0] - 2026-02-07
 
 ### ✨ Added

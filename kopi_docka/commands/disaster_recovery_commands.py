@@ -15,6 +15,7 @@
 
 """Disaster recovery commands."""
 
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -24,7 +25,10 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from ..helpers import Config, get_logger
-from ..cores.disaster_recovery_manager import DisasterRecoveryManager
+from ..cores.disaster_recovery_manager import (
+    DisasterRecoveryManager,
+    generate_passphrase,
+)
 
 logger = get_logger(__name__)
 console = Console()
@@ -153,28 +157,247 @@ def cmd_disaster_recovery(
         raise typer.Exit(code=1)
 
 
+def cmd_disaster_recovery_export(
+    ctx: typer.Context,
+    output: Optional[Path] = None,
+    stream: bool = False,
+    passphrase: Optional[str] = None,
+    passphrase_type: str = "words",
+):
+    """
+    Export disaster recovery bundle as a single encrypted ZIP file.
+
+    This creates ONE password-protected ZIP archive (AES-256) containing
+    everything needed to reconnect to the Kopia repository on a new system.
+    No external tools (tar, openssl) required.
+
+    Examples:
+
+        # Interactive mode (generates passphrase, asks for confirmation)
+        sudo kopi-docka disaster-recovery export /home/user/recovery.zip
+
+        # With custom passphrase
+        sudo kopi-docka disaster-recovery export /home/user/recovery.zip --passphrase "my-secret"
+
+        # SSH stream mode (zero disk footprint on server)
+        ssh user@server "sudo kopi-docka disaster-recovery export --stream --passphrase 'xxx'" > recovery.zip
+    """
+    # HARD GATE: Check kopia
+    from kopi_docka.helpers.dependency_helper import DependencyHelper
+
+    if not DependencyHelper.exists("kopia"):
+        console.print(
+            "\n[red]✗ Cannot proceed - kopia is required[/red]\n\n"
+            "Disaster Recovery requires Kopia to access the repository.\n\n"
+            "Installation:\n"
+            "  • Kopia: https://kopia.io/docs/installation/\n\n"
+            "After installation, verify with:\n"
+            "  kopi-docka doctor\n"
+        )
+        raise typer.Exit(code=1)
+
+    cfg = ensure_config(ctx)
+    manager = DisasterRecoveryManager(cfg)
+
+    if stream:
+        # ── Stream mode: ZIP → stdout (for SSH piping) ──
+        if not passphrase:
+            console.print(
+                "[red]✗ --stream requires --passphrase[/red]\n"
+                "  (no TTY available for interactive passphrase generation)\n\n"
+                "Example:\n"
+                '  ssh user@server "sudo kopi-docka disaster-recovery export '
+                "--stream --passphrase 'my-secret'\" > recovery.zip",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+        # All informational output goes to stderr; ZIP goes to stdout
+        console.print("[cyan]Creating encrypted DR bundle (streaming)...[/cyan]", err=True)
+        manager.export_to_stream(passphrase)
+        console.print("[green]✓ Bundle streamed successfully[/green]", err=True)
+
+    else:
+        # ── File mode: interactive passphrase handling ──
+        if not output:
+            console.print(
+                "[red]✗ Output path required (or use --stream)[/red]\n\n"
+                "Usage:\n"
+                "  sudo kopi-docka disaster-recovery export /home/user/recovery.zip\n"
+                "  sudo kopi-docka disaster-recovery export --stream --passphrase 'xxx'"
+            )
+            raise typer.Exit(code=1)
+
+        # Check parent directory is writable
+        output_parent = output.expanduser().parent
+        if output_parent.exists() and not os.access(output_parent, os.W_OK):
+            console.print(f"[red]✗ Output directory is not writable: {output_parent}[/red]")
+            raise typer.Exit(code=1)
+
+        if not passphrase:
+            # Generate and confirm passphrase interactively
+            generated = generate_passphrase(style=passphrase_type)
+
+            console.print()
+            console.print(
+                Panel.fit(
+                    f"[bold cyan]Generated Passphrase:[/bold cyan]\n\n"
+                    f"  [bold yellow]{generated}[/bold yellow]\n\n"
+                    "[dim]Write this down in a secure location![/dim]",
+                    title="[bold cyan]🔑 Passphrase[/bold cyan]",
+                    border_style="cyan",
+                )
+            )
+            console.print()
+
+            confirmed = typer.prompt("Re-enter passphrase to confirm")
+            if confirmed != generated:
+                console.print("[red]✗ Passphrase does not match![/red]")
+                raise typer.Exit(code=1)
+
+            passphrase = generated
+
+        # Create the bundle
+        console.print()
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Creating encrypted ZIP bundle...", total=None)
+            result_path = manager.export_to_file(Path(output).expanduser(), passphrase)
+            progress.update(task, completed=True)
+
+        size_mb = result_path.stat().st_size / 1024 / 1024
+
+        console.print()
+        console.print(
+            Panel.fit(
+                f"[green]✓ Recovery bundle created![/green]\n\n"
+                f"[bold]File:[/bold] {result_path}\n"
+                f"[bold]Size:[/bold] {size_mb:.1f} MB\n"
+                f"[bold]Format:[/bold] AES-256 encrypted ZIP\n\n"
+                "[yellow]⚠️  IMPORTANT:[/yellow]\n"
+                "  • Store the passphrase in a secure location\n"
+                "  • The passphrase is NOT stored in the file\n"
+                "  • Test recovery procedure regularly\n"
+                "  • Extract with: 7-Zip, WinZip, unzip, etc.\n\n"
+                "[bold]To extract:[/bold]\n"
+                f"  7z x {result_path.name}   [dim](enter passphrase when prompted)[/dim]\n"
+                "  [dim]or:[/dim]\n"
+                f"  unzip {result_path.name}   [dim](enter passphrase when prompted)[/dim]",
+                title="[bold green]Bundle Created[/bold green]",
+                border_style="green",
+            )
+        )
+        console.print()
+
+
 def register(app: typer.Typer):
     """Register disaster recovery commands."""
 
-    @app.command("disaster-recovery")
-    def _disaster_recovery_cmd(
+    # Create a sub-app for the disaster-recovery group
+    dr_app = typer.Typer(
+        name="disaster-recovery",
+        help="Disaster recovery bundle management.",
+        add_completion=False,
+    )
+
+    @dr_app.callback(invoke_without_command=True)
+    def _dr_callback(
         ctx: typer.Context,
         output: Optional[Path] = typer.Option(
             None,
             "--output",
             "-o",
-            help="Output directory for the bundle. Defaults to config recovery_bundle_path.",
+            help="Output directory for the bundle (legacy mode).",
         ),
         no_password_file: bool = typer.Option(
             False,
             "--no-password-file",
-            help="Don't write password to sidecar file (more secure, but you must save it manually).",
+            help="Don't write password to sidecar file.",
         ),
         skip_dependency_check: bool = typer.Option(
             False,
             "--skip-dependency-check",
-            help="Skip optional dependency checks (tar, openssl). Not recommended.",
+            help="Skip optional dependency checks (tar, openssl).",
         ),
     ):
-        """Create disaster recovery bundle."""
+        """
+        Create disaster recovery bundle.
+
+        DEPRECATED: Use 'disaster-recovery export' for the new single-file ZIP format.
+        """
+        # If a subcommand is being invoked, don't run the legacy behavior
+        if ctx.invoked_subcommand is not None:
+            return
+
+        # Legacy mode: show deprecation warning
+        console.print()
+        console.print(
+            Panel.fit(
+                "[yellow]⚠️  DEPRECATION WARNING[/yellow]\n\n"
+                "The legacy 3-file bundle format (tar.gz.enc + PASSWORD + README)\n"
+                "is deprecated and will be removed in a future release.\n\n"
+                "[bold]Use the new single-file ZIP format instead:[/bold]\n"
+                "  [cyan]sudo kopi-docka disaster-recovery export /path/to/recovery.zip[/cyan]\n\n"
+                "[bold]Or stream via SSH (zero disk footprint):[/bold]\n"
+                "  [cyan]ssh user@server \"sudo kopi-docka disaster-recovery export "
+                "--stream --passphrase 'xxx'\" > recovery.zip[/cyan]\n\n"
+                "[dim]Benefits: Single file, AES-256 ZIP, no tar/openssl needed,[/dim]\n"
+                "[dim]automatic ownership, cross-platform extraction.[/dim]",
+                title="[bold yellow]Deprecated Command[/bold yellow]",
+                border_style="yellow",
+            )
+        )
+        console.print()
+
+        # Run the legacy command
         cmd_disaster_recovery(ctx, output, no_password_file, skip_dependency_check)
+
+    @dr_app.command("export")
+    def _dr_export_cmd(
+        ctx: typer.Context,
+        output: Optional[Path] = typer.Argument(
+            None,
+            help="Output path for the encrypted ZIP file. Omit with --stream.",
+        ),
+        stream: bool = typer.Option(
+            False,
+            "--stream",
+            help="Stream ZIP to stdout (for SSH piping). Requires --passphrase.",
+        ),
+        passphrase: Optional[str] = typer.Option(
+            None,
+            "--passphrase",
+            help="Encryption passphrase. If omitted, one is generated interactively.",
+        ),
+        passphrase_type: str = typer.Option(
+            "words",
+            "--passphrase-type",
+            help="Passphrase style: 'words' (memorable) or 'random' (alphanumeric).",
+        ),
+    ):
+        """
+        Export disaster recovery bundle as encrypted ZIP.
+
+        Creates a single AES-256 encrypted ZIP file containing everything
+        needed to restore your Kopia repository on a new system.
+
+        No external tools (tar, openssl) required. The ZIP can be extracted
+        with any standard tool (7-Zip, WinZip, unzip).
+
+        \b
+        Examples:
+          # Interactive (generates passphrase, asks for confirmation)
+          sudo kopi-docka disaster-recovery export /home/user/recovery.zip
+
+          # With custom passphrase
+          sudo kopi-docka disaster-recovery export /home/user/dr.zip --passphrase "my-secret"
+
+          # SSH stream (zero disk footprint on server)
+          ssh user@server "sudo kopi-docka disaster-recovery export --stream --passphrase 'xxx'" > recovery.zip
+        """
+        cmd_disaster_recovery_export(ctx, output, stream, passphrase, passphrase_type)
+
+    app.add_typer(dr_app, name="disaster-recovery")
