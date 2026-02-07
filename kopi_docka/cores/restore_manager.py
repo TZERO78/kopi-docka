@@ -2201,6 +2201,79 @@ class RestoreManager:
             print("      docker compose up -d")
             print("")
         else:
-            print("   ⚠️  No docker-compose.yml found in backup")
-            print(f"   Review the inspect files in: {recipe_dir}")
-            print("   Recreate containers with appropriate 'docker run' options")
+            # No compose file found - try to reconstruct from inspect.json files
+            from kopi_docka.helpers.docker_run_builder import find_inspect_files, DockerRunBuilder
+            
+            inspect_files = find_inspect_files(recipe_dir)
+            
+            if inspect_files:
+                print("")
+                print("   🐳 Standalone Containers Found:")
+                print("")
+                
+                for inspect_file in inspect_files:
+                    try:
+                        builder = DockerRunBuilder.from_file(inspect_file)
+                        name = builder.get_container_name()
+                        image = builder.get_image()
+                        command = builder.build_command()
+                        
+                        print(f"   📦 Container: {name}")
+                        print(f"      Image: {image}")
+                        print("")
+                        print("      Reconstructed command:")
+                        # Indent each line of the command
+                        for line in command.split("\n"):
+                            print(f"      {line}")
+                        print("")
+                        
+                        # Check if container already exists
+                        existing_check = subprocess.run(
+                            ["docker", "ps", "-a", "--filter", f"name=^{name}$", "--format", "{{.Names}}"],
+                            capture_output=True,
+                            text=True,
+                        )
+                        
+                        if existing_check.stdout.strip() == name:
+                            print(f"      ⚠️  Container '{name}' already exists")
+                            print(f"      Remove it first: docker rm -f {name}")
+                            print("")
+                        else:
+                            # Interactive prompt to start container
+                            if not self.non_interactive:
+                                response = Prompt.ask(
+                                    f"      Start container '{name}' now?",
+                                    choices=["y", "n"],
+                                    default="n"
+                                )
+                                
+                                if response == "y":
+                                    print(f"      🚀 Starting container '{name}'...")
+                                    try:
+                                        # Execute docker run command
+                                        result = subprocess.run(
+                                            command,
+                                            shell=True,
+                                            capture_output=True,
+                                            text=True,
+                                        )
+                                        if result.returncode == 0:
+                                            container_id = result.stdout.strip()[:12]
+                                            print(f"      ✅ Container started: {container_id}")
+                                        else:
+                                            print(f"      ❌ Failed to start container:")
+                                            print(f"         {result.stderr}")
+                                    except Exception as e:
+                                        print(f"      ❌ Error starting container: {e}")
+                                    print("")
+                            else:
+                                print(f"      💡 Copy command above to start container manually")
+                                print("")
+                        
+                    except Exception as e:
+                        print(f"   ⚠️  Could not parse {inspect_file.name}: {e}")
+                        print("")
+            else:
+                print("   ⚠️  No docker-compose.yml or inspect.json files found")
+                print(f"   Review the files in: {recipe_dir}")
+                print("   Recreate containers with appropriate 'docker run' options")

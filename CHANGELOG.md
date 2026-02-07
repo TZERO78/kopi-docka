@@ -5,6 +5,24 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.1.0] - 2026-02-07
+
+### ✨ Added
+- **Automatic `docker run` reconstruction for standalone containers (#59):** Restore process now automatically rebuilds and optionally restarts standalone containers (without docker-compose.yml)
+  - New `DockerRunBuilder` helper parses `*_inspect.json` files and reconstructs complete `docker run` commands
+  - Interactive prompts to start containers immediately after restore
+  - Supports all common Docker parameters: ports, volumes, env vars, networks, capabilities, resources
+  - Handles both bind mounts and named volumes
+  - Filters out Docker-injected environment variables
+  - Shows clear, copyable commands for manual execution
+  - Checks for existing containers before attempting start
+  - Added 30+ unit tests for comprehensive coverage
+
+### 🔧 Changed
+- **Restore workflow for standalone containers:** `_display_restart_instructions()` now detects inspect files and offers full command reconstruction instead of generic "recreate containers" message
+
+---
+
 ## [6.0.2] - 2026-01-31
 
 ### 🐛 Fixed
