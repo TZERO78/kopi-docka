@@ -27,21 +27,92 @@ reconnect to the Kopia repository and bring services back on a fresh host.
 
 from __future__ import annotations
 
+import io
 import json
 import hashlib
+import os
 import subprocess
+import sys
 import tarfile
 import secrets
 import string
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, BinaryIO
+
+import pyzipper
 
 from ..helpers.logging import get_logger
 from ..helpers.config import Config
 from ..helpers.ui_utils import run_command
 from ..cores.repository_manager import KopiaRepository
 from ..helpers.constants import VERSION
+
+
+# ---------------------------------------------------------------------------
+# Passphrase generation (EFF-inspired short wordlist, ~200 common English words)
+# ---------------------------------------------------------------------------
+
+PASSPHRASE_WORDLIST = [
+    "alpha", "anchor", "apple", "arrow", "autumn",
+    "badge", "baker", "ballet", "beach", "beacon",
+    "blaze", "bloom", "brave", "breeze", "bridge",
+    "bronze", "cabin", "cactus", "camel", "candle",
+    "canyon", "cargo", "cedar", "charm", "chess",
+    "cliff", "cloud", "cobra", "comet", "coral",
+    "crane", "crown", "crystal", "dagger", "dance",
+    "delta", "desert", "diver", "dolphin", "dragon",
+    "drift", "eagle", "ember", "falcon", "fern",
+    "flame", "flash", "flint", "forest", "fossil",
+    "frost", "galaxy", "garden", "ghost", "glacier",
+    "globe", "golden", "gorilla", "granite", "grove",
+    "guitar", "harbor", "harvest", "hawk", "hazel",
+    "heart", "heron", "hollow", "horizon", "husky",
+    "indigo", "iron", "island", "ivory", "jade",
+    "jaguar", "jasper", "jewel", "jungle", "karma",
+    "kayak", "kingdom", "knight", "lagoon", "lantern",
+    "lark", "laser", "laurel", "lemon", "liberty",
+    "light", "linen", "lion", "lotus", "lunar",
+    "maple", "marble", "meadow", "meteor", "mirage",
+    "monarch", "mosaic", "mountain", "nebula", "nexus",
+    "noble", "north", "nova", "oasis", "ocean",
+    "olive", "onyx", "orbit", "orchid", "osprey",
+    "otter", "palace", "panther", "pearl", "pepper",
+    "phoenix", "pilot", "pine", "planet", "plaza",
+    "plume", "polar", "prism", "pulse", "quartz",
+    "quest", "raven", "reef", "ridge", "river",
+    "robin", "rocket", "ruby", "sage", "sailor",
+    "salmon", "sapphire", "scarlet", "shadow", "shark",
+    "shelter", "sierra", "silver", "solar", "spark",
+    "spirit", "spruce", "star", "steel", "storm",
+    "summit", "sunset", "surge", "swift", "temple",
+    "terra", "thunder", "tiger", "timber", "torch",
+    "tower", "trail", "trident", "trophy", "tulip",
+    "turtle", "ultra", "valley", "vapor", "velvet",
+    "venom", "violet", "viper", "voyager", "walnut",
+    "wave", "whisper", "willow", "winter", "wolf",
+    "wonder", "zenith", "zephyr",
+]
+
+
+def generate_passphrase(word_count: int = 5, style: str = "words") -> str:
+    """
+    Generate a secure, memorable passphrase.
+
+    Args:
+        word_count: Number of words (default 5 → ~38 bit entropy with 200 words).
+        style: 'words' for word-based, 'random' for alphanumeric.
+
+    Returns:
+        Passphrase string.
+    """
+    if style == "random":
+        alphabet = string.ascii_letters + string.digits
+        return "".join(secrets.choice(alphabet) for _ in range(24))
+
+    # Word-based: Title-Case for readability
+    words = [secrets.choice(PASSPHRASE_WORDLIST).capitalize() for _ in range(word_count)]
+    return "-".join(words)
 
 
 logger = get_logger(__name__)
@@ -182,6 +253,197 @@ class DisasterRecoveryManager:
             # On exception: CleanupHandler will handle cleanup on abort
             # Re-raise to let caller handle
             raise
+
+    # -------------------- ZIP export (plan_0019) --------------------
+
+    def create_encrypted_zip(
+        self,
+        passphrase: str,
+        output: Optional[BinaryIO] = None,
+    ) -> Optional[bytes]:
+        """
+        Create an AES-256 encrypted ZIP archive containing the DR bundle.
+
+        This replaces the legacy tar.gz.enc + openssl approach with a single
+        password-protected ZIP file using native Python libraries (pyzipper).
+        No external tools (tar, openssl) are required.
+
+        Args:
+            passphrase: Encryption passphrase for the ZIP archive.
+            output: Optional file-like object to write to.
+                    If None, returns the ZIP content as bytes.
+
+        Returns:
+            ZIP content as bytes when *output* is None, otherwise None.
+        """
+        buffer = io.BytesIO()
+
+        with pyzipper.AESZipFile(
+            buffer,
+            "w",
+            compression=pyzipper.ZIP_DEFLATED,
+            encryption=pyzipper.WZ_AES,
+        ) as zf:
+            zf.setpassword(passphrase.encode("utf-8"))
+
+            # 1) recovery-info.json
+            recovery_info = self._create_recovery_info()
+            zf.writestr("recovery-info.json", json.dumps(recovery_info, indent=2))
+
+            # 2) kopia-repository.json + kopia-password.txt
+            kopia_data = self._get_kopia_status_json()
+            if kopia_data:
+                zf.writestr("kopia-repository.json", kopia_data)
+            zf.writestr("kopia-password.txt", self.config.kopia_password or "")
+
+            # 3) kopi-docka.conf
+            if self.config.config_file and Path(self.config.config_file).exists():
+                zf.write(str(self.config.config_file), "kopi-docka.conf")
+
+            # 4) rclone.conf (if applicable)
+            rclone_conf = self._find_rclone_config()
+            if rclone_conf and rclone_conf.exists():
+                zf.write(str(rclone_conf), "rclone.conf")
+
+            # 5) recover.sh (generated in memory)
+            recover_script = self._generate_recovery_script_content(recovery_info)
+            zf.writestr("recover.sh", recover_script)
+
+            # 6) RECOVERY-INSTRUCTIONS.txt
+            instructions = self._generate_instructions_content(recovery_info)
+            zf.writestr("RECOVERY-INSTRUCTIONS.txt", instructions)
+
+            # 7) backup-status.json
+            backup_status = self._get_backup_status()
+            zf.writestr("backup-status.json", json.dumps(backup_status, indent=2))
+
+        content = buffer.getvalue()
+
+        if output is not None:
+            output.write(content)
+            return None
+
+        return content
+
+    def export_to_file(self, output_path: Path, passphrase: str) -> Path:
+        """
+        Export DR bundle as a single encrypted ZIP file.
+
+        Sets ownership to SUDO_USER if running under sudo.
+
+        Args:
+            output_path: Target file path for the ZIP archive.
+            passphrase: Encryption passphrase.
+
+        Returns:
+            Path to the created ZIP file.
+        """
+        logger.info("Creating encrypted ZIP recovery bundle...",
+                     extra={"output": str(output_path)})
+
+        content = self.create_encrypted_zip(passphrase)
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(content)
+
+        # Set ownership to the invoking user (not root)
+        sudo_user = os.environ.get("SUDO_USER")
+        if sudo_user:
+            try:
+                import pwd
+                pw = pwd.getpwnam(sudo_user)
+                os.chown(output_path, pw.pw_uid, pw.pw_gid)
+                logger.info(f"Set ownership of {output_path} to {sudo_user}")
+            except (KeyError, OSError) as e:
+                logger.warning(f"Could not set ownership to {sudo_user}: {e}")
+
+        logger.info("Encrypted ZIP recovery bundle created",
+                     extra={"output": str(output_path), "size": output_path.stat().st_size})
+
+        return output_path
+
+    def export_to_stream(self, passphrase: str) -> None:
+        """
+        Stream DR bundle directly to stdout as an encrypted ZIP.
+
+        This is designed for SSH piping (zero-disk-footprint on the server):
+            ssh user@server "sudo kopi-docka disaster-recovery export --stream --passphrase 'xxx'" > recovery.zip
+
+        Args:
+            passphrase: Encryption passphrase.
+        """
+        logger.info("Streaming encrypted ZIP recovery bundle to stdout...")
+        self.create_encrypted_zip(passphrase, output=sys.stdout.buffer)
+        logger.info("ZIP stream completed")
+
+    # -------------------- internal helpers for ZIP export --------------------
+
+    def _get_kopia_status_json(self) -> Optional[str]:
+        """Get Kopia repository status as raw JSON string."""
+        try:
+            result = subprocess.run(
+                ["kopia", "repository", "status", "--json"],
+                env=self.repo._get_env(),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout
+        except Exception as e:
+            logger.warning(f"Could not get Kopia status JSON: {e}")
+        return None
+
+    def _generate_recovery_script_content(self, info: Dict[str, Any]) -> str:
+        """Generate recover.sh content as a string (for in-memory ZIP)."""
+        # Reuse the same logic but return content instead of writing to file
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            self._create_recovery_script(tmp_path, info)
+            return (tmp_path / "recover.sh").read_text()
+
+    def _generate_instructions_content(self, info: Dict[str, Any]) -> str:
+        """Generate RECOVERY-INSTRUCTIONS.txt content as a string."""
+        rpt = info["repository"]
+        lines = [
+            "KOPI-DOCKA DISASTER RECOVERY INSTRUCTIONS",
+            "==========================================",
+            "",
+            f"Created: {info['created_at']}",
+            f"System:  {info['hostname']}",
+            "",
+            "BUNDLE FORMAT",
+            "-------------",
+            "This is a single AES-256 encrypted ZIP file.",
+            "Extract with any standard tool: 7-Zip, WinZip, unzip, etc.",
+            "You will need the passphrase that was shown during export.",
+            "",
+            "REPOSITORY",
+            "----------",
+            f"Type:   {rpt['type']}",
+            f"Config: {json.dumps(rpt['connection'], indent=2)}",
+            f"Enc:    {rpt['encryption']}",
+            f"Comp:   {rpt['compression']}",
+            "",
+            "STEPS",
+            "-----",
+            "1) Extract this ZIP with your passphrase.",
+            "2) Prepare a fresh Linux host with Docker and Kopia installed.",
+            "3) Run: sudo ./recover.sh",
+            "4) Connect to the Kopia repository (guided).",
+            "5) Start the restore wizard: kopi-docka restore",
+            "",
+            "NOTES",
+            "-----",
+            "- This system uses COLD backups of container volumes and compose/inspect data.",
+            "- Databases are restored implicitly via their volumes (no separate DB dumps).",
+            "- Test recovery regularly.",
+            "",
+            f"Generated by Kopi-Docka v{VERSION}",
+            "",
+        ]
+        return "\n".join(lines)
 
     # ---------------- internal helpers ----------------
 
