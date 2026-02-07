@@ -97,9 +97,9 @@ sudo kopi-docka dry-run
 # Full backup
 sudo kopi-docka backup
 
-# Create disaster recovery bundle
-sudo kopi-docka disaster-recovery
-# → Store bundle off-site: USB/cloud/safe
+# Create disaster recovery bundle (encrypted ZIP)
+sudo kopi-docka disaster-recovery export ~/recovery.zip
+# → Store bundle + passphrase off-site: USB/cloud/safe
 ```
 
 **[Usage guide →](docs/USAGE.md)**
@@ -143,20 +143,23 @@ Traditional:                    Kopi-Docka:
 
 ### 2. Disaster Recovery Bundles
 
-Encrypted packages containing repository connection data and auto-reconnect scripts:
+Single encrypted ZIP files containing repository connection data, configuration, and auto-reconnect scripts:
 
 ```bash
-# Create bundle
-sudo kopi-docka disaster-recovery
+# Create encrypted ZIP bundle (recommended, v6.2.0+)
+sudo kopi-docka disaster-recovery export ~/recovery.zip
+
+# Or stream via SSH (zero disk footprint on server)
+ssh user@server "sudo kopi-docka disaster-recovery export --stream --passphrase 'xxx'" > recovery.zip
 
 # In emergency (on new server):
-1. Decrypt bundle
-2. Run ./recover.sh
+1. Extract ZIP (7-Zip, unzip, WinZip)
+2. Run sudo ./recover.sh
 3. kopi-docka restore
 4. docker compose up -d
 ```
 
-Note: The legacy TAR/stdin snapshot method is deprecated in favor of direct Kopia directory snapshots (see docs/PROBLEM_1_PLAN.md). Direct snapshots provide file-level deduplication and are the recommended default.
+**[Disaster Recovery guide →](docs/DISASTER_RECOVERY.md)**
 
 ### 3. Tailscale Integration
 
@@ -342,6 +345,7 @@ Step 6: Verify Docker is working
 - **[Configuration](docs/CONFIGURATION.md)** - Wizards, config files, storage backends
 - **[Usage](docs/USAGE.md)** - CLI commands, workflows, how it works
 - **[Features](docs/FEATURES.md)** - Detailed feature documentation
+- **[Disaster Recovery](docs/DISASTER_RECOVERY.md)** - DR bundles, recovery workflow, SSH streaming
 - **[Hooks](docs/HOOKS.md)** - Pre/post backup hooks, examples
 - **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues, FAQ
 - **[Development](docs/DEVELOPMENT.md)** - Project structure, contributing
@@ -368,7 +372,7 @@ sudo kopi-docka backup             # Full backup (standard scope)
 sudo kopi-docka restore            # Interactive restore wizard
 sudo kopi-docka restore --yes      # Non-interactive restore (CI/CD)
 sudo kopi-docka show-docker-config <snapshot-id>  # Extract docker_config for manual restore
-sudo kopi-docka disaster-recovery  # Create DR bundle
+sudo kopi-docka disaster-recovery export ~/recovery.zip  # Create DR bundle (ZIP)
 sudo kopi-docka dry-run            # Simulate backup (preview)
 sudo kopi-docka doctor             # System health check
 kopi-docka version                 # Show version

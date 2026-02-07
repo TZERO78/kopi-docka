@@ -238,6 +238,8 @@ sudo kopi-docka restore
 
 **Encrypted emergency packages for fast recovery**
 
+> **Since v6.2.0:** Kopi-Docka offers a new single-file encrypted ZIP export (`disaster-recovery export`). This is the recommended format — no `tar` or `openssl` required. See the **[Disaster Recovery Guide](DISASTER_RECOVERY.md)** for full details.
+
 #### What is a DR Bundle?
 
 A Disaster Recovery Bundle is an encrypted, self-contained package containing everything needed to connect to your backup repository on a completely new server:
@@ -278,9 +280,15 @@ Time to recovery: 15-30 minutes
 **Create Bundle**
 
 ```bash
-# Manual
+# Manual (legacy format — deprecated)
 sudo kopi-docka disaster-recovery
 # Creates: /backup/recovery/kopi-docka-recovery-2025-01-31T23-59-59Z.tar.gz.enc
+
+# NEW: Single encrypted ZIP (recommended, v6.2.0+)
+sudo kopi-docka disaster-recovery export ~/recovery.zip
+
+# SSH stream (zero disk footprint)
+ssh user@server "sudo kopi-docka disaster-recovery export --stream --passphrase 'xxx'" > recovery.zip
 
 # Automatically with every backup
 # In config.json:
@@ -388,11 +396,23 @@ docker compose up -d
 
 #### Technical Details
 
+**ZIP Export (v6.2.0+, recommended):**
+- **Encryption:** AES-256 (WinZip AES, via pyzipper)
+- **Passphrase:** User-chosen or auto-generated (word-based or random)
+- **Format:** Single `.zip` file
+- **Extract with:** 7-Zip, WinZip, `unzip`, macOS Keka
+- **Size:** ~10–50 KB
+- **No external dependencies** (pure Python)
+
+**Legacy (deprecated):**
 - **Encryption:** AES-256-CBC with PBKDF2
 - **Password:** Randomly generated (48 characters, alphanumeric)
-- **Format:** .tar.gz.enc (compressed + encrypted)
-- **Size:** ~10-50 KB (without logs)
+- **Format:** `.tar.gz.enc` (compressed + encrypted)
+- **Requires:** `tar`, `openssl`
+- **Size:** ~10–50 KB
 - **Retention:** Automatic rotation (configurable)
+
+**[Complete Disaster Recovery Guide →](DISASTER_RECOVERY.md)**
 
 ---
 
@@ -1417,7 +1437,8 @@ Kopi-Docka v3.4.0 introduces a simplified CLI with **"The Big 6"** top-level com
 kopi-docka setup              # Complete setup wizard
 kopi-docka backup             # Run backup
 kopi-docka restore            # Interactive restore wizard
-kopi-docka disaster-recovery  # Create DR bundle
+kopi-docka disaster-recovery export  # Create DR bundle (ZIP, recommended)
+kopi-docka disaster-recovery         # Legacy DR bundle (deprecated)
 kopi-docka dry-run            # Simulate backup (preview)
 kopi-docka doctor             # NEW: System health check
 kopi-docka version            # Show version
