@@ -139,9 +139,28 @@ Available Restore Points:
 # 2. All volumes → /tmp/kopia-restore-abc/volumes/wordpress/
 # 3. Generate volume restore scripts
 
-# You start:
+# You start (Compose):
 cd /tmp/kopia-restore-abc/recipes/wordpress/
 docker compose up -d
+
+# OR (Standalone containers - v6.1.0+):
+# Wizard automatically reconstructs docker run commands:
+
+   🐳 Standalone Containers Found:
+
+   📦 Container: redis
+      Image: redis:7-alpine
+
+      Reconstructed command:
+      docker run -d \
+        --name redis \
+        --restart unless-stopped \
+        -v redis_data:/data \
+        redis:7-alpine
+
+      Start container 'redis' now? [y/n] (n): y
+      🚀 Starting container 'redis'...
+      ✅ Container started: abc123def456
 ```
 
 #### Benefits
@@ -175,8 +194,43 @@ Containers without Compose labels are treated as standalone units:
 Standalone: redis
 ├── Container: redis
 ├── Volumes: redis_data
-└── docker inspect backed up
+└── docker inspect backed up (JSON)
 ```
+
+**Automatic Reconstruction (v6.1.0+):**
+
+For standalone containers, Kopi-Docka now automatically reconstructs `docker run` commands from the backed-up `*_inspect.json` files during restore:
+
+```bash
+sudo kopi-docka restore
+# ... selects standalone container unit ...
+
+# Output:
+   🐳 Standalone Containers Found:
+
+   📦 Container: nginx
+      Image: nginx:latest
+
+      Reconstructed command:
+      docker run -d \
+        --name nginx \
+        --restart unless-stopped \
+        -p 80:80 \
+        -v /data/nginx:/usr/share/nginx/html \
+        -e NGINX_HOST=example.com \
+        nginx:latest
+
+      Start container 'nginx' now? [y/n] (n):
+```
+
+**Features:**
+- ✅ Parses all common Docker parameters (ports, volumes, env, networks, capabilities, resources)
+- ✅ Filters Docker-injected environment variables (PATH, HOME, HOSTNAME)
+- ✅ Interactive prompt to start container immediately
+- ✅ Checks for existing containers before attempting start
+- ✅ Non-interactive mode with `--yes` flag
+- ✅ Clear, copyable commands for manual execution
+- ✅ Handles both bind mounts and named volumes
 
 ---
 

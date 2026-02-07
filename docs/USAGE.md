@@ -277,7 +277,59 @@ sudo journalctl -u kopi-docka.service -f
 3. Install Kopi-Docka
 4. Decrypt bundle & run `./recover.sh` → auto-reconnects
 5. `kopi-docka restore` → interactive wizard restores everything
-6. `docker compose up -d` → services online!
+6. Start containers:
+   - **With docker-compose.yml**: `docker compose up -d`
+   - **Standalone containers**: Automatically reconstructed! (see below)
+
+**Automatic Container Reconstruction (v6.1.0+):**
+
+For standalone containers (without docker-compose.yml), Kopi-Docka now automatically reconstructs `docker run` commands from `*_inspect.json` files:
+
+```bash
+sudo kopi-docka restore
+# ... restore process runs ...
+
+# Output:
+   🐳 Standalone Containers Found:
+
+   📦 Container: nginx
+      Image: nginx:latest
+
+      Reconstructed command:
+      docker run -d \
+        --name nginx \
+        --restart unless-stopped \
+        -p 80:80 \
+        -v /data/nginx:/usr/share/nginx/html \
+        -e NGINX_HOST=example.com \
+        nginx:latest
+
+      Start container 'nginx' now? [y/n] (n): y
+      🚀 Starting container 'nginx'...
+      ✅ Container started: a1b2c3d4e5f6
+```
+
+**Features:**
+- ✅ Automatic reconstruction of all common Docker parameters
+- ✅ Ports, volumes (bind + named), environment variables, networks
+- ✅ User, working directory, restart policies, capabilities
+- ✅ Memory limits, CPU shares, privileged mode, labels
+- ✅ Interactive prompt to start container immediately
+- ✅ Checks for existing containers before attempting start
+- ✅ Non-interactive mode with `--yes` flag
+- ✅ Filters Docker-injected environment variables (PATH, HOME, etc.)
+
+**Manual Usage:**
+
+```bash
+# Copy the displayed command if you prefer manual control
+docker run -d \
+  --name nginx \
+  --restart unless-stopped \
+  -p 80:80 \
+  -v /data/nginx:/usr/share/nginx/html \
+  nginx:latest
+```
 
 ### 4. Retention Policies (Direct Mode vs TAR Mode)
 
