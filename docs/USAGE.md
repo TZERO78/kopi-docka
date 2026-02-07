@@ -11,7 +11,8 @@ kopi-docka
 ├── setup              # Complete setup wizard
 ├── backup             # Run backup
 ├── restore            # Interactive restore wizard
-├── disaster-recovery  # Create DR bundle
+├── disaster-recovery  # DR bundle management
+│   └── export         # Create encrypted ZIP bundle (recommended)
 ├── dry-run            # Simulate backup (preview)
 ├── doctor             # System health check
 ├── version            # Show version
@@ -51,7 +52,8 @@ kopi-docka
 | `backup` | **Full backup** - All units with selected scope |
 | `restore` | **Interactive restore wizard** |
 | `show-docker-config <snapshot-id>` | **Extract docker_config** - Manual restore helper for FULL scope backups |
-| `disaster-recovery` | Create encrypted DR bundle |
+| `disaster-recovery export` | **Create encrypted DR bundle (ZIP, recommended)** |
+| `disaster-recovery` | Create DR bundle (legacy format, deprecated) |
 | `dry-run` | Simulate backup (no changes, preview) |
 | `doctor` | **System health check** - Dependencies, config, backend, repository |
 | `version` | Show Kopi-Docka version |
@@ -179,7 +181,21 @@ sudo kopi-docka admin snapshot list --snapshots
 
 ### Disaster Recovery
 
-**Create bundle (manual):**
+**Create encrypted ZIP bundle (recommended, v6.2.0+):**
+```bash
+# Interactive (generates passphrase, asks for confirmation)
+sudo kopi-docka disaster-recovery export ~/recovery.zip
+
+# With custom passphrase
+sudo kopi-docka disaster-recovery export ~/recovery.zip --passphrase "my-secret"
+
+# SSH stream (zero disk footprint on server)
+ssh user@server "sudo kopi-docka disaster-recovery export --stream --passphrase 'xxx'" > recovery.zip
+```
+
+**[Complete Disaster Recovery guide →](DISASTER_RECOVERY.md)**
+
+**Create bundle (legacy format, deprecated):**
 ```bash
 sudo kopi-docka disaster-recovery
 # Copy bundle to safe location: USB/phone/cloud!
@@ -206,24 +222,30 @@ sudo kopi-docka backup
 # 1. Install Kopi-Docka
 pipx install kopi-docka
 
-# 2. Decrypt bundle
+# 2. Extract ZIP bundle (new format, v6.2.0+)
+7z x recovery.zip   # enter passphrase when prompted
+cd kopi-docka-recovery-*/
+
+# 3. Auto-reconnect to repository
+sudo ./recover.sh
+
+# 4. Restore services
+sudo kopi-docka restore
+
+# 5. Start containers
+cd /tmp/kopia-restore-*/recipes/
+docker compose up -d
+```
+
+**Legacy format decryption:**
+```bash
+# Decrypt legacy bundle (.tar.gz.enc)
 openssl enc -aes-256-cbc -d -pbkdf2 \
   -in bundle.tar.gz.enc \
   -out bundle.tar.gz
-
-# 3. Extract
 tar -xzf bundle.tar.gz
 cd kopi-docka-recovery-*/
-
-# 4. Auto-reconnect to repository
 sudo ./recover.sh
-
-# 5. Restore services
-sudo kopi-docka restore
-
-# 6. Start containers
-cd /tmp/kopia-restore-*/recipes/
-docker compose up -d
 ```
 
 ### Automatic Backups (systemd)
