@@ -95,6 +95,12 @@ class DependencyManager:
                 "category": DependencyCategory.SOFT,
                 "description": "Encryption for disaster recovery bundles",
             },
+            "rsync": {
+                "check_method": self.check_rsync,
+                "required": False,
+                "category": DependencyCategory.SOFT,
+                "description": "Efficient volume copy for restore (fallback: cp)",
+            },
             "openssh": {
                 "check_method": self.check_openssh,
                 "required": False,
@@ -134,6 +140,11 @@ class DependencyManager:
         """Check if openssl is available."""
         from kopi_docka.helpers.dependency_helper import DependencyHelper
         return DependencyHelper.exists("openssl")
+
+    def check_rsync(self) -> bool:
+        """Check if rsync is available."""
+        from kopi_docka.helpers.dependency_helper import DependencyHelper
+        return DependencyHelper.exists("rsync")
 
     def check_openssh(self) -> bool:
         """Check if SSH client tools are available."""

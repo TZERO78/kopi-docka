@@ -63,7 +63,7 @@ def register(app: typer.Typer):
     @config_app.command("show")
     def _config_show_cmd(ctx: typer.Context):
         """Show current configuration."""
-        cmd_config(ctx, show=True)
+        cmd_config(ctx)
 
     @config_app.command("new")
     def _config_new_cmd(
