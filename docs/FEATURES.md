@@ -811,6 +811,22 @@ sudo kopi-docka admin service manage
 
 ---
 
+## What's New in v6.3.0
+
+### Backup History Command
+**View past backups directly from the CLI**
+
+Kopi-Docka v6.3.0 introduces the `history` command to browse backup metadata stored as JSON files:
+
+- **Table view**: `kopi-docka history` — color-coded overview (green = success, red = failed)
+- **Filters**: `--unit NAME`, `--failed`, `--last N`, `--since YYYY-MM-DD`
+- **Detail view**: `--detail` shows all fields per backup as Rich Panels
+- **ID lookup**: `--id BACKUP_ID` for a specific backup's details
+- **No root required**: reads local metadata JSON files only
+- **Reusable MetadataReader**: `helpers/metadata_reader.py` — central read layer for metadata JSONs, also used by stale-detection (Plan 0022)
+
+---
+
 ## What's New in v6.0.0
 
 ### 🛡️ Graceful Shutdown & SafeExitManager

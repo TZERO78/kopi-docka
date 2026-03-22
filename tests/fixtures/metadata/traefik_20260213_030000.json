@@ -1,0 +1,17 @@
+{
+  "unit_name": "traefik",
+  "timestamp": "2026-02-13T03:00:00",
+  "duration_seconds": 45.2,
+  "backup_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "success": true,
+  "error_message": null,
+  "kopia_snapshot_ids": ["k1234abc", "k5678def"],
+  "volumes_backed_up": 2,
+  "databases_backed_up": 0,
+  "errors": [],
+  "backup_scope": "standard",
+  "networks_backed_up": 1,
+  "docker_config_backed_up": false,
+  "hooks_executed": ["pre_backup", "post_backup"],
+  "backup_format": "direct"
+}

@@ -14,6 +14,7 @@ kopi-docka
 ├── disaster-recovery  # DR bundle management
 │   └── export         # Create encrypted ZIP bundle (recommended)
 ├── dry-run            # Simulate backup (preview)
+├── history            # Backup history viewer
 ├── doctor             # System health check
 ├── version            # Show version
 └── advanced           # Advanced tools (Config, Repo, System)
@@ -55,6 +56,7 @@ kopi-docka
 | `disaster-recovery export` | **Create encrypted DR bundle (ZIP, recommended)** |
 | `disaster-recovery` | Create DR bundle (legacy format, deprecated) |
 | `dry-run` | Simulate backup (no changes, preview) |
+| `history` | **Backup history** - Show past backups from stored metadata |
 | `doctor` | **System health check** - Dependencies, config, backend, repository |
 | `version` | Show Kopi-Docka version |
 
@@ -178,6 +180,36 @@ sudo kopi-docka admin repo status
 # Show all snapshots
 sudo kopi-docka admin snapshot list --snapshots
 ```
+
+### Backup History
+
+```bash
+# Show last 20 backups
+kopi-docka history
+
+# Show only failed backups
+kopi-docka history --failed
+
+# Filter by unit name
+kopi-docka history --unit traefik
+
+# Show last 5 entries
+kopi-docka history --last 5
+
+# Show backups since a specific date
+kopi-docka history --since 2026-03-01
+
+# Detailed view (all fields per backup)
+kopi-docka history --detail
+
+# Show details for a specific backup ID
+kopi-docka history --id a1b2c3d4-e5f6-7890-abcd-ef1234567890
+
+# Combine filters
+kopi-docka history --unit nextcloud --failed --detail
+```
+
+**Note:** The `history` command does not require root privileges — it reads local metadata JSON files only.
 
 ### Disaster Recovery
 
