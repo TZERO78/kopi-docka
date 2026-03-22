@@ -14,6 +14,7 @@ from subprocess import CompletedProcess
 from unittest.mock import patch, Mock, MagicMock, call
 
 from kopi_docka.cores.backup_manager import BackupManager
+from kopi_docka.cores.backup_volume_handler import BackupVolumeHandler
 from kopi_docka.cores.safe_exit_manager import ServiceContinuityHandler
 from kopi_docka.types import BackupUnit, ContainerInfo, VolumeInfo, BackupMetadata
 from kopi_docka.helpers.constants import (
@@ -50,6 +51,7 @@ def make_backup_manager() -> BackupManager:
     manager.stop_timeout = 30
     manager.start_timeout = 60
     manager.exclude_patterns = []
+    manager.volume_handler = BackupVolumeHandler(manager.repo, manager.exclude_patterns)
     return manager
 
 
@@ -154,7 +156,7 @@ class TestBackupScope:
 
         with patch.object(manager, "_backup_recipes") as mock_recipes:
             with patch.object(manager, "_backup_networks") as mock_networks:
-                with patch.object(manager, "_backup_volume", return_value="snap123"):
+                with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
                     metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         mock_recipes.assert_not_called()
@@ -172,7 +174,7 @@ class TestBackupScope:
             with patch.object(
                 manager, "_backup_networks", return_value=("net_snap", 1)
             ) as mock_networks:
-                with patch.object(manager, "_backup_volume", return_value="vol_snap"):
+                with patch.object(manager.volume_handler, "backup_volume", return_value="vol_snap"):
                     metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_STANDARD)
 
         mock_recipes.assert_called_once()
@@ -190,7 +192,7 @@ class TestBackupScope:
             with patch.object(
                 manager, "_backup_networks", return_value=("net_snap", 2)
             ) as mock_networks:
-                with patch.object(manager, "_backup_volume", return_value="vol_snap"):
+                with patch.object(manager.volume_handler, "backup_volume", return_value="vol_snap"):
                     metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_FULL)
 
         mock_recipes.assert_called_once()
@@ -222,7 +224,7 @@ class TestBackupScopeTag:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             volume.mountpoint = tmpdir
-            manager._backup_volume_direct(volume, unit, "backup-id-123", BACKUP_SCOPE_MINIMAL)
+            manager.volume_handler.backup_volume_direct(volume, unit, "backup-id-123", BACKUP_SCOPE_MINIMAL)
 
         # Verify tags include backup_scope
         call_args = manager.repo.create_snapshot.call_args
@@ -246,7 +248,7 @@ class TestBackupScopeTag:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             volume.mountpoint = tmpdir
-            manager._backup_volume_direct(volume, unit, "backup-id-456", BACKUP_SCOPE_STANDARD)
+            manager.volume_handler.backup_volume_direct(volume, unit, "backup-id-456", BACKUP_SCOPE_STANDARD)
 
         call_args = manager.repo.create_snapshot.call_args
         tags = call_args[1]["tags"]
@@ -267,7 +269,7 @@ class TestBackupScopeTag:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             volume.mountpoint = tmpdir
-            manager._backup_volume_direct(volume, unit, "backup-id-789", BACKUP_SCOPE_FULL)
+            manager.volume_handler.backup_volume_direct(volume, unit, "backup-id-789", BACKUP_SCOPE_FULL)
 
         call_args = manager.repo.create_snapshot.call_args
         tags = call_args[1]["tags"]
@@ -333,7 +335,7 @@ class TestBackupScopeTag:
         assert tags["type"] == "networks"
         assert tags["backup_id"] == "backup-id-123"
 
-    @patch("kopi_docka.cores.backup_manager.subprocess.Popen")
+    @patch("kopi_docka.cores.backup_volume_handler.subprocess.Popen")
     def test_volume_tar_snapshot_includes_scope_tag(self, mock_popen):
         """TAR volume snapshots should include backup_scope tag."""
         manager = make_backup_manager()
@@ -356,7 +358,7 @@ class TestBackupScopeTag:
 
         manager.repo.create_snapshot_from_stdin = Mock(return_value="snap-tar-123")
 
-        manager._backup_volume_tar(volume, unit, "backup-id-123", BACKUP_SCOPE_MINIMAL)
+        manager.volume_handler.backup_volume_tar(volume, unit, "backup-id-123", BACKUP_SCOPE_MINIMAL)
 
         # Verify snapshot tags
         call_args = manager.repo.create_snapshot_from_stdin.call_args
@@ -518,7 +520,7 @@ class TestBackupDockerConfig:
 
         with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
             with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager, "_backup_volume", return_value="vol_snap"):
+                with patch.object(manager.volume_handler, "backup_volume", return_value="vol_snap"):
                     with patch.object(
                         manager, "_backup_docker_config", return_value="docker_snap"
                     ) as mock_docker_config:
@@ -537,7 +539,7 @@ class TestBackupDockerConfig:
 
         with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
             with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager, "_backup_volume", return_value="vol_snap"):
+                with patch.object(manager.volume_handler, "backup_volume", return_value="vol_snap"):
                     with patch.object(
                         manager, "_backup_docker_config"
                     ) as mock_docker_config:
@@ -555,7 +557,7 @@ class TestBackupDockerConfig:
 
         with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
             with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager, "_backup_volume", return_value="vol_snap"):
+                with patch.object(manager.volume_handler, "backup_volume", return_value="vol_snap"):
                     with patch.object(
                         manager, "_backup_docker_config", return_value=None
                     ):  # Simulate failure
@@ -595,7 +597,7 @@ class TestContainerOrdering:
             call_order.append("start")
 
         with patch.object(manager, "_stop_containers", side_effect=track_stop):
-            with patch.object(manager, "_backup_volume", side_effect=track_backup):
+            with patch.object(manager.volume_handler, "backup_volume", side_effect=track_backup):
                 with patch.object(manager, "_start_containers", side_effect=track_start):
                     manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
@@ -617,7 +619,7 @@ class TestContainerOrdering:
             start_called = True
 
         with patch.object(manager, "_stop_containers"):
-            with patch.object(manager, "_backup_volume", side_effect=Exception("Backup failed")):
+            with patch.object(manager.volume_handler, "backup_volume", side_effect=Exception("Backup failed")):
                 with patch.object(manager, "_start_containers", side_effect=track_start):
                     metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
@@ -653,7 +655,7 @@ class TestHookExecution:
             call_order.append("stop")
 
         with patch.object(manager, "_stop_containers", side_effect=track_stop):
-            with patch.object(manager, "_backup_volume", return_value="snap123"):
+            with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
                 with patch.object(manager, "_start_containers"):
                     manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
@@ -677,7 +679,7 @@ class TestHookExecution:
         )[1]
 
         with patch.object(manager, "_stop_containers"):
-            with patch.object(manager, "_backup_volume", return_value="snap123"):
+            with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
                 with patch.object(manager, "_start_containers", side_effect=track_start):
                     manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
@@ -692,7 +694,7 @@ class TestHookExecution:
         unit = make_backup_unit()
 
         with patch.object(manager, "_stop_containers") as mock_stop:
-            with patch.object(manager, "_backup_volume") as mock_backup:
+            with patch.object(manager.volume_handler, "backup_volume") as mock_backup:
                 metadata = manager.backup_unit(unit)
 
         mock_stop.assert_not_called()
@@ -726,7 +728,7 @@ class TestErrorAccumulation:
             return f"snap{call_count[0]}"
 
         with patch.object(manager, "_stop_containers"):
-            with patch.object(manager, "_backup_volume", side_effect=partial_failure):
+            with patch.object(manager.volume_handler, "backup_volume", side_effect=partial_failure):
                 with patch.object(manager, "_start_containers"):
                     metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
@@ -744,7 +746,7 @@ class TestErrorAccumulation:
         unit = make_backup_unit()
 
         with patch.object(manager, "_stop_containers"):
-            with patch.object(manager, "_backup_volume", return_value="snap123"):
+            with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
                 with patch.object(manager, "_start_containers"):
                     metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
@@ -1054,7 +1056,7 @@ class TestBackupVolumeDirect:
         with tempfile.TemporaryDirectory() as tmpdir:
             volume.mountpoint = tmpdir
 
-            result = manager._backup_volume_direct(volume, unit, "backup-uuid-123", BACKUP_SCOPE_STANDARD)
+            result = manager.volume_handler.backup_volume_direct(volume, unit, "backup-uuid-123", BACKUP_SCOPE_STANDARD)
 
         assert result == "snap123"
 
@@ -1078,7 +1080,7 @@ class TestBackupVolumeDirect:
         )
         unit = make_backup_unit()
 
-        result = manager._backup_volume_direct(volume, unit, "backup-id", BACKUP_SCOPE_STANDARD)
+        result = manager.volume_handler.backup_volume_direct(volume, unit, "backup-id", BACKUP_SCOPE_STANDARD)
 
         assert result is None
 
@@ -1086,6 +1088,7 @@ class TestBackupVolumeDirect:
         """Should pass exclude patterns to Kopia."""
         manager = make_backup_manager()
         manager.exclude_patterns = ["*.log", "cache/*"]
+        manager.volume_handler = BackupVolumeHandler(manager.repo, manager.exclude_patterns)
         manager.repo.create_snapshot.return_value = "snap123"
 
         volume = VolumeInfo(
@@ -1097,7 +1100,7 @@ class TestBackupVolumeDirect:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             volume.mountpoint = tmpdir
-            manager._backup_volume_direct(volume, unit, "backup-id", BACKUP_SCOPE_STANDARD)
+            manager.volume_handler.backup_volume_direct(volume, unit, "backup-id", BACKUP_SCOPE_STANDARD)
 
         call_args = manager.repo.create_snapshot.call_args
         assert call_args[1]["exclude_patterns"] == ["*.log", "cache/*"]
@@ -1130,7 +1133,7 @@ class TestParallelBackup:
 
         with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
             with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager, "_backup_volume", side_effect=track_backup):
+                with patch.object(manager.volume_handler, "backup_volume", side_effect=track_backup):
                     metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # All 3 volumes should have been backed up
@@ -1159,7 +1162,7 @@ class TestParallelBackup:
 
         with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
             with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager, "_backup_volume", side_effect=backup_with_failure):
+                with patch.object(manager.volume_handler, "backup_volume", side_effect=backup_with_failure):
                     metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # 2 volumes succeeded, 1 failed
@@ -1189,7 +1192,7 @@ class TestParallelBackup:
 
         with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
             with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager, "_backup_volume", side_effect=backup_with_exception):
+                with patch.object(manager.volume_handler, "backup_volume", side_effect=backup_with_exception):
                     metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # 2 volumes succeeded, 1 raised exception
@@ -1290,7 +1293,7 @@ class TestParallelBackup:
 
         with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
             with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager, "_backup_volume", return_value="snap123"):
+                with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
                     with patch.object(
                         manager, "_save_metadata"
                     ):  # Mock to avoid JSON serialization
@@ -1325,7 +1328,7 @@ class TestParallelBackup:
         # All volumes fail (return None)
         with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
             with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager, "_backup_volume", return_value=None):
+                with patch.object(manager.volume_handler, "backup_volume", return_value=None):
                     metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # No volumes succeeded
@@ -1386,7 +1389,7 @@ class TestEdgeCases:
 
         with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
             with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager, "_backup_volume", return_value="vol_snap"):
+                with patch.object(manager.volume_handler, "backup_volume", return_value="vol_snap"):
                     metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # Should succeed with no container operations
@@ -1507,7 +1510,7 @@ class TestEdgeCases:
 
         with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
             with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager, "_backup_volume", return_value="vol_snap") as mock_vol:
+                with patch.object(manager.volume_handler, "backup_volume", return_value="vol_snap") as mock_vol:
                     metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # Should handle whitespace in volume name
@@ -1542,7 +1545,7 @@ class TestEdgeCases:
 
         with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
             with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager, "_backup_volume", return_value="vol_snap") as mock_vol:
+                with patch.object(manager.volume_handler, "backup_volume", return_value="vol_snap") as mock_vol:
                     metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # Should handle special characters
@@ -1631,7 +1634,7 @@ class TestEdgeCases:
 
         with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
             with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager, "_backup_volume", return_value="vol_snap"):
+                with patch.object(manager.volume_handler, "backup_volume", return_value="vol_snap"):
                     metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # Should handle long name
@@ -1662,7 +1665,7 @@ class TestEdgeCases:
 
         with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
             with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager, "_backup_volume", return_value="vol_snap"):
+                with patch.object(manager.volume_handler, "backup_volume", return_value="vol_snap"):
                     metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # Should succeed with zero-size volume
@@ -1679,7 +1682,7 @@ class TestEdgeCases:
 class TestBackupVolumeTar:
     """Tests for _backup_volume_tar method (legacy TAR format)."""
 
-    @patch("kopi_docka.cores.backup_manager.subprocess.Popen")
+    @patch("kopi_docka.cores.backup_volume_handler.subprocess.Popen")
     def test_creates_tar_with_correct_flags(self, mock_popen):
         """Should create tar command with all required flags."""
         from subprocess import PIPE
@@ -1705,7 +1708,7 @@ class TestBackupVolumeTar:
         # Mock repo.create_snapshot_from_stdin
         manager.repo.create_snapshot_from_stdin = Mock(return_value="snap123")
 
-        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123", BACKUP_SCOPE_STANDARD)
+        result = manager.volume_handler.backup_volume_tar(volume, unit, "backup-uuid-123", BACKUP_SCOPE_STANDARD)
 
         assert result == "snap123"
 
@@ -1725,13 +1728,14 @@ class TestBackupVolumeTar:
         assert volume.mountpoint in tar_call
         assert "." in tar_call
 
-    @patch("kopi_docka.cores.backup_manager.subprocess.Popen")
+    @patch("kopi_docka.cores.backup_volume_handler.subprocess.Popen")
     def test_includes_exclude_patterns_in_tar_command(self, mock_popen):
         """Should add --exclude flags for each exclude pattern."""
         from subprocess import PIPE
 
         manager = make_backup_manager()
         manager.exclude_patterns = ["*.log", "cache/*", "temp"]
+        manager.volume_handler = BackupVolumeHandler(manager.repo, manager.exclude_patterns)
 
         volume = VolumeInfo(
             name="mydata",
@@ -1750,7 +1754,7 @@ class TestBackupVolumeTar:
 
         manager.repo.create_snapshot_from_stdin = Mock(return_value="snap123")
 
-        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123", BACKUP_SCOPE_STANDARD)
+        result = manager.volume_handler.backup_volume_tar(volume, unit, "backup-uuid-123", BACKUP_SCOPE_STANDARD)
 
         # Verify exclude patterns are in command
         tar_call = mock_popen.call_args[0][0]
@@ -1765,7 +1769,7 @@ class TestBackupVolumeTar:
         assert "cache/*" in tar_call
         assert "temp" in tar_call
 
-    @patch("kopi_docka.cores.backup_manager.subprocess.Popen")
+    @patch("kopi_docka.cores.backup_volume_handler.subprocess.Popen")
     def test_creates_snapshot_with_tar_format_tag(self, mock_popen):
         """Should tag snapshot with backup_format=TAR."""
         from kopi_docka.helpers.constants import BACKUP_FORMAT_TAR
@@ -1790,7 +1794,7 @@ class TestBackupVolumeTar:
 
         manager.repo.create_snapshot_from_stdin = Mock(return_value="snap123")
 
-        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123", BACKUP_SCOPE_STANDARD)
+        result = manager.volume_handler.backup_volume_tar(volume, unit, "backup-uuid-123", BACKUP_SCOPE_STANDARD)
 
         # Verify snapshot tags
         call_args = manager.repo.create_snapshot_from_stdin.call_args
@@ -1801,7 +1805,7 @@ class TestBackupVolumeTar:
         assert tags["volume"] == "mydata"
         assert tags["backup_id"] == "backup-uuid-123"
 
-    @patch("kopi_docka.cores.backup_manager.subprocess.Popen")
+    @patch("kopi_docka.cores.backup_volume_handler.subprocess.Popen")
     def test_returns_none_when_tar_fails(self, mock_popen):
         """Should return None if tar process fails."""
         manager = make_backup_manager()
@@ -1824,12 +1828,12 @@ class TestBackupVolumeTar:
 
         manager.repo.create_snapshot_from_stdin = Mock(return_value="snap123")
 
-        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123", BACKUP_SCOPE_STANDARD)
+        result = manager.volume_handler.backup_volume_tar(volume, unit, "backup-uuid-123", BACKUP_SCOPE_STANDARD)
 
         # Should return None on tar failure
         assert result is None
 
-    @patch("kopi_docka.cores.backup_manager.subprocess.Popen")
+    @patch("kopi_docka.cores.backup_volume_handler.subprocess.Popen")
     def test_handles_exception_during_tar_backup(self, mock_popen):
         """Should return None and log error on exception."""
         manager = make_backup_manager()
@@ -1846,12 +1850,12 @@ class TestBackupVolumeTar:
         # Mock Popen to raise exception
         mock_popen.side_effect = Exception("Tar command failed")
 
-        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123", BACKUP_SCOPE_STANDARD)
+        result = manager.volume_handler.backup_volume_tar(volume, unit, "backup-uuid-123", BACKUP_SCOPE_STANDARD)
 
         # Should handle exception and return None
         assert result is None
 
-    @patch("kopi_docka.cores.backup_manager.subprocess.Popen")
+    @patch("kopi_docka.cores.backup_volume_handler.subprocess.Popen")
     def test_uses_temporary_file_for_stderr(self, mock_popen):
         """Should use temporary file for stderr to avoid deadlock."""
         manager = make_backup_manager()
@@ -1874,7 +1878,7 @@ class TestBackupVolumeTar:
 
         manager.repo.create_snapshot_from_stdin = Mock(return_value="snap123")
 
-        result = manager._backup_volume_tar(volume, unit, "backup-uuid-123", BACKUP_SCOPE_STANDARD)
+        result = manager.volume_handler.backup_volume_tar(volume, unit, "backup-uuid-123", BACKUP_SCOPE_STANDARD)
 
         # Verify Popen was called with stdout=PIPE
         call_kwargs = mock_popen.call_args[1]
@@ -1949,7 +1953,7 @@ class TestBackupMetadata:
         unit = make_backup_unit()
 
         with patch.object(manager, "_stop_containers"):
-            with patch.object(manager, "_backup_volume", return_value="snap123"):
+            with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
                 with patch.object(manager, "_start_containers"):
                     metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
@@ -1967,7 +1971,7 @@ class TestBackupMetadata:
         unit = make_backup_unit()
 
         with patch.object(manager, "_stop_containers"):
-            with patch.object(manager, "_backup_volume", return_value="snap123"):
+            with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
                 with patch.object(manager, "_start_containers"):
                     metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
@@ -1982,7 +1986,7 @@ class TestBackupMetadata:
         unit = make_backup_unit(volumes=3)
 
         with patch.object(manager, "_stop_containers"):
-            with patch.object(manager, "_backup_volume", return_value="snap123"):
+            with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
                 with patch.object(manager, "_start_containers"):
                     metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 

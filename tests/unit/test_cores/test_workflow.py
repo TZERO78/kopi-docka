@@ -13,6 +13,7 @@ from unittest.mock import patch, Mock, MagicMock, call
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 
 from kopi_docka.cores.backup_manager import BackupManager
+from kopi_docka.cores.backup_volume_handler import BackupVolumeHandler
 from kopi_docka.types import BackupUnit, ContainerInfo, VolumeInfo
 from kopi_docka.helpers.constants import (
     BACKUP_SCOPE_MINIMAL,
@@ -47,6 +48,7 @@ def make_backup_manager(tmp_path) -> BackupManager:
     manager.stop_timeout = 30
     manager.start_timeout = 60
     manager.exclude_patterns = []
+    manager.volume_handler = BackupVolumeHandler(manager.repo, manager.exclude_patterns)
     return manager
 
 
@@ -93,7 +95,7 @@ class TestBackupWorkflow:
 
         with patch.object(manager, "_stop_containers", side_effect=track_stop):
             with patch.object(manager, "_start_containers", side_effect=track_start):
-                with patch.object(manager, "_backup_volume", side_effect=track_backup):
+                with patch.object(manager.volume_handler, "backup_volume", side_effect=track_backup):
                     with patch.object(manager, "_save_metadata"):
                         with patch.object(manager, "_ensure_policies"):
                             metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
@@ -125,7 +127,7 @@ class TestBackupWorkflow:
         unit = backup_unit_factory()
 
         with patch.object(manager, "_stop_containers") as mock_stop:
-            with patch.object(manager, "_backup_volume") as mock_backup:
+            with patch.object(manager.volume_handler, "backup_volume") as mock_backup:
                 with patch.object(manager, "_start_containers") as mock_start:
                     with patch.object(manager, "_ensure_policies"):
                         metadata = manager.backup_unit(unit)
@@ -159,7 +161,7 @@ class TestBackupWorkflow:
             start_called = True
 
         with patch.object(manager, "_start_containers", side_effect=track_start):
-            with patch.object(manager, "_backup_volume", return_value="snap123"):
+            with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
                 with patch.object(manager, "_save_metadata"):
                     with patch.object(manager, "_ensure_policies"):
                         metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
@@ -188,7 +190,7 @@ class TestBackupWorkflow:
 
         with patch.object(manager, "_stop_containers"):
             with patch.object(manager, "_start_containers"):
-                with patch.object(manager, "_backup_volume", side_effect=partial_failure):
+                with patch.object(manager.volume_handler, "backup_volume", side_effect=partial_failure):
                     with patch.object(manager, "_save_metadata"):
                         with patch.object(manager, "_ensure_policies"):
                             metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
@@ -217,7 +219,7 @@ class TestBackupWorkflow:
         mock_run.side_effect = run_cmd_side_effect
 
         with patch.object(manager, "_stop_containers"):
-            with patch.object(manager, "_backup_volume", return_value="snap123"):
+            with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
                 with patch.object(manager, "_save_metadata"):
                     with patch.object(manager, "_ensure_policies"):
                         # Should not raise, error is caught in _start_containers
@@ -292,7 +294,7 @@ class TestBackupWorkflow:
             with patch.object(manager, "_backup_networks") as mock_networks:
                 with patch.object(manager, "_stop_containers"):
                     with patch.object(manager, "_start_containers"):
-                        with patch.object(manager, "_backup_volume", return_value="snap123"):
+                        with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
                             with patch.object(manager, "_save_metadata"):
                                 with patch.object(manager, "_ensure_policies"):
                                     metadata = manager.backup_unit(
@@ -317,7 +319,7 @@ class TestBackupWorkflow:
             ) as mock_networks:
                 with patch.object(manager, "_stop_containers"):
                     with patch.object(manager, "_start_containers"):
-                        with patch.object(manager, "_backup_volume", return_value="vol_snap"):
+                        with patch.object(manager.volume_handler, "backup_volume", return_value="vol_snap"):
                             with patch.object(manager, "_save_metadata"):
                                 with patch.object(manager, "_ensure_policies"):
                                     metadata = manager.backup_unit(
@@ -339,7 +341,7 @@ class TestBackupWorkflow:
 
         with patch.object(manager, "_stop_containers"):
             with patch.object(manager, "_start_containers"):
-                with patch.object(manager, "_backup_volume", return_value="snap123"):
+                with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
                     with patch.object(manager, "_save_metadata"):
                         with patch.object(manager, "_ensure_policies"):
                             metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
@@ -365,7 +367,7 @@ class TestBackupWorkflow:
             start_called = True
 
         with patch.object(manager, "_stop_containers"):
-            with patch.object(manager, "_backup_volume", side_effect=Exception("Catastrophic")):
+            with patch.object(manager.volume_handler, "backup_volume", side_effect=Exception("Catastrophic")):
                 with patch.object(manager, "_start_containers", side_effect=track_start):
                     with patch.object(manager, "_save_metadata"):
                         with patch.object(manager, "_ensure_policies"):
@@ -385,7 +387,7 @@ class TestBackupWorkflow:
 
         with patch.object(manager, "_stop_containers"):
             with patch.object(manager, "_start_containers"):
-                with patch.object(manager, "_backup_volume", return_value="snap123"):
+                with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
                     with patch.object(manager, "_save_metadata") as mock_save:
                         with patch.object(manager, "_ensure_policies"):
                             metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
@@ -409,7 +411,7 @@ class TestBackupWorkflow:
 
         with patch.object(manager, "_stop_containers"):
             with patch.object(manager, "_start_containers"):
-                with patch.object(manager, "_backup_volume", return_value="snap123"):
+                with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
                     with patch.object(manager, "_save_metadata"):
                         with patch.object(manager, "_ensure_policies"):
                             metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
@@ -435,7 +437,7 @@ class TestBackupWorkflow:
 
         with patch.object(manager, "_stop_containers"):
             with patch.object(manager, "_start_containers"):
-                with patch.object(manager, "_backup_volume", side_effect=track_backup):
+                with patch.object(manager.volume_handler, "backup_volume", side_effect=track_backup):
                     with patch.object(manager, "_save_metadata"):
                         with patch.object(manager, "_ensure_policies"):
                             metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
@@ -457,7 +459,7 @@ class TestBackupWorkflow:
 
         with patch.object(manager, "_stop_containers"):
             with patch.object(manager, "_start_containers"):
-                with patch.object(manager, "_backup_volume", return_value="snap123"):
+                with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
                     with patch.object(manager, "_save_metadata"):
                         with patch.object(manager, "_ensure_policies"):
                             with patch(

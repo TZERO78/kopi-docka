@@ -14,6 +14,7 @@ from subprocess import CompletedProcess
 from unittest.mock import patch, Mock, MagicMock
 
 from kopi_docka.types import BackupUnit, ContainerInfo, VolumeInfo, BackupMetadata
+from kopi_docka.cores.backup_volume_handler import BackupVolumeHandler
 from kopi_docka.helpers.constants import BACKUP_SCOPE_MINIMAL
 
 
@@ -97,10 +98,11 @@ class TestContainerStopTimeout:
         manager.stop_timeout = 30
         manager.start_timeout = 60
         manager.exclude_patterns = []
+        manager.volume_handler = BackupVolumeHandler(manager.repo, manager.exclude_patterns)
 
         unit = make_unit(containers=1, volumes=1)
 
-        with patch.object(manager, "_backup_volume", return_value="snap123"):
+        with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
             metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # Backup should still have been attempted
@@ -134,10 +136,11 @@ class TestContainerStopTimeout:
         manager.stop_timeout = 30
         manager.start_timeout = 60
         manager.exclude_patterns = []
+        manager.volume_handler = BackupVolumeHandler(manager.repo, manager.exclude_patterns)
 
         unit = make_unit(containers=1, volumes=0)
 
-        with patch.object(manager, "_backup_volume"):
+        with patch.object(manager.volume_handler, "backup_volume"):
             manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # Verify start was called even though stop failed
@@ -173,6 +176,7 @@ class TestPartialVolumeFailure:
         manager.stop_timeout = 30
         manager.start_timeout = 60
         manager.exclude_patterns = []
+        manager.volume_handler = BackupVolumeHandler(manager.repo, manager.exclude_patterns)
 
         unit = make_unit(containers=1, volumes=3)
 
@@ -184,7 +188,7 @@ class TestPartialVolumeFailure:
                 raise Exception("Volume 2 backup failed")
             return f"snap{call_count[0]}"
 
-        with patch.object(manager, "_backup_volume", side_effect=volume_backup):
+        with patch.object(manager.volume_handler, "backup_volume", side_effect=volume_backup):
             metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # Should have tried all 3 volumes
@@ -396,6 +400,7 @@ class TestHookFailures:
         manager.stop_timeout = 30
         manager.start_timeout = 60
         manager.exclude_patterns = []
+        manager.volume_handler = BackupVolumeHandler(manager.repo, manager.exclude_patterns)
 
         unit = make_unit(containers=2, volumes=1)
 
