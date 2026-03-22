@@ -44,6 +44,7 @@ from . import (
     dry_run_commands,
     disaster_recovery_commands,
     doctor_commands,
+    history_commands,
 )
 
 # Legacy modules (kept for backward compatibility/internal use)
@@ -61,6 +62,7 @@ __all__ = [
     "dry_run_commands",
     "disaster_recovery_commands",
     "doctor_commands",
+    "history_commands",
     # Legacy modules
     "config_commands",
     "dependency_commands",

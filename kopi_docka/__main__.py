@@ -83,6 +83,7 @@ from .commands import (
     doctor_commands,
     dependency_commands,
     repository_commands,
+    history_commands,
 )
 from .commands.service_commands import cmd_daemon
 
@@ -97,7 +98,7 @@ logger = get_logger(__name__)
 
 # Commands that can run without root privileges
 # Note: 'admin' is a group, so we check individual subcommands via ctx.invoked_subcommand
-SAFE_COMMANDS = {"version", "doctor", "admin", "advanced", "check", "show-deps"}
+SAFE_COMMANDS = {"version", "doctor", "admin", "advanced", "check", "show-deps", "history"}
 
 
 # -------------------------
@@ -179,6 +180,7 @@ disaster_recovery_commands.register(app)  # 5. disaster-recovery
 doctor_commands.register(app)  # 6. doctor
 dependency_commands.register(app, hidden=True)  # Dependency management (hidden wrappers)
 repository_commands.register(app, hidden=True)  # Repository management (hidden wrappers)
+history_commands.register(app)  # 7. history
 
 
 # -------------------------

@@ -5,6 +5,23 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.3.0] - Unreleased
+
+### ✨ Added
+
+- **Backup History Command** (`kopi-docka history`): Browse past backups from stored metadata JSONs
+  - Table view with color-coded status (green = success, red = failed)
+  - Filter options: `--unit NAME`, `--failed`, `--last N`, `--since YYYY-MM-DD`
+  - Detail view: `--detail` shows all fields per backup as Rich Panels
+  - ID lookup: `--id BACKUP_ID` for a specific backup's details
+  - Statistics: `--stats` shows avg/min/max duration per unit
+  - JSON output: `--json` for machine-readable output (monitoring integration)
+  - No root privileges required
+- **MetadataReader** (`helpers/metadata_reader.py`): Reusable read-only loader for backup metadata JSON files
+- **BackupMetadata.from_dict()**: Deserialization classmethod for backwards-compatible JSON loading
+
+---
+
 ## [6.2.3] - 2026-03-22
 
 ### 🔧 Internal

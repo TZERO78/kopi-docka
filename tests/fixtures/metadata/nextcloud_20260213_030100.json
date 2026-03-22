@@ -1,0 +1,17 @@
+{
+  "unit_name": "nextcloud",
+  "timestamp": "2026-02-13T03:01:00",
+  "duration_seconds": 135.5,
+  "backup_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+  "success": true,
+  "error_message": null,
+  "kopia_snapshot_ids": ["k9012ghi", "k3456jkl", "k7890mno"],
+  "volumes_backed_up": 4,
+  "databases_backed_up": 1,
+  "errors": [],
+  "backup_scope": "standard",
+  "networks_backed_up": 1,
+  "docker_config_backed_up": false,
+  "hooks_executed": ["pre_backup", "post_backup"],
+  "backup_format": "direct"
+}

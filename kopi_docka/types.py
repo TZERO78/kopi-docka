@@ -167,6 +167,37 @@ class BackupMetadata:
             "backup_format": self.backup_format,
         }
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "BackupMetadata":
+        """Create BackupMetadata from dictionary (JSON deserialization).
+
+        Tolerant of missing fields for backwards compatibility
+        with older metadata files that had fewer fields.
+        """
+        timestamp_raw = data.get("timestamp", "")
+        if isinstance(timestamp_raw, str):
+            timestamp = datetime.fromisoformat(timestamp_raw)
+        else:
+            timestamp = timestamp_raw
+
+        return cls(
+            unit_name=data.get("unit_name", "unknown"),
+            timestamp=timestamp,
+            duration_seconds=float(data.get("duration_seconds", 0.0)),
+            backup_id=data.get("backup_id", ""),
+            success=data.get("success", True),
+            error_message=data.get("error_message"),
+            kopia_snapshot_ids=data.get("kopia_snapshot_ids", []),
+            volumes_backed_up=int(data.get("volumes_backed_up", 0)),
+            databases_backed_up=int(data.get("databases_backed_up", 0)),
+            errors=data.get("errors", []),
+            backup_scope=data.get("backup_scope", "standard"),
+            networks_backed_up=int(data.get("networks_backed_up", 0)),
+            docker_config_backed_up=data.get("docker_config_backed_up", False),
+            hooks_executed=data.get("hooks_executed", []),
+            backup_format=data.get("backup_format", "direct"),
+        )
+
 
 @dataclass
 class RestorePoint:
