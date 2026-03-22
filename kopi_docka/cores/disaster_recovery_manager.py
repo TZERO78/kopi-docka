@@ -31,7 +31,7 @@ import io
 import json
 import hashlib
 import os
-import subprocess
+import socket
 import sys
 import tarfile
 import secrets
@@ -381,15 +381,10 @@ class DisasterRecoveryManager:
     def _get_kopia_status_json(self) -> Optional[str]:
         """Get Kopia repository status as raw JSON string."""
         try:
-            result = subprocess.run(
-                ["kopia", "repository", "status", "--json"],
-                env=self.repo._get_env(),
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                return result.stdout
+            status = self.repo.status(json_output=True)
+            if isinstance(status, dict):
+                return json.dumps(status)
+            return status if status else None
         except Exception as e:
             logger.warning(f"Could not get Kopia status JSON: {e}")
         return None
@@ -488,15 +483,9 @@ class DisasterRecoveryManager:
     def _create_recovery_info(self) -> Dict[str, Any]:
         repo_status: Dict[str, Any] = {}
         try:
-            result = subprocess.run(
-                ["kopia", "repository", "status", "--json"],
-                env=self.repo._get_env(),
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                repo_status = json.loads(result.stdout)
+            status = self.repo.status(json_output=True)
+            if isinstance(status, dict):
+                repo_status = status
         except Exception as e:
             logger.warning(f"Could not get repository status: {e}")
 
@@ -525,7 +514,7 @@ class DisasterRecoveryManager:
         return {
             "created_at": datetime.now().isoformat(),
             "kopi_docka_version": VERSION,
-            "hostname": subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip(),
+            "hostname": socket.gethostname(),
             "repository": {
                 "type": repo_type,
                 "connection": connection,
@@ -585,15 +574,9 @@ class DisasterRecoveryManager:
 
     def _export_kopia_config(self, out_dir: Path) -> None:
         try:
-            result = subprocess.run(
-                ["kopia", "repository", "status", "--json"],
-                env=self.repo._get_env(),
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                (out_dir / "kopia-repository.json").write_text(result.stdout)
+            status_json = self._get_kopia_status_json()
+            if status_json:
+                (out_dir / "kopia-repository.json").write_text(status_json)
 
             # Save password (the bundle gets encrypted afterward)
             (out_dir / "kopia-password.txt").write_text(self.config.kopia_password or "")

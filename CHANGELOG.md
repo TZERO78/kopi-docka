@@ -5,6 +5,18 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.2.3] - 2026-03-22
+
+### 🔧 Internal
+
+- **Bypass Cleanup (Plan 0020):** All Kopia CLI calls now route through `KopiaRepository._run()` — single point of contact for Kopia changes
+- Removed 3× direct `subprocess→kopia` bypass calls in `disaster_recovery_manager.py` (now uses `self.repo.status()`)
+- Replaced `subprocess.run(["hostname"])` with `socket.gethostname()` in DR manager
+- Routed `set_repo_password()`, `verify_password()`, `create_filesystem_repo_at_path()` through `_run()` with new `extra_env` and `config_file` parameters
+- Documented `repo_helper.detect_existing_cloud_repo()` as intentional exception (runs before KopiaRepository init)
+
+---
+
 ## [6.2.2] - 2026-03-22
 
 ### 🐛 Fixed

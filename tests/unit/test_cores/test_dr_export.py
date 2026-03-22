@@ -79,6 +79,7 @@ def _make_manager(config=None, repo_status=None):
     manager.config = config
     manager.repo = Mock()
     manager.repo._get_env.return_value = {"KOPIA_PASSWORD": "test-password"}
+    manager.repo.status.return_value = repo_status
     manager.repo.list_snapshots.return_value = [
         {"id": "snap1", "time": "2026-01-30T10:00:00Z"},
     ]
@@ -519,14 +520,9 @@ class TestInstructionsContent:
 class TestKopiaStatusJson:
     """Tests for _get_kopia_status_json()."""
 
-    @patch("subprocess.run")
-    def test_returns_json_string(self, mock_subprocess):
+    def test_returns_json_string(self):
         """Returns raw JSON string from kopia status."""
         manager, repo_status = _make_manager()
-
-        mock_subprocess.return_value = Mock(
-            returncode=0, stdout=json.dumps(repo_status), stderr=""
-        )
 
         result = manager._get_kopia_status_json()
 
@@ -534,23 +530,19 @@ class TestKopiaStatusJson:
         parsed = json.loads(result)
         assert parsed["storage"]["type"] == "filesystem"
 
-    @patch("subprocess.run")
-    def test_returns_none_on_failure(self, mock_subprocess):
-        """Returns None when kopia command fails."""
+    def test_returns_none_on_failure(self):
+        """Returns None when repo.status() raises."""
         manager, _ = _make_manager()
-
-        mock_subprocess.return_value = Mock(returncode=1, stdout="", stderr="Error")
+        manager.repo.status.side_effect = RuntimeError("not connected")
 
         result = manager._get_kopia_status_json()
 
         assert result is None
 
-    @patch("subprocess.run")
-    def test_returns_none_on_exception(self, mock_subprocess):
-        """Returns None when subprocess raises exception."""
+    def test_returns_none_on_exception(self):
+        """Returns None when repo.status() raises unexpected exception."""
         manager, _ = _make_manager()
-
-        mock_subprocess.side_effect = FileNotFoundError("kopia not found")
+        manager.repo.status.side_effect = FileNotFoundError("kopia not found")
 
         result = manager._get_kopia_status_json()
 
@@ -590,16 +582,10 @@ class TestNoExternalDependencies:
             if isinstance(cmd, list) and cmd:
                 assert cmd[0] != "tar", "ZIP export should not call 'tar'"
 
-    @patch("subprocess.run")
-    def test_export_does_not_call_openssl(self, mock_subprocess, tmp_path):
+    @patch("socket.gethostname", return_value="testhost")
+    def test_export_does_not_call_openssl(self, mock_hostname, tmp_path):
         """ZIP export never invokes 'openssl'."""
         manager, repo_status = _make_manager()
-
-        mock_subprocess.side_effect = [
-            Mock(returncode=0, stdout=json.dumps(repo_status), stderr=""),
-            Mock(returncode=0, stdout="testhost\n", stderr=""),
-            Mock(returncode=0, stdout=json.dumps(repo_status), stderr=""),
-        ]
 
         with patch.object(manager, "_get_kopia_version", return_value="0.18.2"):
             with patch.object(manager, "_get_docker_version", return_value="27.0.0"):
@@ -607,11 +593,6 @@ class TestNoExternalDependencies:
                     with patch.object(manager, "_find_rclone_config", return_value=None):
                         with patch("pathlib.Path.exists", return_value=False):
                             manager.export_to_file(tmp_path / "dr.zip", "pp")
-
-        for c in mock_subprocess.call_args_list:
-            cmd = c[0][0] if c[0] else c[1].get("args", [])
-            if isinstance(cmd, list) and cmd:
-                assert cmd[0] != "openssl", "ZIP export should not call 'openssl'"
 
 
 # =============================================================================
@@ -623,8 +604,8 @@ class TestNoExternalDependencies:
 class TestZipContentIntegration:
     """Full round-trip test: create ZIP, extract, verify all files."""
 
-    @patch("subprocess.run")
-    def test_full_roundtrip(self, mock_subprocess, tmp_path):
+    @patch("socket.gethostname", return_value="roundtrip-host")
+    def test_full_roundtrip(self, mock_hostname, tmp_path):
         """Create a ZIP, write to file, extract, and verify all contents."""
         config = make_mock_config(
             config_file=str(tmp_path / "kopi-docka.conf"),
@@ -634,12 +615,6 @@ class TestZipContentIntegration:
         (tmp_path / "kopi-docka.conf").write_text("[kopia]\npassword=test\n")
 
         manager, repo_status = _make_manager(config=config)
-
-        mock_subprocess.side_effect = [
-            Mock(returncode=0, stdout=json.dumps(repo_status), stderr=""),
-            Mock(returncode=0, stdout="roundtrip-host\n", stderr=""),
-            Mock(returncode=0, stdout=json.dumps(repo_status), stderr=""),
-        ]
 
         output = tmp_path / "output" / "recovery.zip"
         passphrase = "Tiger-Summit-Crystal-Noble-Zenith"

@@ -289,8 +289,8 @@ class TestRcloneConfigDetection:
 class TestRecoveryInfoCreation:
     """Tests for _create_recovery_info() method."""
 
-    @patch("subprocess.run")
-    def test_create_recovery_info_success(self, mock_subprocess):
+    @patch("socket.gethostname", return_value="testhost")
+    def test_create_recovery_info_success(self, mock_hostname):
         """Recovery info contains all required fields."""
         repo_status = {
             "storage": {
@@ -298,15 +298,11 @@ class TestRecoveryInfoCreation:
                 "config": {"bucket": "my-backup-bucket"},
             }
         }
-        mock_subprocess.side_effect = [
-            # kopia repository status
-            Mock(returncode=0, stdout=json.dumps(repo_status), stderr=""),
-            # hostname
-            Mock(returncode=0, stdout="testhost\n", stderr=""),
-        ]
 
         config = make_mock_config(config_file="/etc/kopi-docka.json")
         manager = DisasterRecoveryManager(config)
+        manager.repo = Mock()
+        manager.repo.status.return_value = repo_status
 
         with patch.object(manager, "_get_kopia_version", return_value="0.18.2"):
             with patch.object(manager, "_get_docker_version", return_value="27.0.0"):
@@ -323,14 +319,10 @@ class TestRecoveryInfoCreation:
         assert info["docker_version"] == "27.0.0"
         assert info["python_version"] == "3.10.12"
 
-    @patch("subprocess.run")
-    def test_create_recovery_info_with_paths(self, mock_subprocess):
+    @patch("socket.gethostname", return_value="testhost")
+    def test_create_recovery_info_with_paths(self, mock_hostname):
         """Recovery info includes config and password file paths."""
         repo_status = {"storage": {"type": "filesystem", "config": {"path": "/test"}}}
-        mock_subprocess.side_effect = [
-            Mock(returncode=0, stdout=json.dumps(repo_status), stderr=""),
-            Mock(returncode=0, stdout="testhost\n", stderr=""),
-        ]
 
         config = make_mock_config(
             config_file="/etc/kopi-docka.json", kopia_params="filesystem --path /test"
@@ -347,6 +339,8 @@ class TestRecoveryInfoCreation:
         config.get.side_effect = get_with_password
 
         manager = DisasterRecoveryManager(config)
+        manager.repo = Mock()
+        manager.repo.status.return_value = repo_status
 
         with patch("pathlib.Path.exists", return_value=True):
             with patch.object(manager, "_get_kopia_version", return_value="0.18.2"):
@@ -358,18 +352,13 @@ class TestRecoveryInfoCreation:
         assert info["paths"]["config"] == "/etc/kopi-docka.json"
         assert info["paths"]["password"] == "/root/kopia-password.txt"
 
-    @patch("subprocess.run")
-    def test_create_recovery_info_handles_kopia_failure(self, mock_subprocess):
+    @patch("socket.gethostname", return_value="testhost")
+    def test_create_recovery_info_handles_kopia_failure(self, mock_hostname):
         """Recovery info creation continues when kopia status fails."""
-        mock_subprocess.side_effect = [
-            # kopia repository status fails
-            Mock(returncode=1, stdout="", stderr="Error"),
-            # hostname
-            Mock(returncode=0, stdout="testhost\n", stderr=""),
-        ]
-
         config = make_mock_config()
         manager = DisasterRecoveryManager(config)
+        manager.repo = Mock()
+        manager.repo.status.side_effect = RuntimeError("not connected")
 
         with patch.object(manager, "_get_kopia_version", return_value="unknown"):
             with patch.object(manager, "_get_docker_version", return_value="unknown"):
@@ -508,14 +497,14 @@ class TestRepositoryExtraction:
 class TestKopiaConfigExport:
     """Tests for _export_kopia_config() method."""
 
-    @patch("subprocess.run")
-    def test_export_kopia_config_success(self, mock_subprocess, tmp_path):
+    def test_export_kopia_config_success(self, tmp_path):
         """Kopia config and password are exported successfully."""
         repo_status = {"storage": {"type": "filesystem", "config": {"path": "/test"}}}
-        mock_subprocess.return_value = Mock(returncode=0, stdout=json.dumps(repo_status), stderr="")
 
         config = make_mock_config(kopia_password="secret123")
         manager = DisasterRecoveryManager(config)
+        manager.repo = Mock()
+        manager.repo.status.return_value = repo_status
 
         manager._export_kopia_config(tmp_path)
 
@@ -529,13 +518,12 @@ class TestKopiaConfigExport:
         assert password_file.exists()
         assert password_file.read_text() == "secret123"
 
-    @patch("subprocess.run")
-    def test_export_kopia_config_handles_failure(self, mock_subprocess, tmp_path):
+    def test_export_kopia_config_handles_failure(self, tmp_path):
         """Export continues when kopia command fails."""
-        mock_subprocess.return_value = Mock(returncode=1, stdout="", stderr="Error")
-
         config = make_mock_config(kopia_password="secret123")
         manager = DisasterRecoveryManager(config)
+        manager.repo = Mock()
+        manager.repo.status.side_effect = RuntimeError("not connected")
 
         # Should not raise exception
         manager._export_kopia_config(tmp_path)
