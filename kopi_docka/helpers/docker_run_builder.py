@@ -29,7 +29,7 @@ Features:
 
 import json
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 
 from .logging import get_logger
 
