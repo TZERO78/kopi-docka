@@ -540,7 +540,7 @@ class TestDiscoverMachines:
 class TestVerifyPassword:
     """Tests for verify_password method."""
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.repository_manager.run_command")
     def test_returns_true_on_success(self, mock_run):
         """Should return True when password is correct."""
         mock_run.return_value = CompletedProcess([], 0, stdout="{}", stderr="")
@@ -549,11 +549,11 @@ class TestVerifyPassword:
         result = repo.verify_password("correct-password")
 
         assert result is True
-        # Verify password was passed in environment
+        # Verify password was passed in environment via extra_env
         call_env = mock_run.call_args[1]["env"]
         assert call_env["KOPIA_PASSWORD"] == "correct-password"
 
-    @patch("subprocess.run")
+    @patch("kopi_docka.cores.repository_manager.run_command")
     def test_returns_false_on_failure(self, mock_run):
         """Should return False when password is wrong."""
         mock_run.return_value = CompletedProcess([], 1, stdout="", stderr="invalid password")
