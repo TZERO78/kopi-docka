@@ -113,14 +113,33 @@ class KopiaRepository:
             str(metadata_size),
         ]
 
-    def _run(self, args: List[str], check: bool = True) -> subprocess.CompletedProcess:
+    def _run(
+        self,
+        args: List[str],
+        check: bool = True,
+        extra_env: Optional[Dict[str, str]] = None,
+        config_file: Optional[str] = None,
+    ) -> subprocess.CompletedProcess:
         """
         Run Kopia command with our env and config.
         Uses run_command() for automatic subprocess tracking.
         Raises RuntimeError if check=True and rc!=0 (backward compatibility).
+
+        Args:
+            args: Kopia CLI arguments (without 'kopia' prefix — added by run_command).
+            check: Raise on non-zero exit code.
+            extra_env: Additional env vars merged into the standard env
+                       (e.g. {"KOPIA_NEW_PASSWORD": "..."}).
+            config_file: Override the default config file path
+                         (e.g. for create_filesystem_repo_at_path).
         """
+        cfg = config_file or self._get_config_file()
         if "--config-file" not in args:
-            args = [*args, "--config-file", self._get_config_file()]
+            args = [*args, "--config-file", cfg]
+
+        env = self._get_env()
+        if extra_env:
+            env.update(extra_env)
 
         try:
             return run_command(
@@ -128,7 +147,7 @@ class KopiaRepository:
                 description=f"Kopia: {' '.join(args[:3])}",
                 check=check,
                 show_output=False,
-                env=self._get_env(),
+                env=env,
             )
         except SubprocessError as e:
             # Backward compatibility: convert SubprocessError → RuntimeError
@@ -332,18 +351,10 @@ class KopiaRepository:
 
         logger.info("Changing repository password...")
 
-        # Build environment with NEW password
-        env = self._get_env().copy()
-        env["KOPIA_NEW_PASSWORD"] = new_password
-
-        # Call kopia repository change-password
-        cmd = ["kopia", "repository", "change-password", "--config-file", self._get_config_file()]
-
-        proc = subprocess.run(cmd, env=env, text=True, capture_output=True)
-
-        if proc.returncode != 0:
-            err_msg = (proc.stderr or proc.stdout or "").strip()
-            raise RuntimeError(f"Failed to change repository password: {err_msg}")
+        self._run(
+            ["kopia", "repository", "change-password"],
+            extra_env={"KOPIA_NEW_PASSWORD": new_password},
+        )
 
         logger.info("Repository password changed successfully")
 
@@ -357,20 +368,11 @@ class KopiaRepository:
         Returns:
             True if password is correct, False otherwise
         """
-        # Temporarily override password in env
-        env = os.environ.copy()
-        env["KOPIA_PASSWORD"] = password
-
-        cache_dir = self.config.kopia_cache_directory
-        if cache_dir:
-            env["KOPIA_CACHE_DIRECTORY"] = str(cache_dir)
-
-        # Try a simple status check
-        proc = subprocess.run(
-            ["kopia", "repository", "status", "--json", "--config-file", self._get_config_file()],
-            env=env,
-            text=True,
-            capture_output=True,
+        # Try a status check with the given password
+        proc = self._run(
+            ["kopia", "repository", "status", "--json"],
+            check=False,
+            extra_env={"KOPIA_PASSWORD": password},
         )
 
         return proc.returncode == 0
@@ -738,61 +740,54 @@ class KopiaRepository:
         cfg_file = str(Path.home() / ".config" / "kopia" / f"repository-{prof}.config")
         Path(cfg_file).parent.mkdir(parents=True, exist_ok=True)
 
-        # Effective env
-        env = self._get_env().copy()
-        if password:
-            env["KOPIA_PASSWORD"] = password
+        # Effective extra_env for password override
+        pw_env = {"KOPIA_PASSWORD": password} if password else None
 
         # Create directory
         repo_dir = Path(path).expanduser().resolve()
         repo_dir.mkdir(parents=True, exist_ok=True)
 
         # 1) Create
-        cmd_create = [
-            "kopia",
-            "repository",
-            "create",
-            "filesystem",
-            "--path",
-            str(repo_dir),
-            "--description",
-            f"Kopi-Docka Backup Repository ({prof})",
-            "--config-file",
-            cfg_file,
-        ]
-        p = subprocess.run(cmd_create, env=env, text=True, capture_output=True)
+        p = self._run(
+            [
+                "kopia", "repository", "create", "filesystem",
+                "--path", str(repo_dir),
+                "--description", f"Kopi-Docka Backup Repository ({prof})",
+            ],
+            check=False,
+            extra_env=pw_env,
+            config_file=cfg_file,
+        )
         if p.returncode != 0:
             if "existing data in storage location" not in (p.stderr or ""):
                 raise RuntimeError((p.stderr or p.stdout or "").strip())
 
         # 2) Connect (idempotent)
-        cmd_connect = [
-            "kopia",
-            "repository",
-            "connect",
-            "filesystem",
-            "--path",
-            str(repo_dir),
-            "--config-file",
-            cfg_file,
-        ]
-        pc = subprocess.run(cmd_connect, env=env, text=True, capture_output=True)
+        pc = self._run(
+            [
+                "kopia", "repository", "connect", "filesystem",
+                "--path", str(repo_dir),
+            ],
+            check=False,
+            extra_env=pw_env,
+            config_file=cfg_file,
+        )
         if pc.returncode != 0:
             # final status attempt for clearer error
-            ps = subprocess.run(
-                ["kopia", "repository", "status", "--config-file", cfg_file],
-                env=env,
-                text=True,
-                capture_output=True,
+            ps = self._run(
+                ["kopia", "repository", "status"],
+                check=False,
+                extra_env=pw_env,
+                config_file=cfg_file,
             )
             raise RuntimeError((pc.stderr or pc.stdout or ps.stderr or ps.stdout or "").strip())
 
         # 3) Verify with status (must be connected)
-        ps = subprocess.run(
-            ["kopia", "repository", "status", "--json", "--config-file", cfg_file],
-            env=env,
-            text=True,
-            capture_output=True,
+        ps = self._run(
+            ["kopia", "repository", "status", "--json"],
+            check=False,
+            extra_env=pw_env,
+            config_file=cfg_file,
         )
         if ps.returncode != 0:
             raise RuntimeError((ps.stderr or ps.stdout or "").strip())

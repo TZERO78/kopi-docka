@@ -120,6 +120,11 @@ def detect_existing_cloud_repo(kopia_params: str, password: str) -> tuple[bool, 
     Uses 'kopia repository status' with the given params to check if a repo exists.
     This requires valid credentials to be configured (env vars or in kopia_params).
 
+    Note: This function calls kopia directly via subprocess instead of going through
+    KopiaRepository. This is intentional — it runs during setup wizard *before* a
+    KopiaRepository instance exists, using a temporary config file and caller-provided
+    credentials. See Plan 0020 (bypass cleanup) for context.
+
     Args:
         kopia_params: The kopia_params string from config (e.g., "s3 --bucket my-bucket --prefix backup")
         password: Repository password for connection attempt
