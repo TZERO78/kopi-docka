@@ -40,6 +40,7 @@ These are needed for specific features and can be skipped with `--skip-dependenc
 |------------|------------|----------------------|
 | **tar** | Disaster recovery bundles | ✓ Most Linux distros |
 | **openssl** | Encryption of recovery bundles | ✓ Most Linux distros |
+| **rsync** | Efficient volume restore | ✓ Most Linux distros |
 
 ### Backend-Specific Dependencies
 

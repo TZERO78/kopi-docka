@@ -5,6 +5,15 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.2.2] - 2026-03-22
+
+### 🐛 Fixed
+- **Issue #71:** Fixed TypeError in `admin config show` command - removed invalid `show=True` argument from `cmd_config()` calls
+- **Issue #70:** Fixed ImportError for `get_backend_class` - implemented missing function in `backends/__init__.py`
+- **Issue #69:** Added `rsync` as SOFT dependency in dependency manager and documentation (fallback to `cp` remains functional)
+
+---
+
 ## [6.2.1] - 2026-02-07
 
 ### 📚 Documentation
