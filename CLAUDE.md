@@ -109,15 +109,36 @@ Admin/advanced subcommands: `config`, `repo`, `snapshot`, `service`, `system`, `
 - Conventional-ish commits: `feat:`, `fix:`, `chore:`, `docs:`
 - CI: GitHub Actions (test matrix 3.10-3.12, publish to PyPI on tag)
 - CHANGELOG.md maintained manually
+- **Branch protection**: `main` is protected — all changes require a Pull Request (no direct push)
 
 ### Release Checklist (Version Bump)
-When releasing a new version, **all** of these must be updated:
+When releasing a new version, follow this **exact** workflow:
+
+**Step 1 — Version bump (on a release branch, NOT main):**
+```bash
+git checkout -b release/vX.Y.Z main
+```
+Update version in **all** of these files:
 1. `pyproject.toml` → `version = "X.Y.Z"`
 2. `kopi_docka/helpers/constants.py` → `VERSION = "X.Y.Z"`
 3. `CLAUDE.md` → Version field in header
 4. `CHANGELOG.md` → Set release date (replace "Unreleased")
-5. Commit: `release: vX.Y.Z`
-6. Tag: `git tag vX.Y.Z` + `git push origin vX.Y.Z` (triggers PyPI publish)
+
+**Step 2 — Commit & PR:**
+```bash
+git commit -m "release: vX.Y.Z"
+git push -u origin release/vX.Y.Z
+gh pr create --title "release: vX.Y.Z"
+```
+Wait for CI checks to pass, then merge the PR.
+
+**Step 3 — Tag (triggers PyPI publish):**
+```bash
+git checkout main && git pull
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+The tag triggers the GitHub Actions workflow that publishes to PyPI.
 
 ### Plan System
 - Plans in `plan/active/`, archived to `plan/archive/vX.x/`
