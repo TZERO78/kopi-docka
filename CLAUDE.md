@@ -6,7 +6,7 @@ Kopi-Docka is a Python CLI tool that wraps **Kopia** for encrypted, deduplicated
 
 **Important**: This project will always be a Kopia wrapper. No second backup engine planned.
 
-- **Version**: 6.2.2
+- **Version**: 6.3.0
 - **Python**: 3.10, 3.11, 3.12
 - **License**: MIT
 - **Author**: Markus F. (TZERO78)
@@ -110,6 +110,15 @@ Admin/advanced subcommands: `config`, `repo`, `snapshot`, `service`, `system`, `
 - CI: GitHub Actions (test matrix 3.10-3.12, publish to PyPI on tag)
 - CHANGELOG.md maintained manually
 
+### Release Checklist (Version Bump)
+When releasing a new version, **all** of these must be updated:
+1. `pyproject.toml` → `version = "X.Y.Z"`
+2. `kopi_docka/helpers/constants.py` → `VERSION = "X.Y.Z"`
+3. `CLAUDE.md` → Version field in header
+4. `CHANGELOG.md` → Set release date (replace "Unreleased")
+5. Commit: `release: vX.Y.Z`
+6. Tag: `git tag vX.Y.Z` + `git push origin vX.Y.Z` (triggers PyPI publish)
+
 ### Plan System
 - Plans in `plan/active/`, archived to `plan/archive/vX.x/`
 - Naming: `plan_XXXX_kebab-case-name.md`
@@ -119,9 +128,8 @@ Admin/advanced subcommands: `config`, `repo`, `snapshot`, `service`, `system`, `
 ## Current State (March 2026)
 
 ### Active Plans
-- **Plan 0020**: v7 Engine Abstraction — BEING REWORKED → Bypass cleanup only (v6.3.0)
-- **Plan 0021**: Backup History Command (v6.3.0) — draft
-- **Plan 0022**: Missed Backup Alerting (v6.3.0, depends on 0021) — draft
+- **Plan 0021**: Backup History Command (v6.3.0) — **done**, merged
+- **Plan 0022**: Missed Backup Alerting (v6.4.0, depends on 0021) — draft
 
 ### Known Technical Debt
 - Bypass points (see above) — Plan 0020 addresses this
