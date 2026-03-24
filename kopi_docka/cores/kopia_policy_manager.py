@@ -102,6 +102,15 @@ class KopiaPolicyManager:
             args += ["--keep-annual", str(keep_annual)]
         self._run(args, check=True)
 
+    def list_policies(self) -> list:
+        """List all Kopia policies (parsed JSON)."""
+        import json
+
+        result = self._run(["kopia", "policy", "list", "--json"], check=True)
+        if result and result.stdout:
+            return json.loads(result.stdout)
+        return []
+
     def set_compression_for_target(self, target: str, compression: str = "zstd") -> None:
         """Set compression for a specific target."""
         self._run(["kopia", "policy", "set", target, "--compression", compression], check=True)

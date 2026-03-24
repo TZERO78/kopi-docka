@@ -721,10 +721,12 @@ class BackupManager:
         (e.g., /var/lib/docker/volumes/...) to match snapshot paths.
         In TAR Mode, policies are applied to virtual paths (e.g., volumes/unit_name).
         """
-        # Static targets: recipes and networks (same path in both modes)
+        # Static targets: recipes, networks, docker-config
+        # Must use absolute staging paths to match snapshot source paths
         static_targets = [
-            f"{RECIPE_BACKUP_DIR}/{unit.name}",
-            f"{NETWORK_BACKUP_DIR}/{unit.name}",
+            str(STAGING_BASE_DIR / RECIPE_BACKUP_DIR / unit.name),
+            str(STAGING_BASE_DIR / NETWORK_BACKUP_DIR / unit.name),
+            str(STAGING_BASE_DIR / DOCKER_CONFIG_BACKUP_DIR / unit.name),
         ]
 
         # Apply policies to static targets

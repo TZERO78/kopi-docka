@@ -2067,9 +2067,9 @@ class TestEnsurePolicies:
             manager._ensure_policies(unit)
 
         # Should have called set_retention_for_target for:
-        # - 2 static targets (recipes, networks)
+        # - 3 static targets (recipes, networks, docker-config)
         # - 2 volume mountpoints (one per volume)
-        assert manager.policy_manager.set_retention_for_target.call_count == 4
+        assert manager.policy_manager.set_retention_for_target.call_count == 5
 
         # Verify volume mountpoints were used (not virtual paths)
         calls = manager.policy_manager.set_retention_for_target.call_args_list
@@ -2098,9 +2098,9 @@ class TestEnsurePolicies:
             manager._ensure_policies(unit)
 
         # Should have called set_retention_for_target for:
-        # - 2 static targets (recipes, networks)
+        # - 3 static targets (recipes, networks, docker-config)
         # - 1 virtual volume path (volumes/mystack)
-        assert manager.policy_manager.set_retention_for_target.call_count == 3
+        assert manager.policy_manager.set_retention_for_target.call_count == 4
 
         # Verify virtual path was used
         calls = manager.policy_manager.set_retention_for_target.call_args_list
@@ -2136,18 +2136,19 @@ class TestEnsurePolicies:
         direct_static = [
             call[0][0]
             for call in direct_calls
-            if "recipes/" in call[0][0] or "networks/" in call[0][0]
+            if "recipes/" in call[0][0] or "networks/" in call[0][0] or "docker-config/" in call[0][0]
         ]
         tar_static = [
             call[0][0]
             for call in tar_calls
-            if "recipes/" in call[0][0] or "networks/" in call[0][0]
+            if "recipes/" in call[0][0] or "networks/" in call[0][0] or "docker-config/" in call[0][0]
         ]
 
-        # Static targets should be identical
+        # Static targets should be identical and use absolute staging paths
         assert set(direct_static) == set(tar_static)
-        assert "recipes/mystack" in direct_static
-        assert "networks/mystack" in direct_static
+        assert "/var/cache/kopi-docka/staging/recipes/mystack" in direct_static
+        assert "/var/cache/kopi-docka/staging/networks/mystack" in direct_static
+        assert "/var/cache/kopi-docka/staging/docker-config/mystack" in direct_static
 
     def test_retention_config_values_passed_correctly(self):
         """Should pass all retention config values to policy manager."""
@@ -2198,9 +2199,9 @@ class TestEnsurePolicies:
             manager._ensure_policies(unit)
 
         # Should have:
-        # - 2 static targets (recipes, networks)
+        # - 3 static targets (recipes, networks, docker-config)
         # - 5 volume mountpoints
-        assert manager.policy_manager.set_retention_for_target.call_count == 7
+        assert manager.policy_manager.set_retention_for_target.call_count == 8
 
         # Verify all 5 volume mountpoints were used
         calls = manager.policy_manager.set_retention_for_target.call_args_list
@@ -2233,8 +2234,8 @@ class TestEnsurePolicies:
         with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_DIRECT):
             manager._ensure_policies(unit)
 
-        # All 4 calls should have been attempted (2 static + 2 volumes)
-        assert manager.policy_manager.set_retention_for_target.call_count == 4
+        # All 5 calls should have been attempted (3 static + 2 volumes)
+        assert manager.policy_manager.set_retention_for_target.call_count == 5
 
     def test_unit_with_no_volumes_direct_mode(self):
         """Unit with no volumes should only set static policies."""
@@ -2247,14 +2248,14 @@ class TestEnsurePolicies:
         with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_DIRECT):
             manager._ensure_policies(unit)
 
-        # Should only have 2 static targets (recipes, networks)
-        assert manager.policy_manager.set_retention_for_target.call_count == 2
+        # Should only have 3 static targets (recipes, networks, docker-config)
+        assert manager.policy_manager.set_retention_for_target.call_count == 3
 
         calls = manager.policy_manager.set_retention_for_target.call_args_list
-        assert "recipes/mystack" in str(calls[0][0][0]) or "recipes/mystack" in str(calls[1][0][0])
-        assert "networks/mystack" in str(calls[0][0][0]) or "networks/mystack" in str(
-            calls[1][0][0]
-        )
+        targets = [call[0][0] for call in calls]
+        assert "/var/cache/kopi-docka/staging/recipes/mystack" in targets
+        assert "/var/cache/kopi-docka/staging/networks/mystack" in targets
+        assert "/var/cache/kopi-docka/staging/docker-config/mystack" in targets
 
     def test_unit_with_no_volumes_tar_mode(self):
         """Unit with no volumes in TAR Mode should only set static policies."""
@@ -2268,9 +2269,9 @@ class TestEnsurePolicies:
             manager._ensure_policies(unit)
 
         # Should have:
-        # - 2 static targets (recipes, networks)
+        # - 3 static targets (recipes, networks, docker-config)
         # - 1 virtual volume path (even with 0 volumes, TAR mode creates this)
-        assert manager.policy_manager.set_retention_for_target.call_count == 3
+        assert manager.policy_manager.set_retention_for_target.call_count == 4
 
     def test_direct_mode_uses_correct_mountpoint_paths(self):
         """Verify actual mountpoint paths are used, not volume names."""
@@ -2314,6 +2315,40 @@ class TestEnsurePolicies:
         assert len(volume_calls) == 2
         assert any("/custom/path/vol1" in str(call) for call in calls)
         assert any("/another/path/vol2" in str(call) for call in calls)
+
+
+    def test_static_policy_targets_match_snapshot_source_paths(self):
+        """Regression guard: policy targets must match the absolute staging paths
+        used by create_snapshot() in _backup_recipes/_backup_networks/_backup_docker_config.
+
+        A path mismatch means Kopia retention policies never trigger for those snapshots.
+        """
+        from kopi_docka.helpers.constants import (
+            BACKUP_FORMAT_DIRECT,
+            STAGING_BASE_DIR,
+            RECIPE_BACKUP_DIR,
+            NETWORK_BACKUP_DIR,
+            DOCKER_CONFIG_BACKUP_DIR,
+        )
+
+        manager = make_backup_manager()
+        unit = make_backup_unit(name="testunit", volumes=0)
+        manager.config.getint.return_value = 5
+
+        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_DIRECT):
+            manager._ensure_policies(unit)
+
+        calls = manager.policy_manager.set_retention_for_target.call_args_list
+        targets = {call[0][0] for call in calls}
+
+        # These are the exact paths used by _prepare_staging_dir → create_snapshot
+        expected_recipe_path = str(STAGING_BASE_DIR / RECIPE_BACKUP_DIR / "testunit")
+        expected_network_path = str(STAGING_BASE_DIR / NETWORK_BACKUP_DIR / "testunit")
+        expected_docker_config_path = str(STAGING_BASE_DIR / DOCKER_CONFIG_BACKUP_DIR / "testunit")
+
+        assert expected_recipe_path in targets, f"Recipe policy target missing: {expected_recipe_path}"
+        assert expected_network_path in targets, f"Network policy target missing: {expected_network_path}"
+        assert expected_docker_config_path in targets, f"Docker-config policy target missing: {expected_docker_config_path}"
 
 
 class TestPrepareStagingDir:
