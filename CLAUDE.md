@@ -6,7 +6,7 @@ Kopi-Docka is a Python CLI tool that wraps **Kopia** for encrypted, deduplicated
 
 **Important**: This project will always be a Kopia wrapper. No second backup engine planned.
 
-- **Version**: 6.3.0
+- **Version**: 6.4.0
 - **Python**: 3.10, 3.11, 3.12
 - **License**: MIT
 - **Author**: Markus F. (TZERO78)
@@ -144,16 +144,20 @@ The tag triggers the GitHub Actions workflow that publishes to PyPI.
 - Plans in `plan/active/`, archived to `plan/archive/vX.x/`
 - Naming: `plan_XXXX_kebab-case-name.md`
 - Standard frontmatter with status, target_release
-- Plans are local-only, never committed to GitHub (use `/plan` skill)
+- Plans are local-only, never pushed to GitHub (`plan/` is in `.gitignore`)
 
 ## Current State (March 2026)
 
 ### Active Plans
-- **Plan 0021**: Backup History Command (v6.3.0) — **done**, merged
-- **Plan 0022**: Missed Backup Alerting (v6.4.0, depends on 0021) — draft
+- **Plan 0022**: Missed Backup Alerting (v6.5.0, depends on 0021) — **draft** (`plan/active/plan_0022_missed-backup-alerting.md`)
+
+### Completed Plans
+- **Plan 0020**: Bypass Cleanup — done, merged (v6.2.3)
+- **Plan 0021**: Backup History Command — done, merged (v6.3.0)
+- **Retention Policy Fix**: Path mismatch + doctor check — done (v6.4.0)
 
 ### Known Technical Debt
-- Bypass points (see above) — Plan 0020 addresses this
+- Bypass points: 2 intentional exceptions remain in `helpers/repo_helper.py` (pre-init, documented)
 - Test coverage at ~44% (target: higher)
 - `tests/README.md` is outdated (copy of v2.0 project README)
 - Commands and backends have very low test coverage (~18% and ~20%)
