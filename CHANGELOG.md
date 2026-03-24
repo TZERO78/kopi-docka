@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Doctor: Retention Policy Alignment check** (Section 7): `kopi-docka doctor` now verifies that Kopia retention policy targets match actual snapshot source paths, detecting orphaned policies and uncovered snapshots
 - **`KopiaPolicyManager.list_policies()`**: New method to list all Kopia policies (JSON), used by the doctor check
 
+### ⬆️ Upgrade Notes
+
+- **No config changes required.** Existing configurations work as-is.
+- On the first backup after upgrading, retention policies will be applied to the correct paths automatically. Old recipe/network/docker-config snapshots that accumulated due to the bug will be cleaned up according to your retention settings.
+- You may notice increased storage reclamation after running `kopi-docka admin repo maintenance` — this is expected as Kopia removes previously orphaned snapshot data.
+- Run `kopi-docka doctor` to verify policy alignment on your installation (new Section 7).
+
 ---
 
 ## [6.3.0] - 2026-03-22
