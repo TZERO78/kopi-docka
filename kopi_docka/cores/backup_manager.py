@@ -29,7 +29,6 @@ Cold backup strategy:
 """
 
 import json
-import subprocess
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -39,13 +38,14 @@ from typing import List, Optional, Tuple
 
 from ..helpers.logging import get_logger
 from ..helpers.ui_utils import run_command, SubprocessError
-from ..types import BackupUnit, ContainerInfo, VolumeInfo, BackupMetadata
+from ..types import BackupUnit, ContainerInfo, BackupMetadata
 from ..helpers.config import Config
 from ..cores.repository_manager import KopiaRepository
 from ..cores.kopia_policy_manager import KopiaPolicyManager
 from ..cores.hooks_manager import HooksManager
 from ..cores.notification_manager import NotificationManager, BackupStats
 from ..cores.safe_exit_manager import SafeExitManager, ServiceContinuityHandler
+from ..cores.backup_volume_handler import BackupVolumeHandler
 from ..helpers.constants import (
     CONTAINER_STOP_TIMEOUT,
     CONTAINER_START_TIMEOUT,
@@ -56,7 +56,6 @@ from ..helpers.constants import (
     BACKUP_SCOPE_MINIMAL,
     BACKUP_SCOPE_STANDARD,
     BACKUP_SCOPE_FULL,
-    BACKUP_FORMAT_TAR,
     BACKUP_FORMAT_DIRECT,
     BACKUP_FORMAT_DEFAULT,
     STAGING_BASE_DIR,
@@ -80,6 +79,7 @@ class BackupManager:
         self.start_timeout = self.config.getint("backup", "start_timeout", CONTAINER_START_TIMEOUT)
 
         self.exclude_patterns = self.config.getlist("backup", "exclude_patterns", [])
+        self.volume_handler = BackupVolumeHandler(self.repo, self.exclude_patterns)
 
     def backup_unit(
         self,
@@ -179,7 +179,7 @@ class BackupManager:
                     futures.append(
                         (
                             volume.name,
-                            executor.submit(self._backup_volume, volume, unit, backup_id, backup_scope),
+                            executor.submit(self.volume_handler.backup_volume, volume, unit, backup_id, backup_scope),
                         )
                     )
 
@@ -702,197 +702,6 @@ class BackupManager:
             logger.warning(f"Docker config backup failed (non-fatal): {e}", exc_info=True)
             return None
 
-    def _backup_volume(self, volume: VolumeInfo, unit: BackupUnit, backup_id: str, backup_scope: str) -> Optional[str]:
-        """Backup a single volume using the configured backup format.
-
-        Dispatcher that routes to the appropriate backup method based on
-        BACKUP_FORMAT_DEFAULT setting.
-
-        Args:
-            volume: Volume to backup
-            unit: Parent backup unit
-            backup_id: Unique ID for this backup run
-            backup_scope: Backup scope (minimal/standard/full)
-
-        Returns:
-            Snapshot ID if successful, None otherwise
-        """
-        backup_format = BACKUP_FORMAT_DEFAULT
-
-        if backup_format == BACKUP_FORMAT_DIRECT:
-            return self._backup_volume_direct(volume, unit, backup_id, backup_scope)
-        else:
-            return self._backup_volume_tar(volume, unit, backup_id, backup_scope)
-
-    def _backup_volume_direct(
-        self, volume: VolumeInfo, unit: BackupUnit, backup_id: str, backup_scope: str
-    ) -> Optional[str]:
-        """Backup a single volume via direct Kopia snapshot (v5.0+).
-
-        This method creates a direct Kopia snapshot of the volume directory,
-        enabling block-level deduplication. Only changed blocks are stored
-        in subsequent backups.
-
-        Args:
-            volume: Volume to backup
-            unit: Parent backup unit
-            backup_id: Unique ID for this backup run
-            backup_scope: Backup scope (minimal/standard/full)
-
-        Returns:
-            Snapshot ID if successful, None otherwise
-        """
-        try:
-            volume_path = Path(volume.mountpoint)
-
-            # Verify volume path exists and is accessible
-            if not volume_path.exists():
-                logger.error(
-                    f"Volume path does not exist: {volume_path}",
-                    extra={"unit_name": unit.name, "volume": volume.name},
-                )
-                return None
-
-            if not volume_path.is_dir():
-                logger.error(
-                    f"Volume path is not a directory: {volume_path}",
-                    extra={"unit_name": unit.name, "volume": volume.name},
-                )
-                return None
-
-            logger.debug(
-                f"Backing up volume (direct): {volume.name}",
-                extra={
-                    "unit_name": unit.name,
-                    "volume": volume.name,
-                    "path": str(volume_path),
-                    "size_bytes": getattr(volume, "size_bytes", 0),
-                    "backup_format": BACKUP_FORMAT_DIRECT,
-                },
-            )
-
-            # Create direct Kopia snapshot of volume directory
-            # Pass exclude patterns from config (same as TAR mode)
-            snap_id = self.repo.create_snapshot(
-                str(volume_path),
-                tags={
-                    "type": "volume",
-                    "unit": unit.name,
-                    "volume": volume.name,
-                    "backup_id": backup_id,
-                    "backup_scope": backup_scope,
-                    "timestamp": datetime.now().isoformat(),
-                    "size_bytes": str(getattr(volume, "size_bytes", 0) or "0"),
-                    "backup_format": BACKUP_FORMAT_DIRECT,
-                },
-                exclude_patterns=self.exclude_patterns if self.exclude_patterns else None,
-            )
-
-            logger.debug(
-                f"Created direct snapshot for volume: {volume.name}",
-                extra={
-                    "unit_name": unit.name,
-                    "volume": volume.name,
-                    "snapshot_id": snap_id,
-                },
-            )
-
-            return snap_id
-
-        except Exception as e:
-            logger.error(
-                f"Failed to backup volume {volume.name} (direct): {e}",
-                extra={"unit_name": unit.name, "volume": volume.name},
-            )
-            return None
-
-    def _backup_volume_tar(
-        self, volume: VolumeInfo, unit: BackupUnit, backup_id: str, backup_scope: str
-    ) -> Optional[str]:
-        """Backup a single volume via tar stream → Kopia (legacy).
-
-        DEPRECATED: This method uses tar streams which prevent Kopia's
-        block-level deduplication. Use _backup_volume_direct() instead.
-
-        Note: stderr is written to a temporary file instead of a pipe to prevent
-        deadlock when tar produces large amounts of warnings (e.g., "file changed
-        as we read it" on thousands of files). The OS pipe buffer (typically 64KB)
-        would fill up, causing tar to block while Python waits for tar to finish.
-        """
-        import tempfile
-
-        try:
-            logger.debug(
-                f"Backing up volume (tar): {volume.name}",
-                extra={
-                    "unit_name": unit.name,
-                    "volume": volume.name,
-                    "size_bytes": getattr(volume, "size_bytes", 0),
-                    "backup_format": BACKUP_FORMAT_TAR,
-                },
-            )
-
-            tar_cmd = [
-                "tar",
-                "-cf",
-                "-",
-                "--numeric-owner",
-                "--xattrs",
-                "--acls",
-                "--one-file-system",
-                "--mtime=@0",
-                "--clamp-mtime",
-                "--sort=name",
-            ]
-            for pattern in self.exclude_patterns:
-                tar_cmd.extend(["--exclude", pattern])
-            tar_cmd.extend(["-C", volume.mountpoint, "."])
-
-            # Use a temporary file for stderr to avoid deadlock.
-            # If tar produces >64KB of warnings, a pipe would fill up and block.
-            with tempfile.TemporaryFile(mode="w+b") as stderr_file:
-                tar_process = subprocess.Popen(tar_cmd, stdout=subprocess.PIPE, stderr=stderr_file)
-
-                snap_id = self.repo.create_snapshot_from_stdin(
-                    tar_process.stdout,
-                    dest_virtual_path=f"{VOLUME_BACKUP_DIR}/{unit.name}/{volume.name}",
-                    tags={
-                        "type": "volume",
-                        "unit": unit.name,
-                        "volume": volume.name,
-                        "backup_id": backup_id,
-                        "backup_scope": backup_scope,
-                        "timestamp": datetime.now().isoformat(),
-                        "size_bytes": str(getattr(volume, "size_bytes", 0) or "0"),
-                        "backup_format": BACKUP_FORMAT_TAR,
-                    },
-                )
-
-                tar_process.wait()
-                if tar_process.stdout:
-                    tar_process.stdout.close()
-
-                if tar_process.returncode != 0:
-                    # Read stderr from temp file (seek to beginning first)
-                    stderr_file.seek(0)
-                    stderr_content = stderr_file.read().decode(errors="replace")
-                    # Truncate very long error output for logging
-                    if len(stderr_content) > 4096:
-                        stderr_content = stderr_content[:4096] + "\n... (truncated)"
-                    logger.error(
-                        f"Tar failed for volume {volume.name}: {stderr_content}",
-                        extra={"unit_name": unit.name, "volume": volume.name},
-                    )
-                    return None
-
-            return snap_id
-        except Exception as e:
-            logger.error(
-                f"Failed to backup volume {volume.name} (tar): {e}",
-                extra={"unit_name": unit.name, "volume": volume.name},
-            )
-            return None
-
     def _save_metadata(self, metadata: BackupMetadata):
         """Persist backup metadata JSON."""
         metadata_dir = self.config.backup_base_path / "metadata"
@@ -912,10 +721,12 @@ class BackupManager:
         (e.g., /var/lib/docker/volumes/...) to match snapshot paths.
         In TAR Mode, policies are applied to virtual paths (e.g., volumes/unit_name).
         """
-        # Static targets: recipes and networks (same path in both modes)
+        # Static targets: recipes, networks, docker-config
+        # Must use absolute staging paths to match snapshot source paths
         static_targets = [
-            f"{RECIPE_BACKUP_DIR}/{unit.name}",
-            f"{NETWORK_BACKUP_DIR}/{unit.name}",
+            str(STAGING_BASE_DIR / RECIPE_BACKUP_DIR / unit.name),
+            str(STAGING_BASE_DIR / NETWORK_BACKUP_DIR / unit.name),
+            str(STAGING_BASE_DIR / DOCKER_CONFIG_BACKUP_DIR / unit.name),
         ]
 
         # Apply policies to static targets

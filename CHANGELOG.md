@@ -5,6 +5,20 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.4.0] - 2026-03-24
+
+### 🐛 Fixed
+
+- **Retention policy path mismatch:** Policies for recipes, networks, and docker-config snapshots were applied to relative paths (`recipes/myunit`) but snapshots used absolute staging paths (`/var/cache/kopi-docka/staging/recipes/myunit`). Kopia never matched these — retention was silently broken for all non-volume snapshots since v5.3.0
+- **Missing docker-config retention:** Docker-config snapshots had no retention policy at all — now included in `_ensure_policies()`
+
+### ✨ Added
+
+- **Doctor: Retention Policy Alignment check** (Section 7): `kopi-docka doctor` now verifies that Kopia retention policy targets match actual snapshot source paths, detecting orphaned policies and uncovered snapshots
+- **`KopiaPolicyManager.list_policies()`**: New method to list all Kopia policies (JSON), used by the doctor check
+
+---
+
 ## [6.3.0] - 2026-03-22
 
 ### ✨ Added

@@ -23,6 +23,7 @@ Checks:
 4. Backend Dependencies
 5. Configuration status
 6. Repository status (Kopia connection - the single source of truth)
+7. Retention policy alignment (policy targets vs snapshot source paths)
 
 Note: Repository connection status IS the definitive check. If Kopia can
 connect to the repository, the underlying storage (filesystem, rclone, s3, etc.)
@@ -268,6 +269,74 @@ def _show_backend_dependencies(cfg: Optional[Config]):
 # -------------------------
 
 
+def _check_policy_alignment(repo, console: Console, warnings: list):
+    """Check that Kopia retention policies match actual snapshot source paths."""
+    from ..cores.kopia_policy_manager import KopiaPolicyManager
+
+    console.print("[bold]7. Retention Policy Alignment[/bold]")
+    console.print("-" * 40)
+
+    policy_table = Table(box=box.SIMPLE, show_header=False)
+    policy_table.add_column("Check", style="cyan", width=30)
+    policy_table.add_column("Status", width=15)
+    policy_table.add_column("Details", style="dim")
+
+    try:
+        policy_mgr = KopiaPolicyManager(repo)
+        policies = policy_mgr.list_policies()
+
+        # Extract per-path policy targets (exclude global)
+        policy_targets = set()
+        for policy in policies:
+            target = policy.get("target", {})
+            path = target.get("path", "")
+            if path and path != "(global)":
+                policy_targets.add(path)
+
+        # Get all snapshot source paths
+        snapshots = repo.list_snapshots()
+        snapshot_sources = set()
+        for snap in snapshots:
+            source = snap.get("source", {})
+            path = source.get("path", "")
+            if path:
+                snapshot_sources.add(path)
+
+        # Find orphaned policies (no matching snapshots)
+        orphaned = policy_targets - snapshot_sources
+        # Find uncovered snapshots (no per-path policy)
+        uncovered = snapshot_sources - policy_targets
+
+        if not orphaned and not uncovered:
+            policy_table.add_row("Policy Alignment", "[green]OK[/green]", "All policies match snapshot paths")
+        else:
+            if orphaned:
+                policy_table.add_row(
+                    "Orphaned Policies",
+                    f"[yellow]{len(orphaned)}[/yellow]",
+                    "Policies with no matching snapshots",
+                )
+                for path in sorted(orphaned):
+                    policy_table.add_row("", "", f"  {path}")
+                warnings.append(f"{len(orphaned)} orphaned retention policies found")
+
+            if uncovered:
+                policy_table.add_row(
+                    "Uncovered Snapshots",
+                    f"[dim]{len(uncovered)}[/dim]",
+                    "Using global retention policy",
+                )
+
+        policy_table.add_row("Policies", "", str(len(policy_targets)))
+        policy_table.add_row("Snapshot Sources", "", str(len(snapshot_sources)))
+
+    except Exception as e:
+        policy_table.add_row("Policy Check", "[yellow]Skipped[/yellow]", str(e)[:60])
+
+    console.print(policy_table)
+    console.print()
+
+
 def cmd_doctor(ctx: typer.Context, verbose: bool = False):
     """
     Run comprehensive system health check.
@@ -398,6 +467,7 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
                 repo_table.add_row(display_key, "", value)
 
         # THE ACTUAL CHECK: Kopia repository connection
+        repo = None
         try:
             repo = KopiaRepository(cfg)
 
@@ -434,6 +504,11 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
 
         console.print(repo_table)
         console.print()
+
+        # Section 7: Retention Policy Alignment
+        # ═══════════════════════════════════════════
+        if repo and repo.is_connected():
+            _check_policy_alignment(repo, console, warnings)
 
     # ═══════════════════════════════════════════
     # Summary
