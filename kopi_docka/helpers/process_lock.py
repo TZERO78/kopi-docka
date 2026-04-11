@@ -25,6 +25,7 @@ Features:
 
 import fcntl
 import os
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -34,7 +35,7 @@ logger = get_logger(__name__)
 
 # Lock file locations
 DEFAULT_LOCK_PATH = "/run/kopi-docka.lock"
-FALLBACK_LOCK_PATH = "/tmp/kopi-docka.lock"
+FALLBACK_LOCK_PATH = str(Path(tempfile.gettempdir()) / "kopi-docka.lock")
 
 
 class ProcessLock:

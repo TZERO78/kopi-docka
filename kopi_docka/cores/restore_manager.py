@@ -1402,6 +1402,7 @@ class RestoreManager:
             # 2. Safety backup
             print("\n   2️⃣ Creating safety backup...")
             backup_name = f"{vol}-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.tar.gz"
+            backup_tmp_dir = Path(tempfile.mkdtemp(prefix="kopia-docka-safety-"))
 
             run_command(
                 [
@@ -1411,7 +1412,7 @@ class RestoreManager:
                     "-v",
                     f"{vol}:/src",
                     "-v",
-                    "/tmp:/backup",
+                    f"{backup_tmp_dir}:/backup",
                     "alpine",
                     "sh",
                     "-c",
@@ -1422,7 +1423,7 @@ class RestoreManager:
                 check=False,
             )
 
-            backup_path = Path(f"/tmp/{backup_name}")
+            backup_path = backup_tmp_dir / backup_name
             if backup_path.exists():
                 print(f"      ✓ Backup: {backup_path}")
                 logger.info(f"Safety backup created: {backup_path}")
@@ -1593,6 +1594,7 @@ class RestoreManager:
             # 2. Safety backup
             print("\n   2️⃣ Creating safety backup...")
             backup_name = f"{vol}-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.tar.gz"
+            backup_tmp_dir = Path(tempfile.mkdtemp(prefix="kopia-docka-safety-"))
 
             run_command(
                 [
@@ -1602,7 +1604,7 @@ class RestoreManager:
                     "-v",
                     f"{vol}:/src",
                     "-v",
-                    "/tmp:/backup",
+                    f"{backup_tmp_dir}:/backup",
                     "alpine",
                     "sh",
                     "-c",
@@ -1613,7 +1615,7 @@ class RestoreManager:
                 check=False,
             )
 
-            backup_path = Path(f"/tmp/{backup_name}")
+            backup_path = backup_tmp_dir / backup_name
             if backup_path.exists():
                 print(f"      ✓ Backup: {backup_path}")
                 logger.info(f"Safety backup created: {backup_path}")

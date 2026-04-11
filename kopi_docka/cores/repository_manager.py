@@ -82,6 +82,8 @@ class KopiaRepository:
         # Wenn Passwort fehlt, wirft get_password() ValueError
         password = self.config.get_password()
         if password:
+            # Known limitation: KOPIA_PASSWORD is visible via /proc/<pid>/environ.
+            # Kopia has no stdin-based password API, so env var is the only option.
             env["KOPIA_PASSWORD"] = password
 
         cache_dir = self.config.kopia_cache_directory
