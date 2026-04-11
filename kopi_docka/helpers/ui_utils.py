@@ -561,8 +561,12 @@ def run_command(
             try:
                 process.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
                 raise
 
             # Build result object
