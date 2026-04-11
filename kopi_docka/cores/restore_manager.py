@@ -2258,9 +2258,10 @@ class RestoreManager:
                                 if response == "y":
                                     print(f"      🚀 Starting container '{name}'...")
                                     try:
-                                        # Execute docker run command
+                                        # Strip line-continuation formatting before splitting
+                                        cmd_flat = command.replace(" \\\n  ", " ")
                                         result = subprocess.run(
-                                            shlex.split(command),
+                                            shlex.split(cmd_flat),
                                             capture_output=True,
                                             text=True,
                                         )
