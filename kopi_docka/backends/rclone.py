@@ -110,6 +110,8 @@ class RcloneBackend(BackendBase):
         """
         root_config = Path("/root/.config/rclone/rclone.conf")
         sudo_user = os.environ.get("SUDO_USER")
+        if sudo_user and not re.match(r"^[a-zA-Z0-9._-]+$", sudo_user):
+            sudo_user = None
         user_config = Path(f"/home/{sudo_user}/.config/rclone/rclone.conf") if sudo_user else None
 
         # Check root config with PermissionError handling
@@ -152,6 +154,8 @@ class RcloneBackend(BackendBase):
 
         # If running with sudo, prefer original user's config
         sudo_user = os.environ.get("SUDO_USER")
+        if sudo_user and not re.match(r"^[a-zA-Z0-9._-]+$", sudo_user):
+            sudo_user = None
         if sudo_user and sudo_user != "root":
             user_config = Path(f"/home/{sudo_user}/.config/rclone/rclone.conf")
             checked_paths.append(str(user_config))

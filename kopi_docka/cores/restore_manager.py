@@ -31,6 +31,7 @@ Uses cold backup strategy: restore recipes and volumes directly.
 
 import json
 import os
+import shlex
 import subprocess
 import tempfile
 import shutil
@@ -1485,11 +1486,11 @@ class RestoreManager:
                 if rsync_result.returncode != 0:
                     # Fallback to cp if rsync not available
                     logger.warning("rsync failed, falling back to cp")
-                    # shell=True required for glob patterns - see Phase 0 analysis
-                    subprocess.run(
-                        f"rm -rf {volume_mountpoint}/* {volume_mountpoint}/.[!.]* {volume_mountpoint}/..?* 2>/dev/null || true",
-                        shell=True,
-                    )
+                    for _entry in Path(volume_mountpoint).iterdir():
+                        if _entry.is_dir():
+                            shutil.rmtree(_entry, ignore_errors=True)
+                        else:
+                            _entry.unlink(missing_ok=True)
                     run_command(
                         ["cp", "-a", f"{restore_dir}/.", f"{volume_mountpoint}/"],
                         "Copying files to volume",
@@ -2252,8 +2253,7 @@ class RestoreManager:
                                     try:
                                         # Execute docker run command
                                         result = subprocess.run(
-                                            command,
-                                            shell=True,
+                                            shlex.split(command),
                                             capture_output=True,
                                             text=True,
                                         )

@@ -514,6 +514,10 @@ class Config:
             self.set("kopia", "password", "")  # Clear direct password
         else:
             # Store directly in config (plaintext)
+            logger.warning(
+                "Security: password stored as plaintext in config file. "
+                "Consider using 'password_file' for better security."
+            )
             self.set("kopia", "password", password)
             self.set("kopia", "password_file", "")  # Clear file reference
             logger.info("Password stored in config file")
