@@ -20,7 +20,10 @@ from rich.markup import escape
 from .base import BackendBase, ConfigurationError, DependencyError
 from ..i18n import _
 from ..helpers.dependency_helper import DependencyHelper, ToolInfo
+from ..helpers.logging import get_logger
 from ..helpers.ui_utils import run_command, SubprocessError
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -383,8 +386,8 @@ class TailscaleBackend(BackendBase):
                         if len(parts) >= 2:
                             status["disk_total_gb"] = float(parts[0].rstrip("G").strip())
                             status["disk_free_gb"] = float(parts[1].rstrip("G").strip())
-            except Exception:
-                pass  # SSH connection failed
+            except (OSError, ValueError, SubprocessError) as e:
+                logger.warning(f"SSH disk-space check failed for {hostname}: {e}")
 
         return status
 
@@ -463,10 +466,15 @@ class TailscaleBackend(BackendBase):
                 # Parse ping output for latency
                 for line in result.stdout.split("\n"):
                     if "time=" in line:
-                        time_str = line.split("time=")[1].split()[0]
-                        return int(float(time_str.rstrip("ms")))
-        except Exception:
-            pass
+                        parts = line.split("time=")
+                        if len(parts) < 2:
+                            continue
+                        tokens = parts[1].split()
+                        if not tokens:
+                            continue
+                        return int(float(tokens[0].rstrip("ms")))
+        except (OSError, ValueError, SubprocessError) as e:
+            logger.debug(f"Ping latency check failed: {e}")
         return None
 
     def _setup_ssh_key(self, hostname: str, key_path: Path) -> bool:

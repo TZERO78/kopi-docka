@@ -78,9 +78,8 @@ All Kopia CLI calls should go through `KopiaRepository` in `cores/repository_man
 - `maintenance_run()` / `set_repo_password()`
 
 **Known bypass points** (direct subprocess→kopia calls outside `_run()`):
-- `disaster_recovery_manager.py`: 3× `kopia repository status --json`
-- `helpers/repo_helper.py`: 2× `kopia repository connect/disconnect`
-- `repository_manager.py` internal: `set_repo_password()`, `verify_password()`, `create_filesystem_repo_at_path()` (4× bypasses)
+- `helpers/repo_helper.py`: 2× `kopia repository connect/disconnect` — intentional pre-init bypass (no `KopiaRepository` instance available yet)
+- `repository_manager.py`: `create_snapshot_from_stdin()` — stdin piping requires direct `subprocess.run()` (Kopia has no stdin API via `_run()`)
 
 ### Command Structure (Typer)
 
@@ -157,7 +156,7 @@ The tag triggers the GitHub Actions workflow that publishes to PyPI.
 - **Retention Policy Fix**: Path mismatch + doctor check — done (v6.4.0)
 
 ### Known Technical Debt
-- Bypass points: 2 intentional exceptions remain in `helpers/repo_helper.py` (pre-init, documented)
+- Bypass points: 2 intentional exceptions remain (see KopiaRepository section above)
 - Test coverage at ~44% (target: higher)
 - `tests/README.md` is outdated (copy of v2.0 project README)
 - Commands and backends have very low test coverage (~18% and ~20%)

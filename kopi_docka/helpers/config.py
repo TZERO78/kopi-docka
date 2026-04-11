@@ -514,6 +514,10 @@ class Config:
             self.set("kopia", "password", "")  # Clear direct password
         else:
             # Store directly in config (plaintext)
+            logger.warning(
+                "Security: password stored as plaintext in config file. "
+                "Consider using 'password_file' for better security."
+            )
             self.set("kopia", "password", password)
             self.set("kopia", "password_file", "")  # Clear file reference
             logger.info("Password stored in config file")
@@ -646,6 +650,7 @@ class Config:
         )
 
         try:
+            os.fchmod(temp_fd, 0o600)  # Set permissions before write to avoid race
             # Schreibe mit UTF-8 encoding und schöner Formatierung
             with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
                 json.dump(self._config, f, indent=2, ensure_ascii=False)

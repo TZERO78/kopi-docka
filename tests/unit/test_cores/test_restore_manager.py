@@ -708,11 +708,12 @@ class TestVolumeRestoreDirect:
         assert "c1" in started_ids
         assert "c2" in started_ids
 
-    def test_rsync_fallback_to_cp_on_failure(self, monkeypatch):
+    def test_rsync_fallback_to_cp_on_failure(self, monkeypatch, tmp_path):
         """Should fallback to cp if rsync fails."""
         rm = make_manager()
 
         cp_used = False
+        vol_mountpoint = str(tmp_path)
 
         def fake_run(cmd, description, timeout=None, check=True, show_output=False, **kwargs):
             nonlocal cp_used
@@ -725,7 +726,7 @@ class TestVolumeRestoreDirect:
             elif cmd[0] == "docker" and "ps" in cmd:
                 return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
             elif cmd[0] == "docker" and "inspect" in cmd:
-                return subprocess.CompletedProcess(cmd, 0, stdout="/tmp/vol\n", stderr="")
+                return subprocess.CompletedProcess(cmd, 0, stdout=vol_mountpoint + "\n", stderr="")
             else:
                 return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 

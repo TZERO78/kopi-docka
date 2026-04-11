@@ -31,6 +31,7 @@ Uses cold backup strategy: restore recipes and volumes directly.
 
 import json
 import os
+import shlex
 import subprocess
 import tempfile
 import shutil
@@ -900,7 +901,12 @@ class RestoreManager:
                     print("   ⚠️ Warning: networks.json not found in snapshot")
                     continue
 
-                network_configs = json.loads(networks_file.read_text())
+                try:
+                    network_configs = json.loads(networks_file.read_text())
+                except json.JSONDecodeError as e:
+                    print(f"   ❌ Failed to parse networks.json: {e}")
+                    logger.error(f"Malformed networks.json in snapshot: {e}")
+                    continue
 
                 # Get list of existing networks
                 result = run_command(
@@ -1401,6 +1407,7 @@ class RestoreManager:
             # 2. Safety backup
             print("\n   2️⃣ Creating safety backup...")
             backup_name = f"{vol}-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.tar.gz"
+            backup_tmp_dir = Path(tempfile.mkdtemp(prefix="kopia-docka-safety-"))
 
             run_command(
                 [
@@ -1410,7 +1417,7 @@ class RestoreManager:
                     "-v",
                     f"{vol}:/src",
                     "-v",
-                    "/tmp:/backup",
+                    f"{backup_tmp_dir}:/backup",
                     "alpine",
                     "sh",
                     "-c",
@@ -1421,7 +1428,7 @@ class RestoreManager:
                 check=False,
             )
 
-            backup_path = Path(f"/tmp/{backup_name}")
+            backup_path = backup_tmp_dir / backup_name
             if backup_path.exists():
                 print(f"      ✓ Backup: {backup_path}")
                 logger.info(f"Safety backup created: {backup_path}")
@@ -1485,11 +1492,11 @@ class RestoreManager:
                 if rsync_result.returncode != 0:
                     # Fallback to cp if rsync not available
                     logger.warning("rsync failed, falling back to cp")
-                    # shell=True required for glob patterns - see Phase 0 analysis
-                    subprocess.run(
-                        f"rm -rf {volume_mountpoint}/* {volume_mountpoint}/.[!.]* {volume_mountpoint}/..?* 2>/dev/null || true",
-                        shell=True,
-                    )
+                    for _entry in Path(volume_mountpoint).iterdir():
+                        if _entry.is_dir():
+                            shutil.rmtree(_entry, ignore_errors=True)
+                        else:
+                            _entry.unlink(missing_ok=True)
                     run_command(
                         ["cp", "-a", f"{restore_dir}/.", f"{volume_mountpoint}/"],
                         "Copying files to volume",
@@ -1592,6 +1599,7 @@ class RestoreManager:
             # 2. Safety backup
             print("\n   2️⃣ Creating safety backup...")
             backup_name = f"{vol}-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.tar.gz"
+            backup_tmp_dir = Path(tempfile.mkdtemp(prefix="kopia-docka-safety-"))
 
             run_command(
                 [
@@ -1601,7 +1609,7 @@ class RestoreManager:
                     "-v",
                     f"{vol}:/src",
                     "-v",
-                    "/tmp:/backup",
+                    f"{backup_tmp_dir}:/backup",
                     "alpine",
                     "sh",
                     "-c",
@@ -1612,7 +1620,7 @@ class RestoreManager:
                 check=False,
             )
 
-            backup_path = Path(f"/tmp/{backup_name}")
+            backup_path = backup_tmp_dir / backup_name
             if backup_path.exists():
                 print(f"      ✓ Backup: {backup_path}")
                 logger.info(f"Safety backup created: {backup_path}")
@@ -1827,8 +1835,8 @@ class RestoreManager:
                     cf_path = recipe_dir / cf
                     if cf_path.exists():
                         files_to_copy.append(cf_path)
-            except Exception:
-                pass
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse compose_order.json, falling back: {e}")
 
         # Fallback: old-style single docker-compose.yml
         if not files_to_copy:
@@ -2250,10 +2258,10 @@ class RestoreManager:
                                 if response == "y":
                                     print(f"      🚀 Starting container '{name}'...")
                                     try:
-                                        # Execute docker run command
+                                        # Strip line-continuation formatting before splitting
+                                        cmd_flat = command.replace(" \\\n  ", " ")
                                         result = subprocess.run(
-                                            command,
-                                            shell=True,
+                                            shlex.split(cmd_flat),
                                             capture_output=True,
                                             text=True,
                                         )

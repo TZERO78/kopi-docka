@@ -89,9 +89,37 @@ class HooksManager:
             )
             return False
 
+        if hook_path.is_symlink():
+            logger.warning(
+                f"Hook script is a symlink, refusing to execute: {hook_path}",
+                extra={"hook_type": hook_type, "path": str(hook_path)},
+            )
+            return False
+
         if not hook_path.is_file() or not os.access(hook_path, os.X_OK):
             logger.warning(
                 f"Hook script not executable: {hook_path}",
+                extra={"hook_type": hook_type, "path": str(hook_path)},
+            )
+            return False
+
+        try:
+            st = hook_path.stat()
+            if st.st_mode & 0o002:
+                logger.warning(
+                    f"Hook script is world-writable, refusing to execute: {hook_path}",
+                    extra={"hook_type": hook_type, "path": str(hook_path)},
+                )
+                return False
+            if st.st_uid != os.getuid() and st.st_uid != 0:
+                logger.warning(
+                    f"Hook script owner mismatch (owned by uid {st.st_uid}), refusing to execute: {hook_path}",
+                    extra={"hook_type": hook_type, "path": str(hook_path)},
+                )
+                return False
+        except OSError as e:
+            logger.warning(
+                f"Cannot stat hook script {hook_path}: {e}",
                 extra={"hook_type": hook_type, "path": str(hook_path)},
             )
             return False
