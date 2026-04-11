@@ -98,6 +98,18 @@ class RcloneBackend(BackendBase):
     def description(self) -> str:
         return "Use rclone to connect to any cloud storage (OneDrive, Dropbox, Google Drive, etc.)"
 
+    def _warn_if_config_readable_by_others(self, config_path: Path) -> None:
+        """Warn if rclone config has group or other read permissions."""
+        try:
+            mode = config_path.stat().st_mode
+            if mode & 0o077:
+                logger.warning(
+                    f"Rclone config has insecure permissions ({oct(mode & 0o777)}): {config_path}. "
+                    "Recommended: chmod 600"
+                )
+        except OSError:
+            pass
+
     def _get_config_candidates(self) -> tuple[Optional[Path], Optional[Path], Optional[str]]:
         """
         Find rclone config file candidates with PermissionError handling.
@@ -162,6 +174,7 @@ class RcloneBackend(BackendBase):
 
             try:
                 if user_config.exists():
+                    self._warn_if_config_readable_by_others(user_config)
                     return ConfigDetectionResult(
                         path=str(user_config),
                         status=ConfigStatus.FOUND,
@@ -181,6 +194,7 @@ class RcloneBackend(BackendBase):
 
         try:
             if root_config.exists():
+                self._warn_if_config_readable_by_others(root_config)
                 return ConfigDetectionResult(
                     path=str(root_config),
                     status=ConfigStatus.FOUND,
