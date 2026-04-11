@@ -460,7 +460,7 @@ done
 
 **Check config:**
 ```bash
-sudo kopi-docka show-config | grep hooks
+sudo kopi-docka advanced config show | grep hooks
 ```
 
 **Check file exists:**

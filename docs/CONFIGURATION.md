@@ -23,11 +23,11 @@ sudo kopi-docka setup
 
 ---
 
-### 2. Config Wizard (`admin config new`)
+### 2. Config Wizard (`advanced config new`)
 **For:** Create/recreate config only
 
 ```bash
-sudo kopi-docka admin config new
+sudo kopi-docka advanced config new
 ```
 
 **What it does:**
@@ -92,7 +92,7 @@ sudo kopi-docka admin config new
 
 **Example (B2 Backend with new repository):**
 ```bash
-sudo kopi-docka admin config new
+sudo kopi-docka advanced config new
 
 # Step 1: Backup Scope
 Select backup scope [2]:
@@ -128,7 +128,7 @@ Next Steps:
 
 **Example (Existing Repository):**
 ```bash
-sudo kopi-docka admin config new
+sudo kopi-docka advanced config new
 
 # Step 1-3: Scope and backend configuration...
 
@@ -160,7 +160,7 @@ Next Steps:
 Option A (Recommended):
 └─ kopi-docka setup
    ├─ 1. Dependency check
-   ├─ 2. Config wizard (admin config new internally)
+   ├─ 2. Config wizard (advanced config new internally)
    │      ├─ Backup scope selection (minimal/standard/full)
    │      ├─ Select backend (filesystem/S3/B2/...)
    │      ├─ Configure backend (paths, buckets, etc.)
@@ -171,13 +171,13 @@ Option A (Recommended):
 
 Option B (Manual):
 ├─ kopi-docka doctor            # Check system health
-├─ kopi-docka admin config new  # Create configuration
+├─ kopi-docka advanced config new  # Create configuration
 │      ├─ Backup scope selection
 │      ├─ Select backend
 │      ├─ Configure backend
 │      ├─ Detect existing repository
 │      └─ Password setup (validated if existing)
-├─ kopi-docka admin config edit # (optional)
+├─ kopi-docka advanced config edit # (optional)
 └─ kopi-docka advanced repo init   # Initialize repository (if new)
 ```
 
@@ -189,7 +189,7 @@ Option B (Manual):
 
 **Recommended:** Use the interactive config wizard:
 ```bash
-sudo kopi-docka admin config new
+sudo kopi-docka advanced config new
 # Or as part of complete setup:
 sudo kopi-docka setup
 ```
@@ -226,47 +226,51 @@ kopi-docka --config /path/to/config.conf <command>
 
 ### Config Example
 
-```ini
-[kopia]
-kopia_params = filesystem --path /backup/kopia-repository
-password_file = /etc/.kopi-docka.password
-compression = zstd
-encryption = AES256-GCM-HMAC-SHA256
-cache_directory = /var/cache/kopi-docka
-
-[backup]
-base_path = /backup/kopi-docka
-parallel_workers = auto
-stop_timeout = 30
-start_timeout = 60
-task_timeout = 0
-backup_scope = standard
-update_recovery_bundle = false
-recovery_bundle_path = /backup/recovery
-recovery_bundle_retention = 3
-
-[docker]
-socket = /var/run/docker.sock
-compose_timeout = 300
-
-[retention]
-latest = 10
-hourly = 0
-daily = 7
-weekly = 4
-monthly = 12
-annual = 3
-
-[logging]
-level = INFO
-file = /var/log/kopi-docka.log
-max_size_mb = 100
-backup_count = 5
-
-[notifications]
-enabled = false
-on_success = true
-on_failure = true
+```json
+{
+  "kopia": {
+    "kopia_params": "filesystem --path /backup/kopia-repository",
+    "password_file": "/etc/.kopi-docka.password",
+    "compression": "zstd",
+    "encryption": "AES256-GCM-HMAC-SHA256",
+    "cache_directory": "/var/cache/kopi-docka"
+  },
+  "backup": {
+    "base_path": "/backup/kopi-docka",
+    "parallel_workers": "auto",
+    "stop_timeout": 30,
+    "start_timeout": 60,
+    "task_timeout": 0,
+    "backup_scope": "standard",
+    "update_recovery_bundle": false,
+    "recovery_bundle_path": "/backup/recovery",
+    "recovery_bundle_retention": 3,
+    "exclude_patterns": ["*.tmp", "*.log", "cache/*"]
+  },
+  "docker": {
+    "socket": "/var/run/docker.sock",
+    "compose_timeout": 300
+  },
+  "retention": {
+    "latest": 10,
+    "hourly": 0,
+    "daily": 7,
+    "weekly": 4,
+    "monthly": 12,
+    "annual": 3
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "/var/log/kopi-docka.log",
+    "max_size_mb": 100,
+    "backup_count": 5
+  },
+  "notifications": {
+    "enabled": false,
+    "on_success": true,
+    "on_failure": true
+  }
+}
 ```
 
 **Password file example** (`/etc/.kopi-docka.password`):
@@ -274,21 +278,16 @@ on_failure = true
 your-secure-generated-password-here
 ```
 
-**Hooks configuration** (optional):
-```ini
-[hooks]
-pre_backup = /opt/hooks/pre-backup.sh
-post_backup = /opt/hooks/post-backup.sh
-pre_restore = /opt/hooks/pre-restore.sh
-post_restore = /opt/hooks/post-restore.sh
-```
-
-**Exclude patterns** (optional):
-```ini
-[backup]
-exclude_patterns = *.tmp
-    *.log
-    cache/*
+**Hooks configuration** (optional, add to config):
+```json
+{
+  "hooks": {
+    "pre_backup": "/opt/hooks/pre-backup.sh",
+    "post_backup": "/opt/hooks/post-backup.sh",
+    "pre_restore": "/opt/hooks/pre-restore.sh",
+    "post_restore": "/opt/hooks/post-restore.sh"
+  }
+}
 ```
 
 ### Configuration Validation
@@ -562,7 +561,7 @@ For complete setup guides, troubleshooting, and examples, see:
 
 ## Storage Backends
 
-Kopi-Docka supports 8 different backends. The **config wizard** (`admin config new`) interactively guides you through backend selection and configuration!
+Kopi-Docka supports 8 different backends. The **config wizard** (`advanced config new`) interactively guides you through backend selection and configuration!
 
 **Backend selection in wizard:**
 ```
@@ -646,7 +645,7 @@ export B2_APPLICATION_KEY="..."
 
 **Example output:**
 ```bash
-sudo kopi-docka admin config new
+sudo kopi-docka advanced config new
 
 Available Backup Targets
 ┌──────────┬─────────────────┬────────────────┐
@@ -710,7 +709,7 @@ rclone config
 
 ##### Using Rclone with Sudo (Important!)
 
-When running `sudo kopi-docka admin config new`, the application needs to access your rclone configuration. Due to permission restrictions, you may encounter warnings if the config is only readable by your user.
+When running `sudo kopi-docka advanced config new`, the application needs to access your rclone configuration. Due to permission restrictions, you may encounter warnings if the config is only readable by your user.
 
 **Config Detection Priority:**
 1. `/home/YOUR_USER/.config/rclone/rclone.conf` (when using sudo)
@@ -729,21 +728,21 @@ WARNING: Rclone configuration found but not readable!
 
 1. **Preserve environment (Recommended):**
    ```bash
-   sudo -E kopi-docka admin config new
+   sudo -E kopi-docka advanced config new
    ```
    The `-E` flag preserves your user environment, allowing access to your rclone config.
 
 2. **Make config readable by root:**
    ```bash
    chmod 644 ~/.config/rclone/rclone.conf
-   sudo kopi-docka admin config new
+   sudo kopi-docka advanced config new
    ```
    This allows root to read your config file.
 
 3. **Copy config to root's home:**
    ```bash
    sudo cp ~/.config/rclone/rclone.conf /root/.config/rclone/
-   sudo kopi-docka admin config new
+   sudo kopi-docka advanced config new
    ```
    Creates a separate config for root (requires manual updates if you change rclone settings).
 
@@ -762,12 +761,12 @@ rclone config
 rclone lsd gdrive:
 
 # 3. Run kopi-docka with -E flag
-sudo -E kopi-docka admin config new
+sudo -E kopi-docka advanced config new
 # Select Rclone backend
 # Enter remote path: gdrive:kopia-backup
 
 # 4. Verify connection
-sudo -E kopi-docka admin repo status
+sudo -E kopi-docka advanced repo status
 ```
 
 **Why preserve user config?**

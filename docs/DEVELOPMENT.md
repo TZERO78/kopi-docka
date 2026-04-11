@@ -118,26 +118,22 @@ make test-coverage
 
 ## Status & Development
 
-### Current Version: v5.5.1
+### Current Version: v6.4.0
 
-Version 5.5.1 brings **enhanced backup scope tracking and Docker config backup**:
-- ✅ **Backup Scope Tracking** - All snapshots include backup_scope tag (minimal/standard/full)
-- ✅ **Docker Config Backup** - FULL scope backs up Docker daemon configuration
-- ✅ **Restore Scope Detection** - Automatic warnings for minimal scope backups
-- ✅ **Enhanced Setup Wizard** - Interactive scope selection with clear descriptions
-- ✅ **Manual Docker Config Restore** - New `show-docker-config` command for safe daemon.json restoration
-- ✅ **Hard/Soft Gate Dependencies** - Simplified dependency system (v5.5.0)
-- ✅ **Think Simple Philosophy** - User-managed dependencies, no auto-install
+Version 6.4.0 includes retention policy path fixes, doctor checks, and the backup history command (v6.3.0):
+- ✅ **Retention policy path fix** — path mismatch resolved (v6.4.0)
+- ✅ **Doctor check** — retention policy validation added (v6.4.0)
+- ✅ **Backup History** — `advanced snapshot history` command (v6.3.0)
+- ✅ **Bypass Cleanup** — all Kopia CLI calls route through `KopiaRepository._run()` (v6.2.3)
 - ✅ Modular structure (helpers, cores, commands)
 - ✅ JSON config with hooks support
 - ✅ Production-ready systemd integration
 - ✅ Comprehensive journald logging
 
-**The project lives from testing and feedback!** Current priorities:
-1. **Testing** - Thoroughly test new v5.5.1 features (scope tracking, docker config backup)
-2. **Bug-Fixing** - Fix known issues
-3. **Stability** - Improve robustness
-4. **Documentation** - User guides and best practices
+**Current priorities:**
+1. **Security** — hardening against injection, hook hijacking, credential leaks (v6.5.0)
+2. **Robustness** — resource leak fixes, better error handling
+3. **Documentation** — sync all docs with v6.4.0 reality
 
 ### Planned Features
 

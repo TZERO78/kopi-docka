@@ -20,7 +20,7 @@ Error: unknown flag: --rclone-config
 
 You can manually edit the raw configuration:
 ```bash
-sudo kopi-docka admin config edit
+sudo kopi-docka advanced config edit
 ```
 
 Find the `kopia_params` field and adjust flags according to Kopia's current syntax. Refer to Kopia's documentation for current flag syntax:
@@ -163,7 +163,7 @@ echo "ls" | sftp -i ~/.ssh/kopi-docka_ed25519 root@backup-server.tailnet
 sudo kopi-docka --log-level DEBUG check
 
 # Check config
-sudo kopi-docka show-config
+sudo kopi-docka advanced config show
 
 # Verify dependencies
 sudo kopi-docka check --verbose
