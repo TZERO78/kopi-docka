@@ -5,6 +5,42 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.5.0] - 2026-04-11
+
+### 🔒 Security
+
+- **S1 Shell injection** (`restore_manager`): removed `shell=True` — replaced glob-based `rm` with `Path.iterdir()` + `shutil.rmtree()`, docker run command via list-based `shlex.split()`
+- **S2 SUDO_USER validation** (`rclone`, `disaster_recovery_manager`): validate against `^[a-zA-Z0-9._-]+$` before path interpolation
+- **S3 Plaintext password warning** (`config`): warn at setup time when password is stored inline; recommend `password_file` instead
+- **S4 Hook security** (`hooks_manager`): refuse symlinks, world-writable scripts, and non-owner scripts to prevent hook hijacking
+- **S5 rclone.conf permissions** (`rclone`): warn when `rclone.conf` has group/other read permissions
+- **S6 fchmod race** (`config`): `fchmod(600)` on temp fd before write — closes chmod TOCTOU race
+- **S7 Sensitive stderr filtering** (`ui_utils`): filter password/token/secret/key patterns from stderr before display
+- **S8 mkdtemp** (`restore_manager`): replace hardcoded `/tmp` mount with `tempfile.mkdtemp()` for Docker safety backups
+- **S9 Lock path** (`process_lock`): use `tempfile.gettempdir()` instead of hardcoded `/tmp`
+- **S10 KOPIA_PASSWORD documentation** (`repository_manager`): document `/proc` exposure as known limitation
+
+### 🛠 Fixed
+
+- **R1 Subprocess leak** (`backup_volume_handler`): `try/finally` around `Popen` — kills tar process on snapshot exception
+- **R2 JSON error handling** (`docker_discovery`, `restore_manager`): specific `json.JSONDecodeError` handlers with meaningful messages at three call sites
+- **R3 Bounds checks** (`tailscale`, `docker_discovery`): validate `.split()` results before indexing
+- **R4 Bare except** (`tailscale`, `repository_manager`): replace `except Exception` with specific types + warning/debug logging
+- **R5 SIGTERM grace** (`ui_utils`): SIGTERM → 5s wait → SIGKILL on timeout (was direct SIGKILL)
+- **R6 Docker start timeout** (`backup_manager`): use `self.start_timeout + 10` consistently (matches stop margin logic)
+- **docker run shlex** (`restore_manager`): strip line-continuation formatting before `shlex.split()` to prevent stray `\n` argv entries
+
+### 📝 Documentation
+
+- **tests/README.md**: complete rewrite (was a copy of the v2.0 project README)
+- **CONFIGURATION.md**: rewrite config examples from INI → JSON format; new Security Best Practices section
+- **HOOKS.md**: new Security Requirements section (ownership, permissions, symlink enforcement)
+- **DEVELOPMENT.md**: update version 5.5.1 → 6.4.0 with accurate feature list
+- **CONFIGURATION.md / TROUBLESHOOTING.md / HOOKS.md**: replace stale `admin` and `show-config` command references with `advanced config show`
+- **CLAUDE.md**: update bypass point list — remove 5 stale entries, document 2 remaining intentional bypasses
+
+---
+
 ## [6.4.0] - 2026-03-24
 
 ### 🐛 Fixed
