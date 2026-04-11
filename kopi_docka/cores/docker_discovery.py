@@ -137,6 +137,11 @@ class DockerDiscovery:
                 inspect = self._run_docker(["inspect", cid])
                 data = json.loads(inspect)[0]
                 containers.append(self._parse_container_info(data))
+            except json.JSONDecodeError as e:
+                logger.error(
+                    f"Failed to parse docker inspect output for container {cid}: {e}",
+                    extra={"operation": "discover", "container_id": cid},
+                )
             except Exception as e:
                 logger.error(
                     f"Failed to inspect container {cid}: {e}",
@@ -247,7 +252,9 @@ class DockerDiscovery:
                 check=False,
             )
             if result.returncode == 0 and result.stdout:
-                return int(result.stdout.split("\t", 1)[0])
+                parts = result.stdout.split("\t", 1)
+                if parts and parts[0].strip():
+                    return int(parts[0])
         except Exception as e:
             logger.debug(f"Could not estimate volume size: {e}", extra={"operation": "discover"})
         return None

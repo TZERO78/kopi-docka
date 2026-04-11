@@ -6,6 +6,7 @@ Provides consistent UI components across all commands.
 """
 
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -22,6 +23,11 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from .logging import get_logger
+
+_SENSITIVE_PATTERN = re.compile(
+    r"((?:password|passwd|token|secret|key|credential|auth)[=:\s]+)\S+",
+    re.IGNORECASE,
+)
 
 console = Console()
 logger = get_logger(__name__)
@@ -555,8 +561,12 @@ def run_command(
             try:
                 process.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
                 raise
 
             # Build result object
@@ -626,8 +636,8 @@ def run_command(
             error_content += f"[dim]Command:[/dim] {escape(cmd_str)}\n"
             error_content += f"[dim]Exit code:[/dim] {result.returncode}\n"
             if stderr_text:
-                # Truncate very long error messages
-                stderr_display = stderr_text[:500]
+                # Filter sensitive values before display
+                stderr_display = _SENSITIVE_PATTERN.sub(r"\1[REDACTED]", stderr_text[:500])
                 if len(stderr_text) > 500:
                     stderr_display += "\n... (truncated)"
                 error_content += f"\n[dim]Details:[/dim]\n{escape(stderr_display)}"

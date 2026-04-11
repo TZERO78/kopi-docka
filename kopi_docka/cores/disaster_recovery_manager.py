@@ -31,6 +31,7 @@ import io
 import json
 import hashlib
 import os
+import re
 import socket
 import sys
 import tarfile
@@ -453,8 +454,6 @@ class DisasterRecoveryManager:
         kopia_params = self.config.get("kopia", "kopia_params", fallback="")
         if "--rclone-args=" in kopia_params:
             # Extract path from --rclone-args='--config=/path/to/rclone.conf'
-            import re
-
             match = re.search(r"--rclone-args=['\"]?--config=([^'\"\\s]+)", kopia_params)
             if match:
                 path = Path(match.group(1))
@@ -462,12 +461,12 @@ class DisasterRecoveryManager:
                     return path
 
         # 2. Fallback: Standard locations
-        import os
-
         candidates = [
             Path("/root/.config/rclone/rclone.conf"),
         ]
         sudo_user = os.environ.get("SUDO_USER")
+        if sudo_user and not re.match(r"^[a-zA-Z0-9._-]+$", sudo_user):
+            sudo_user = None
         if sudo_user:
             candidates.append(Path(f"/home/{sudo_user}/.config/rclone/rclone.conf"))
 

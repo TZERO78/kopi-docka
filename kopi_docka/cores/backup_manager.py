@@ -310,7 +310,7 @@ class BackupManager:
                 run_command(
                     ["docker", "start", c.id],
                     f"Starting {c.name}",
-                    timeout=30,
+                    timeout=self.start_timeout + 10,  # config timeout + safety margin
                 )
                 logger.debug(f"Started container: {c.name}", extra={"container": c.name})
                 # Unregister from emergency restart (normal startup successful)
