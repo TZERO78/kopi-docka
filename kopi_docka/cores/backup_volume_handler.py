@@ -194,20 +194,25 @@ class BackupVolumeHandler:
             with tempfile.TemporaryFile(mode="w+b") as stderr_file:
                 tar_process = subprocess.Popen(tar_cmd, stdout=subprocess.PIPE, stderr=stderr_file)
 
-                snap_id = self.repo.create_snapshot_from_stdin(
-                    tar_process.stdout,
-                    dest_virtual_path=f"{VOLUME_BACKUP_DIR}/{unit.name}/{volume.name}",
-                    tags={
-                        "type": "volume",
-                        "unit": unit.name,
-                        "volume": volume.name,
-                        "backup_id": backup_id,
-                        "backup_scope": backup_scope,
-                        "timestamp": datetime.now().isoformat(),
-                        "size_bytes": str(getattr(volume, "size_bytes", 0) or "0"),
-                        "backup_format": BACKUP_FORMAT_TAR,
-                    },
-                )
+                try:
+                    snap_id = self.repo.create_snapshot_from_stdin(
+                        tar_process.stdout,
+                        dest_virtual_path=f"{VOLUME_BACKUP_DIR}/{unit.name}/{volume.name}",
+                        tags={
+                            "type": "volume",
+                            "unit": unit.name,
+                            "volume": volume.name,
+                            "backup_id": backup_id,
+                            "backup_scope": backup_scope,
+                            "timestamp": datetime.now().isoformat(),
+                            "size_bytes": str(getattr(volume, "size_bytes", 0) or "0"),
+                            "backup_format": BACKUP_FORMAT_TAR,
+                        },
+                    )
+                except Exception:
+                    tar_process.kill()
+                    tar_process.wait()
+                    raise
 
                 tar_process.wait()
                 if tar_process.stdout:

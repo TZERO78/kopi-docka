@@ -901,7 +901,12 @@ class RestoreManager:
                     print("   ⚠️ Warning: networks.json not found in snapshot")
                     continue
 
-                network_configs = json.loads(networks_file.read_text())
+                try:
+                    network_configs = json.loads(networks_file.read_text())
+                except json.JSONDecodeError as e:
+                    print(f"   ❌ Failed to parse networks.json: {e}")
+                    logger.error(f"Malformed networks.json in snapshot: {e}")
+                    continue
 
                 # Get list of existing networks
                 result = run_command(
@@ -1830,8 +1835,8 @@ class RestoreManager:
                     cf_path = recipe_dir / cf
                     if cf_path.exists():
                         files_to_copy.append(cf_path)
-            except Exception:
-                pass
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse compose_order.json, falling back: {e}")
 
         # Fallback: old-style single docker-compose.yml
         if not files_to_copy:

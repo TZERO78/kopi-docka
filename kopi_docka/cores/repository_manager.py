@@ -198,7 +198,7 @@ class KopiaRepository:
         try:
             _ = self.status(json_output=True)
             return True
-        except Exception:
+        except (OSError, ValueError, RuntimeError):
             return False
 
     def connect(self) -> None:
