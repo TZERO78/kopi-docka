@@ -39,11 +39,12 @@ MagicMock/
 # Local AI tooling (Claude / Codex)
 # Session state, caches, local-only artifacts
 ############################
-.claude/
+.claude/*
 .codex/
 
-# Allow committed agent rules (optional but recommended)
+# Allow committed agent rules and project commands
 !.claude/agent.md
+!.claude/commands/
 !.codex/agent.md
 
 ############################
