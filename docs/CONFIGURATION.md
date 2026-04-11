@@ -776,4 +776,64 @@ sudo -E kopi-docka advanced repo status
 
 ---
 
+## Security Best Practices
+
+### Use a password file — not inline passwords
+
+Storing the repository password directly in the config exposes it to anyone who can read the file. Use `password_file` instead:
+
+```json
+{
+  "kopia": {
+    "password_file": "/etc/.kopi-docka.password"
+  }
+}
+```
+
+```bash
+# Create the password file with strict permissions
+echo "your-secure-password" | sudo tee /etc/.kopi-docka.password
+sudo chmod 600 /etc/.kopi-docka.password
+sudo chown root:root /etc/.kopi-docka.password
+```
+
+The config wizard (`advanced config new`) creates this file automatically with the correct permissions.
+
+### Protect your config file
+
+The config file should only be readable by root:
+
+```bash
+sudo chmod 600 /etc/kopi-docka/kopi-docka.conf
+sudo chown root:root /etc/kopi-docka/kopi-docka.conf
+```
+
+The `doctor` command checks config file permissions and will warn you if they are too open.
+
+### Protect your rclone config
+
+If you use the rclone backend, the rclone config often contains cloud credentials:
+
+```bash
+chmod 600 ~/.config/rclone/rclone.conf
+```
+
+Kopi-Docka warns on startup if the rclone config is readable by group or others.
+
+### Hook script security
+
+Hook scripts must be owned by root (or the running user) and must not be world-writable or symlinks. Kopi-Docka refuses to execute hooks that do not meet these requirements:
+
+- Owner must be `root` or the current process UID
+- File must not be world-writable (`chmod o-w`)
+- File must not be a symlink
+
+See [HOOKS.md](HOOKS.md) for full guidance.
+
+### Run as root only where needed
+
+Most read-only commands (`advanced repo status`, `advanced config show`, `doctor`) can be run as a regular user if the config file is readable. Only backup, restore, and setup require root (for Docker socket access and volume mounts).
+
+---
+
 [← Back to README](../README.md)

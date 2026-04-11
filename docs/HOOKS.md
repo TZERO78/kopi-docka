@@ -349,6 +349,53 @@ exit 1
 # → Backup marked successful (with warning)
 ```
 
+## Security Requirements
+
+Kopi-Docka enforces the following checks before executing a hook script. Hooks that fail any check are skipped with a warning — they are **never silently executed**.
+
+### Ownership
+
+The script must be owned by `root` (uid 0) or the same user running kopi-docka. This prevents a lower-privileged user from placing a malicious script that runs as root.
+
+```bash
+# Correct: root-owned
+sudo chown root:root /opt/hooks/pre-backup.sh
+
+# Correct: owned by the running user (if not running as root)
+chown $(whoami) /opt/hooks/pre-backup.sh
+```
+
+### Permissions
+
+- The script must **not** be world-writable:
+  ```bash
+  chmod o-w /opt/hooks/pre-backup.sh
+  # or use 700 / 750 / 755 as appropriate
+  chmod 750 /opt/hooks/pre-backup.sh
+  ```
+- The script must be executable (`chmod +x`)
+
+### No symlinks
+
+Hook paths must point directly to regular files — symlinks are refused. This prevents an attacker from redirecting a hook to a different script by swapping the symlink target.
+
+```bash
+# Wrong: symlink target can be swapped
+ln -s /opt/scripts/dynamic.sh /opt/hooks/pre-backup.sh
+
+# Correct: real file
+cp /opt/scripts/dynamic.sh /opt/hooks/pre-backup.sh
+```
+
+### Recommended permissions
+
+```bash
+sudo chown root:root /opt/hooks/pre-backup.sh
+sudo chmod 750 /opt/hooks/pre-backup.sh
+```
+
+---
+
 ## Best Practices
 
 ### 1. Always Use Shebang and Set Options
