@@ -388,12 +388,20 @@ sudo kopi-docka advanced config edit      # Edit config
 # Repository
 sudo kopi-docka advanced repo init        # Initialize repository
 sudo kopi-docka advanced repo status      # Repository info
-sudo kopi-docka advanced repo maintenance # Run maintenance
 
 # Snapshots & Units
-sudo kopi-docka advanced snapshot list          # List backup units
+sudo kopi-docka advanced snapshot list              # List backup units
 sudo kopi-docka advanced snapshot list --snapshots  # List all snapshots
-sudo kopi-docka advanced snapshot estimate-size # Estimate backup size
+sudo kopi-docka advanced snapshot estimate-size     # Estimate backup size
+sudo kopi-docka advanced snapshot manage            # Interactive management wizard
+sudo kopi-docka advanced snapshot delete <id>       # Delete a snapshot
+sudo kopi-docka advanced snapshot pin <id>          # Pin snapshot (protect from cleanup)
+sudo kopi-docka advanced snapshot unpin <id>        # Unpin snapshot
+sudo kopi-docka advanced snapshot maintenance       # Run maintenance
+sudo kopi-docka advanced snapshot prune-empty       # Expire snapshots (apply retention)
+sudo kopi-docka advanced snapshot retention show    # Show retention policy
+sudo kopi-docka advanced snapshot retention set \
+  --latest 10 --daily 7 --weekly 4 --monthly 12    # Update retention policy
 
 # System & Service
 sudo kopi-docka advanced system install-deps    # Install dependencies

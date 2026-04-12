@@ -17,8 +17,16 @@
 Snapshot management commands under 'admin snapshot'.
 
 Commands:
-- admin snapshot list         - List backup units or repository snapshots
-- admin snapshot estimate-size - Estimate total backup size
+- admin snapshot list              - List backup units or repository snapshots
+- admin snapshot estimate-size     - Estimate total backup size
+- admin snapshot manage            - Interactive management wizard
+- admin snapshot maintenance       - Run repository maintenance
+- admin snapshot prune-empty       - Expire snapshots per retention policy
+- admin snapshot delete <id>       - Delete a specific snapshot
+- admin snapshot pin <id>          - Pin a snapshot
+- admin snapshot unpin <id>        - Unpin a snapshot
+- admin snapshot retention show    - Show current retention policy
+- admin snapshot retention set     - Update retention policy
 """
 
 from pathlib import Path
@@ -36,7 +44,7 @@ from ...helpers.ui_utils import (
     print_warning,
     print_error_panel,
 )
-from ...cores import KopiaRepository, DockerDiscovery
+from ...cores import KopiaRepository, DockerDiscovery, SnapshotManager
 
 logger = get_logger(__name__)
 console = Console()
@@ -305,6 +313,94 @@ def cmd_estimate_size(ctx: typer.Context):
     )
 
 
+# Retention sub-group
+retention_app = typer.Typer(
+    name="retention",
+    help="View or update retention policy.",
+    no_args_is_help=True,
+)
+
+
+def cmd_manage(ctx: typer.Context) -> None:
+    """Launch interactive snapshot management wizard."""
+    cfg = ensure_config(ctx)
+    mgr = SnapshotManager(cfg)
+    mgr.interactive_manage()
+
+
+def cmd_maintenance(
+    ctx: typer.Context,
+    full: bool = typer.Option(False, "--full", help="Run full maintenance (default: quick)"),
+) -> None:
+    """Run Kopia repository maintenance."""
+    cfg = ensure_config(ctx)
+    mgr = SnapshotManager(cfg)
+    mgr.cmd_maintenance(full=full)
+
+
+def cmd_prune_empty(
+    ctx: typer.Context,
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview only, do not delete"),
+) -> None:
+    """Apply retention policy and expire old snapshots."""
+    cfg = ensure_config(ctx)
+    mgr = SnapshotManager(cfg)
+    mgr.cmd_prune_empty(dry_run=dry_run)
+
+
+def cmd_delete(
+    ctx: typer.Context,
+    snapshot_id: str = typer.Argument(..., help="Snapshot ID to delete"),
+    force: bool = typer.Option(False, "--force", help="Skip confirmation prompt"),
+) -> None:
+    """Delete a specific snapshot."""
+    cfg = ensure_config(ctx)
+    mgr = SnapshotManager(cfg)
+    mgr.cmd_delete(snapshot_id, force=force)
+
+
+def cmd_pin(
+    ctx: typer.Context,
+    snapshot_id: str = typer.Argument(..., help="Snapshot ID to pin"),
+) -> None:
+    """Pin a snapshot to protect it from retention cleanup."""
+    cfg = ensure_config(ctx)
+    mgr = SnapshotManager(cfg)
+    mgr.cmd_pin(snapshot_id)
+
+
+def cmd_unpin(
+    ctx: typer.Context,
+    snapshot_id: str = typer.Argument(..., help="Snapshot ID to unpin"),
+) -> None:
+    """Remove pin from a snapshot."""
+    cfg = ensure_config(ctx)
+    mgr = SnapshotManager(cfg)
+    mgr.cmd_unpin(snapshot_id)
+
+
+def cmd_retention_show(ctx: typer.Context) -> None:
+    """Show current retention policy (config + Kopia global policy)."""
+    cfg = ensure_config(ctx)
+    mgr = SnapshotManager(cfg)
+    mgr.cmd_retention_show()
+
+
+def cmd_retention_set(
+    ctx: typer.Context,
+    latest: int = typer.Option(10, "--latest", help="Keep N latest snapshots"),
+    hourly: int = typer.Option(0, "--hourly", help="Keep N hourly snapshots"),
+    daily: int = typer.Option(7, "--daily", help="Keep N daily snapshots"),
+    weekly: int = typer.Option(4, "--weekly", help="Keep N weekly snapshots"),
+    monthly: int = typer.Option(12, "--monthly", help="Keep N monthly snapshots"),
+    annual: int = typer.Option(3, "--annual", help="Keep N annual snapshots"),
+) -> None:
+    """Update retention policy in Kopia and config file."""
+    cfg = ensure_config(ctx)
+    mgr = SnapshotManager(cfg)
+    mgr.cmd_retention_set(latest, hourly, daily, weekly, monthly, annual)
+
+
 # -------------------------
 # Registration
 # -------------------------
@@ -326,6 +422,73 @@ def register(app: typer.Typer):
     def _estimate_size_cmd(ctx: typer.Context):
         """Estimate total backup size for all units."""
         cmd_estimate_size(ctx)
+
+    @snapshot_app.command("manage")
+    def _manage_cmd(ctx: typer.Context):
+        """Interactive snapshot management wizard."""
+        cmd_manage(ctx)
+
+    @snapshot_app.command("maintenance")
+    def _maintenance_cmd(
+        ctx: typer.Context,
+        full: bool = typer.Option(False, "--full", help="Run full maintenance (default: quick)"),
+    ):
+        """Run Kopia repository maintenance."""
+        cmd_maintenance(ctx, full=full)
+
+    @snapshot_app.command("prune-empty")
+    def _prune_empty_cmd(
+        ctx: typer.Context,
+        dry_run: bool = typer.Option(False, "--dry-run", help="Preview only, do not delete"),
+    ):
+        """Apply retention policy and expire old snapshots."""
+        cmd_prune_empty(ctx, dry_run=dry_run)
+
+    @snapshot_app.command("delete")
+    def _delete_cmd(
+        ctx: typer.Context,
+        snapshot_id: str = typer.Argument(..., help="Snapshot ID to delete"),
+        force: bool = typer.Option(False, "--force", help="Skip confirmation prompt"),
+    ):
+        """Delete a specific snapshot."""
+        cmd_delete(ctx, snapshot_id, force=force)
+
+    @snapshot_app.command("pin")
+    def _pin_cmd(
+        ctx: typer.Context,
+        snapshot_id: str = typer.Argument(..., help="Snapshot ID to pin"),
+    ):
+        """Pin a snapshot to protect it from retention cleanup."""
+        cmd_pin(ctx, snapshot_id)
+
+    @snapshot_app.command("unpin")
+    def _unpin_cmd(
+        ctx: typer.Context,
+        snapshot_id: str = typer.Argument(..., help="Snapshot ID to unpin"),
+    ):
+        """Remove pin from a snapshot."""
+        cmd_unpin(ctx, snapshot_id)
+
+    # Retention sub-group
+    @retention_app.command("show")
+    def _retention_show_cmd(ctx: typer.Context):
+        """Show current retention policy."""
+        cmd_retention_show(ctx)
+
+    @retention_app.command("set")
+    def _retention_set_cmd(
+        ctx: typer.Context,
+        latest: int = typer.Option(10, "--latest", help="Keep N latest snapshots"),
+        hourly: int = typer.Option(0, "--hourly", help="Keep N hourly snapshots"),
+        daily: int = typer.Option(7, "--daily", help="Keep N daily snapshots"),
+        weekly: int = typer.Option(4, "--weekly", help="Keep N weekly snapshots"),
+        monthly: int = typer.Option(12, "--monthly", help="Keep N monthly snapshots"),
+        annual: int = typer.Option(3, "--annual", help="Keep N annual snapshots"),
+    ):
+        """Update retention policy in Kopia and config file."""
+        cmd_retention_set(ctx, latest, hourly, daily, weekly, monthly, annual)
+
+    snapshot_app.add_typer(retention_app, name="retention", help="View or update retention policy")
 
     # Add snapshot subgroup to admin app
     app.add_typer(snapshot_app, name="snapshot", help="Snapshot and backup unit management")

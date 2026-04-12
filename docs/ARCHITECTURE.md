@@ -28,6 +28,10 @@ Kopi‑Docka is a CLI-driven orchestration tool that performs cold backups of Do
 - `RestoreManager` — `kopi_docka.cores.restore_manager.RestoreManager`.
   - Interactive (or non-interactive) restore wizard that finds restore points, lets user select a session/unit and restores recipes, networks and volumes.
 
+- `SnapshotManager` — `kopi_docka.cores.snapshot_manager.SnapshotManager`.
+  - Interactive snapshot lifecycle management wizard: delete, pin/unpin, retention policy update (Kopia + config), prune expired snapshots, and repository maintenance.
+  - Also exposes non-interactive methods for direct CLI use (`cmd_delete`, `cmd_pin`, `cmd_unpin`, `cmd_maintenance`, `cmd_prune_empty`, `cmd_retention_show/set`).
+
 - `Repository` — `kopi_docka.cores.repository_manager.KopiaRepository`.
   - Wrapper around Kopia CLI: connect, initialize, snapshot create (dir/stdin), list, restore, verify, maintenance, and helper `discover_machines()`.
   - Adds config file handling per profile and environment variables for Kopia.

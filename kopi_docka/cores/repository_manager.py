@@ -589,6 +589,7 @@ class KopiaRepository:
                     "timestamp": obj.get("startTime") or obj.get("time") or "",
                     "tags": tags,
                     "size": stats.get("totalSize") or 0,
+                    "pins": obj.get("pins") or [],
                 }
             )
 
@@ -692,6 +693,48 @@ class KopiaRepository:
 
         self._run(cmd, check=True)
         logger.info("Deleted snapshot %s", snapshot_id)
+
+    def pin_snapshot(self, snapshot_id: str) -> bool:
+        """
+        Pin a snapshot to protect it from retention-based cleanup.
+
+        Uses 'kopia snapshot pin <id> --add'.
+        Returns True on success.
+        """
+        result = self._run(["kopia", "snapshot", "pin", snapshot_id, "--add"], check=False)
+        if result and result.returncode == 0:
+            logger.info("Pinned snapshot %s", snapshot_id)
+            return True
+        logger.warning("Failed to pin snapshot %s", snapshot_id)
+        return False
+
+    def unpin_snapshot(self, snapshot_id: str) -> bool:
+        """
+        Remove pin from a snapshot, allowing retention cleanup again.
+
+        Uses 'kopia snapshot pin <id> --remove'.
+        Returns True on success.
+        """
+        result = self._run(["kopia", "snapshot", "pin", snapshot_id, "--remove"], check=False)
+        if result and result.returncode == 0:
+            logger.info("Unpinned snapshot %s", snapshot_id)
+            return True
+        logger.warning("Failed to unpin snapshot %s", snapshot_id)
+        return False
+
+    def expire_snapshots(self) -> bool:
+        """
+        Apply retention policies and remove expired snapshots.
+
+        Uses 'kopia snapshot expire --all'.
+        Returns True on success.
+        """
+        result = self._run(["kopia", "snapshot", "expire", "--all"], check=False)
+        if result and result.returncode == 0:
+            logger.info("Snapshot expiration completed")
+            return True
+        logger.warning("Snapshot expiration failed or returned non-zero")
+        return False
 
     def maintenance_run(self, full: bool = True) -> None:
         """Run 'kopia maintenance run' (default: --full)."""

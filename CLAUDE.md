@@ -6,7 +6,7 @@ Kopi-Docka is a Python CLI tool that wraps **Kopia** for encrypted, deduplicated
 
 **Important**: This project will always be a Kopia wrapper. No second backup engine planned.
 
-- **Version**: 6.5.0
+- **Version**: 7.0.0
 - **Python**: 3.10, 3.11, 3.12
 - **License**: MIT
 - **Author**: Markus F. (TZERO78)
@@ -50,7 +50,7 @@ CLI (typer) → Commands → Cores → KopiaRepository → subprocess → kopia
 | Package | Purpose | Lines |
 |---|---|---|
 | `commands/` | Typer CLI handlers, no business logic | ~6,600 |
-| `cores/` | Business logic (backup, restore, DR, policies) | ~8,500 |
+| `cores/` | Business logic (backup, restore, DR, policies, snapshot mgmt) | ~9,000 |
 | `helpers/` | Config, logging, UI, system utils | ~4,000 |
 | `backends/` | Storage backend implementations (8 backends) | ~2,500 |
 | `types.py` | Dataclasses (ContainerInfo, VolumeInfo, BackupUnit) | shared |
@@ -62,6 +62,7 @@ CLI (typer) → Commands → Cores → KopiaRepository → subprocess → kopia
 | `cores/repository_manager.py` | **KopiaRepository** — central Kopia CLI wrapper (834 lines) |
 | `cores/backup_manager.py` | Backup orchestration |
 | `cores/restore_manager.py` | Interactive restore wizard (2,279 lines, largest) |
+| `cores/snapshot_manager.py` | **SnapshotManager** — interactive snapshot lifecycle (delete, pin, retention, maintenance) |
 | `cores/disaster_recovery_manager.py` | DR bundle export (encrypted ZIP) |
 | `helpers/config.py` | Config loading, validation, password handling (936 lines) |
 | `__main__.py` | Typer app, command registration |
@@ -75,6 +76,7 @@ All Kopia CLI calls should go through `KopiaRepository` in `cores/repository_man
 - `connect()` / `disconnect()` / `is_connected()` / `status()`
 - `create_snapshot()` / `list_snapshots()` / `restore_snapshot()`
 - `delete_snapshot()` / `verify_snapshot()`
+- `pin_snapshot()` / `unpin_snapshot()` / `expire_snapshots()`
 - `maintenance_run()` / `set_repo_password()`
 
 **Known bypass points** (direct subprocess→kopia calls outside `_run()`):
@@ -86,6 +88,10 @@ All Kopia CLI calls should go through `KopiaRepository` in `cores/repository_man
 Top-level commands ("The Big 6"): `setup`, `backup`, `restore`, `disaster-recovery`, `dry-run`, `doctor`, `version`
 
 Admin/advanced subcommands: `config`, `repo`, `snapshot`, `service`, `system`, `notification`
+
+`admin snapshot` subcommands: `list`, `estimate-size`, `manage`, `maintenance [--full]`, `prune-empty [--dry-run]`, `delete <id> [--force]`, `pin <id>`, `unpin <id>`, `retention show`, `retention set [options]`
+
+Note: `admin repo maintenance` was moved to `admin snapshot maintenance` in v7.0.0.
 
 ## Conventions
 
@@ -145,15 +151,17 @@ The tag triggers the GitHub Actions workflow that publishes to PyPI.
 - Standard frontmatter with status, target_release
 - Plans are local-only, never pushed to GitHub (`plan/` is in `.gitignore`)
 
-## Current State (March 2026)
+## Current State (April 2026)
 
 ### Active Plans
-- **Plan 0022**: Missed Backup Alerting (v6.5.0, depends on 0021) — **draft** (`plan/active/plan_0022_missed-backup-alerting.md`)
+- **Plan 0022**: Missed Backup Alerting — **draft** (`plan/active/plan_0022_missed-backup-alerting.md`)
 
 ### Completed Plans
 - **Plan 0020**: Bypass Cleanup — done, merged (v6.2.3)
 - **Plan 0021**: Backup History Command — done, merged (v6.3.0)
 - **Retention Policy Fix**: Path mismatch + doctor check — done (v6.4.0)
+- **Plan 0023**: Security Hardening & Docs Overhaul — done, merged (v6.5.0)
+- **Plan 0024**: Snapshot Management Wizard — done, merged (v7.0.0)
 
 ### Known Technical Debt
 - Bypass points: 2 intentional exceptions remain (see KopiaRepository section above)

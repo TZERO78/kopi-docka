@@ -642,6 +642,25 @@ class Config:
             self._config[section] = {}
         self._config[section][option] = value
 
+    def update_retention(
+        self,
+        latest: int,
+        hourly: int,
+        daily: int,
+        weekly: int,
+        monthly: int,
+        annual: int,
+    ) -> None:
+        """Update the retention section and persist to config file."""
+        self.set("retention", "latest", latest)
+        self.set("retention", "hourly", hourly)
+        self.set("retention", "daily", daily)
+        self.set("retention", "weekly", weekly)
+        self.set("retention", "monthly", monthly)
+        self.set("retention", "annual", annual)
+        self.save()
+        logger.info("Retention config updated and saved")
+
     def save(self) -> None:
         """Save configuration to file atomically with proper permissions."""
         # Atomic save mit temp file

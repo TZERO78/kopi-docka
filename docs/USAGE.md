@@ -2,7 +2,7 @@
 
 # Usage
 
-## CLI Structure (v6.0.0+)
+## CLI Structure (v7.0.0+)
 
 Kopi-Docka features a simplified CLI with primary commands and an `advanced` subcommand for power users.
 
@@ -26,7 +26,6 @@ kopi-docka
     ├── repo           # Repository management
     │   ├── init
     │   ├── status
-    │   ├── maintenance
     │   ├── change-password
     │   └── ...
     ├── service        # Systemd service
@@ -36,7 +35,16 @@ kopi-docka
     │   └── show-deps
     └── snapshot       # Snapshots & units
         ├── list
-        └── estimate-size
+        ├── estimate-size
+        ├── manage              ← interactive wizard (new in v7.0.0)
+        ├── maintenance [--full] ← moved from admin repo (v7.0.0)
+        ├── prune-empty [--dry-run]
+        ├── delete <id> [--force]
+        ├── pin <id>
+        ├── unpin <id>
+        └── retention
+            ├── show
+            └── set [--latest N] [--daily N] ...
 ```
 
 **Note:** For backward compatibility, `admin` is still supported as a hidden alias for `advanced`.
@@ -75,7 +83,6 @@ kopi-docka
 |---------|-------------|
 | `advanced repo init` | Initialize or connect to repository |
 | `advanced repo status` | Show repository status |
-| `advanced repo maintenance` | Run repository maintenance (cleanup/optimize) |
 | `advanced repo change-password` | Safely change repository password |
 | `advanced repo which-config` | Show active Kopia config file |
 | `advanced repo set-default` | Set as default Kopia config |
@@ -102,6 +109,14 @@ kopi-docka
 | `advanced snapshot list` | Show backup units (containers/stacks) |
 | `advanced snapshot list --snapshots` | Show all snapshots in repo |
 | `advanced snapshot estimate-size` | Calculate backup size |
+| `advanced snapshot manage` | **Interactive management wizard** (delete, pin, retention, …) |
+| `advanced snapshot maintenance [--full]` | Run repository maintenance (moved from `admin repo` in v7.0.0) |
+| `advanced snapshot prune-empty [--dry-run]` | Apply retention policy and expire old snapshots |
+| `advanced snapshot delete <id> [--force]` | Delete a specific snapshot |
+| `advanced snapshot pin <id>` | Pin snapshot — protect from retention cleanup |
+| `advanced snapshot unpin <id>` | Remove pin from snapshot |
+| `advanced snapshot retention show` | Show retention policy (config + Kopia global) |
+| `advanced snapshot retention set [options]` | Update retention: `--latest`, `--hourly`, `--daily`, `--weekly`, `--monthly`, `--annual` |
 
 ### Legacy/Hidden Commands
 
