@@ -111,6 +111,59 @@ class KopiaPolicyManager:
             return json.loads(result.stdout)
         return []
 
+    def get_global_policy(self) -> dict:
+        """Read current global Kopia policy as a parsed dict."""
+        import json
+
+        result = self._run(["kopia", "policy", "show", "--global", "--json"], check=False)
+        if result and result.returncode == 0 and result.stdout:
+            return json.loads(result.stdout)
+        return {}
+
+    def update_global_retention(
+        self,
+        latest: int,
+        hourly: int,
+        daily: int,
+        weekly: int,
+        monthly: int,
+        annual: int,
+    ) -> bool:
+        """
+        Update global Kopia retention policy.
+
+        Returns True on success.
+        """
+        result = self._run(
+            [
+                "kopia",
+                "policy",
+                "set",
+                "--global",
+                "--keep-latest",
+                str(latest),
+                "--keep-hourly",
+                str(hourly),
+                "--keep-daily",
+                str(daily),
+                "--keep-weekly",
+                str(weekly),
+                "--keep-monthly",
+                str(monthly),
+                "--keep-annual",
+                str(annual),
+            ],
+            check=False,
+        )
+        if result and result.returncode == 0:
+            logger.info(
+                "Updated global retention: latest=%s daily=%s weekly=%s monthly=%s annual=%s",
+                latest, daily, weekly, monthly, annual,
+            )
+            return True
+        logger.warning("Failed to update global retention policy")
+        return False
+
     def set_compression_for_target(self, target: str, compression: str = "zstd") -> None:
         """Set compression for a specific target."""
         self._run(["kopia", "policy", "set", target, "--compression", compression], check=True)

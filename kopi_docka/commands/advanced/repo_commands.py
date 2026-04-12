@@ -24,10 +24,11 @@ Commands:
 - admin repo status         - Show repository status
 - admin repo init-path      - Create repository at specific path
 - admin repo selftest       - Run repository self-test
-- admin repo maintenance    - Run repository maintenance
 - admin repo which-config   - Show which config file is used
 - admin repo set-default    - Set as default Kopia config
 - admin repo change-password - Change repository password
+
+Note: 'admin repo maintenance' was moved to 'admin snapshot maintenance' in v7.0.0.
 """
 
 from pathlib import Path
@@ -43,7 +44,6 @@ from ..repository_commands import (
     cmd_repo_set_default,
     cmd_repo_init_path,
     cmd_repo_selftest,
-    cmd_repo_maintenance,
     cmd_change_password,
 )
 
@@ -102,11 +102,6 @@ def register(app: typer.Typer):
     ):
         """Create ephemeral test repository."""
         cmd_repo_selftest(tmpdir, keep, password)
-
-    @repo_app.command("maintenance")
-    def _repo_maintenance_cmd(ctx: typer.Context):
-        """Run Kopia repository maintenance."""
-        cmd_repo_maintenance(ctx)
 
     @repo_app.command("change-password")
     def _change_password_cmd(

@@ -30,6 +30,7 @@ from .service_manager import (
 from .service_helper import ServiceHelper
 from .kopia_policy_manager import KopiaPolicyManager
 from .notification_manager import NotificationManager, BackupStats
+from .snapshot_manager import SnapshotManager
 
 __all__ = [
     "BackupManager",
@@ -46,4 +47,5 @@ __all__ = [
     "KopiaPolicyManager",
     "NotificationManager",
     "BackupStats",
+    "SnapshotManager",
 ]

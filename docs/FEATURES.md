@@ -1463,10 +1463,10 @@ kopi-docka version            # Show version
 **Admin Subcommands (Advanced):**
 ```bash
 kopi-docka admin config show|new|edit|reset
-kopi-docka admin repo init|status|maintenance|change-password
+kopi-docka admin repo init|status|change-password
 kopi-docka admin service daemon|write-units
 kopi-docka admin system install-deps|show-deps
-kopi-docka admin snapshot list|estimate-size
+kopi-docka admin snapshot list|estimate-size|manage|maintenance|prune-empty|delete|pin|unpin|retention
 ```
 
 **Why This Change?**
@@ -1506,10 +1506,10 @@ Output includes:
 | Group | Commands | Purpose |
 |-------|----------|---------|
 | `admin config` | show, new, edit, reset | Configuration management |
-| `admin repo` | init, status, maintenance, change-password, etc. | Repository management |
+| `admin repo` | init, status, change-password, etc. | Repository management |
 | `admin service` | daemon, write-units | Systemd integration |
 | `admin system` | install-deps, show-deps | Dependency management |
-| `admin snapshot` | list, estimate-size | Snapshot & unit management |
+| `admin snapshot` | list, estimate-size, manage, maintenance, prune-empty, delete, pin, unpin, retention | Snapshot & unit management |
 | `advanced notification` | test, status, enable, disable | Notification management |
 
 ---

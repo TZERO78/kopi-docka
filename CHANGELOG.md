@@ -5,6 +5,28 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.0.0] - Unreleased
+
+### ✨ Added
+
+- **SnapshotManager** (`cores/snapshot_manager.py`): new interactive snapshot management wizard (analogous to RestoreManager)
+- **`admin snapshot manage`**: menu-driven wizard for delete, pin/unpin, retention, prune, and maintenance
+- **`admin snapshot delete <id> [--force]`**: delete a specific snapshot (with confirmation)
+- **`admin snapshot pin <id>`**: pin a snapshot to protect it from retention cleanup
+- **`admin snapshot unpin <id>`**: remove pin from a snapshot
+- **`admin snapshot maintenance [--full]`**: run Kopia repository maintenance (moved from `admin repo`)
+- **`admin snapshot prune-empty [--dry-run]`**: apply retention policy and expire old snapshots
+- **`admin snapshot retention show`**: display current retention policy from config and Kopia global policy
+- **`admin snapshot retention set [--latest N] [--hourly N] [--daily N] [--weekly N] [--monthly N] [--annual N]`**: update retention in both Kopia and config file
+- **`KopiaRepository`**: added `pin_snapshot()`, `unpin_snapshot()`, `expire_snapshots()`
+- **`KopiaPolicyManager`**: added `get_global_policy()`, `update_global_retention()`
+
+### ⚠️ Breaking Changes
+
+- **`admin repo maintenance` removed** — use `admin snapshot maintenance` instead
+
+---
+
 ## [6.5.0] - 2026-04-11
 
 ### 🔒 Security
