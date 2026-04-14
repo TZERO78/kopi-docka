@@ -33,6 +33,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, IO, List, Optional, TYPE_CHECKING, Union
@@ -59,6 +60,11 @@ class KopiaRepository:
     # Snapshots and restore use timeout=None (unlimited) via _run() default.
     _REPO_OP_TIMEOUT = 120  # seconds
 
+    # TTL for is_connected() result cache within a single process run.
+    # Remote backends (rclone/GDrive) can take 30s+ per status check — caching
+    # avoids redundant network calls when multiple commands check in one invocation.
+    _CONNECTED_CACHE_TTL = 60  # seconds
+
     # --------------- Construction ---------------
 
     def __init__(self, config: Config):
@@ -70,6 +76,7 @@ class KopiaRepository:
                 "Please create a new config with 'kopi-docka new-config'."
             )
         self.profile_name = config.kopia_profile
+        self._connected_cache: tuple[bool, float] | None = None  # (result, monotonic ts)
 
     # --------------- Low-level helpers ---------------
 
@@ -195,19 +202,35 @@ class KopiaRepository:
         return out
 
     def is_connected(self) -> bool:
-        """True when 'kopia repository status' succeeds for our profile."""
+        """True when 'kopia repository status' succeeds for our profile.
+
+        Result is cached for _CONNECTED_CACHE_TTL seconds to avoid repeated
+        network round-trips on slow backends (e.g. rclone/GDrive ~35s per call).
+        """
         if not shutil.which("kopia"):
             return False
+
+        now = time.monotonic()
+        cached = getattr(self, "_connected_cache", None)
+        if cached is not None:
+            cached_result, cached_ts = cached
+            if now - cached_ts < self._CONNECTED_CACHE_TTL:
+                logger.debug("is_connected() returning cached result: %s", cached_result)
+                return cached_result
+
         try:
             proc = self._run(
                 ["kopia", "repository", "status", "--json"],
                 check=False,
                 timeout=self._REPO_OP_TIMEOUT,
             )
-            return proc.returncode == 0
+            result = proc.returncode == 0
         except Exception as e:
             logger.debug("is_connected() check failed: %s", e)
-            return False
+            result = False
+
+        self._connected_cache = (result, now)
+        return result
 
     def is_initialized(self) -> bool:
         """Alias to connection check: initialized & connected for this profile."""
@@ -236,6 +259,7 @@ class KopiaRepository:
 
         if proc.returncode == 0:
             logger.info("Connected to repository")
+            self._connected_cache = (True, time.monotonic())
             return
 
         # Failed - check why
@@ -342,6 +366,7 @@ class KopiaRepository:
         except Exception as e:
             logger.debug("Skipping policy defaults (optional): %s", e)
 
+        self._connected_cache = (True, time.monotonic())
         logger.info("Repository initialized successfully")
 
     def make_default_profile(self) -> None:
