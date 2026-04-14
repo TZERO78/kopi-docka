@@ -54,6 +54,10 @@ class KopiaRepository:
     ~/.config/kopia/repository-<profile>.config
     """
 
+    # Timeout for repo management operations (status/create/connect).
+    # Snapshots and restore use timeout=None (unlimited) via _run() default.
+    _REPO_OP_TIMEOUT = 120  # seconds
+
     # --------------- Construction ---------------
 
     def __init__(self, config: Config):
@@ -121,6 +125,7 @@ class KopiaRepository:
         check: bool = True,
         extra_env: Optional[Dict[str, str]] = None,
         config_file: Optional[str] = None,
+        timeout: Optional[int] = None,
     ) -> subprocess.CompletedProcess:
         """
         Run Kopia command with our env and config.
@@ -134,6 +139,7 @@ class KopiaRepository:
                        (e.g. {"KOPIA_NEW_PASSWORD": "..."}).
             config_file: Override the default config file path
                          (e.g. for create_filesystem_repo_at_path).
+            timeout: Maximum seconds to wait. None means no timeout (use for snapshots/restore).
         """
         cfg = config_file or self._get_config_file()
         if "--config-file" not in args:
@@ -150,6 +156,7 @@ class KopiaRepository:
                 check=check,
                 show_output=False,
                 env=env,
+                timeout=timeout,
             )
         except SubprocessError as e:
             # Backward compatibility: convert SubprocessError → RuntimeError
@@ -190,8 +197,15 @@ class KopiaRepository:
         """True when 'kopia repository status' succeeds for our profile."""
         if not shutil.which("kopia"):
             return False
-        proc = self._run(["kopia", "repository", "status", "--json"], check=False)
-        return proc.returncode == 0
+        try:
+            proc = self._run(
+                ["kopia", "repository", "status", "--json"],
+                check=False,
+                timeout=self._REPO_OP_TIMEOUT,
+            )
+            return proc.returncode == 0
+        except Exception:
+            return False
 
     def is_initialized(self) -> bool:
         """Alias to connection check: initialized & connected for this profile."""
@@ -243,6 +257,10 @@ class KopiaRepository:
         except Exception as e:
             logger.debug(f"Disconnect failed (may not be connected): {e}")
 
+    # Timeout for repository management operations (create/connect/status).
+    # Snapshots and restore use None (unlimited) via _run() default.
+    _REPO_OP_TIMEOUT = 120  # seconds
+
     def initialize(self) -> None:
         """
         Create new repository and connect to it (idempotent).
@@ -271,8 +289,16 @@ class KopiaRepository:
         # Include cache size limits to prevent unbounded cache growth
         cmd_connect = ["kopia", "repository", "connect"] + params + self._get_cache_params()
 
-        # Try to create (may fail if exists)
-        proc = self._run(cmd_create, check=False)
+        # Try to create (may fail if exists); timeout prevents indefinite hang on
+        # unreachable backends or wrong credentials.
+        logger.info("Step 1/3: Creating repository...")
+        try:
+            proc = self._run(cmd_create, check=False, timeout=self._REPO_OP_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(
+                f"Repository create timed out after {self._REPO_OP_TIMEOUT}s.\n"
+                "Check backend connectivity, credentials, and kopia_params."
+            )
 
         # If create failed, check if it's because repo exists
         if proc.returncode != 0:
@@ -284,15 +310,30 @@ class KopiaRepository:
                 raise RuntimeError(f"Failed to create repository: {proc.stderr or proc.stdout}")
 
         # Connect (idempotent)
+        logger.info("Step 2/3: Connecting to repository...")
         try:
-            self._run(cmd_connect, check=True)
+            self._run(cmd_connect, check=True, timeout=self._REPO_OP_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(
+                f"Repository connect timed out after {self._REPO_OP_TIMEOUT}s.\n"
+                "Check backend connectivity and credentials."
+            )
         except Exception as e:
             logger.error(f"Failed to connect after create: {e}")
             raise
 
         # Verify connection
+        logger.info("Step 3/3: Verifying connection...")
         try:
-            _ = self.status(json_output=True, verbose=True)
+            _ = self._run(
+                ["kopia", "repository", "status", "--json"],
+                check=True,
+                timeout=self._REPO_OP_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(
+                f"Repository status timed out after {self._REPO_OP_TIMEOUT}s."
+            )
         except Exception as e:
             raise RuntimeError(f"Repository not accessible after init: {e}")
 
