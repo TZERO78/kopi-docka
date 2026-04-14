@@ -5,6 +5,15 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.0.3] - 2026-04-14
+
+### 🐛 Fixed
+
+- **`KopiaPolicyManager._run()`**: default timeout raised from 60s to 120s — `kopia policy set --global` against slow remote backends (rclone/GDrive) was timing out during `admin repo init`, causing the global retention policy to not be applied
+- **`KopiaRepository.initialize()` Step 3**: `_connected_cache` is now set to `True` after the post-connect status verification, so subsequent `is_connected()` calls in the same process are served from cache instead of hitting the backend again
+
+---
+
 ## [7.0.2] - 2026-04-14
 
 ### ⚡ Performance

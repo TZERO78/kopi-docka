@@ -345,11 +345,12 @@ class KopiaRepository:
         # Verify connection
         logger.info("Step 3/3: Verifying connection...")
         try:
-            _ = self._run(
+            self._run(
                 ["kopia", "repository", "status", "--json"],
                 check=True,
                 timeout=self._REPO_OP_TIMEOUT,
             )
+            self._connected_cache = (True, time.monotonic())
         except subprocess.TimeoutExpired as e:
             logger.debug("Repository status timed out: %s", e)
             raise RuntimeError(
