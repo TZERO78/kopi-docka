@@ -5,7 +5,19 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [7.0.0] - Unreleased
+## [7.0.1] - 2026-04-14
+
+### 🐛 Fixed
+
+- **`KopiaRepository.initialize()`**: duplicate `_REPO_OP_TIMEOUT` class attribute removed (shadowed the correct definition at class top)
+- **`KopiaRepository.is_connected()`**: bare `except Exception` now logs the suppressed exception via `logger.debug()` instead of silently returning `False`
+- **`KopiaRepository.initialize()`**: all three `TimeoutExpired` handlers now bind the exception (`as e`) and chain it (`raise ... from e`) so the original traceback is preserved
+- **`KopiaRepository._run()`**: docstring corrected — args include the `kopia` prefix, not a prefix-less list
+- **`repository_manager`**: `import shlex` moved to module-level (was duplicated inside `connect()` and `initialize()`)
+
+---
+
+## [7.0.0] - 2026-04-12
 
 ### ✨ Added
 

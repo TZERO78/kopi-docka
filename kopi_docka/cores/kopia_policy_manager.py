@@ -170,8 +170,8 @@ class KopiaPolicyManager:
 
     # --- Low-level passthrough ---
 
-    def _run(self, args, check: bool = True):
+    def _run(self, args, check: bool = True, timeout: int = 60):
         # Ensure we pass the repo's profile/config every time
         if "--config-file" not in args:
             args = [*args, "--config-file", self.repo._get_config_file()]
-        return self.repo._run(args, check=check)
+        return self.repo._run(args, check=check, timeout=timeout)
