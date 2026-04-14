@@ -5,6 +5,15 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.0.2] - 2026-04-14
+
+### ⚡ Performance
+
+- **`KopiaRepository.is_connected()`**: result is now cached for 60 seconds within a single process run — remote backends (rclone/GDrive) can take 30s+ per `kopia repository status` call; repeated checks within the same command (e.g. `doctor`, `backup`) now return instantly from cache
+- Cache is pre-warmed to `True` after successful `connect()` and `initialize()` calls, so the first post-connect check is also free
+
+---
+
 ## [7.0.1] - 2026-04-14
 
 ### 🐛 Fixed
