@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 from datetime import datetime, timezone
@@ -133,7 +134,7 @@ class KopiaRepository:
         Raises RuntimeError if check=True and rc!=0 (backward compatibility).
 
         Args:
-            args: Kopia CLI arguments (without 'kopia' prefix — added by run_command).
+            args: Full Kopia CLI arguments including 'kopia' prefix (e.g. ["kopia", "repository", "status"]).
             check: Raise on non-zero exit code.
             extra_env: Additional env vars merged into the standard env
                        (e.g. {"KOPIA_NEW_PASSWORD": "..."}).
@@ -204,7 +205,8 @@ class KopiaRepository:
                 timeout=self._REPO_OP_TIMEOUT,
             )
             return proc.returncode == 0
-        except Exception:
+        except Exception as e:
+            logger.debug("is_connected() check failed: %s", e)
             return False
 
     def is_initialized(self) -> bool:
@@ -224,8 +226,6 @@ class KopiaRepository:
         if self.is_connected():
             logger.debug("Already connected to repository")
             return
-
-        import shlex
 
         params = shlex.split(self.kopia_params)
         # Include cache size limits to prevent unbounded cache growth
@@ -257,10 +257,6 @@ class KopiaRepository:
         except Exception as e:
             logger.debug(f"Disconnect failed (may not be connected): {e}")
 
-    # Timeout for repository management operations (create/connect/status).
-    # Snapshots and restore use None (unlimited) via _run() default.
-    _REPO_OP_TIMEOUT = 120  # seconds
-
     def initialize(self) -> None:
         """
         Create new repository and connect to it (idempotent).
@@ -271,8 +267,6 @@ class KopiaRepository:
         if self.is_connected():
             logger.info("Already connected to repository")
             return
-
-        import shlex
 
         params = shlex.split(self.kopia_params)
 
@@ -294,11 +288,12 @@ class KopiaRepository:
         logger.info("Step 1/3: Creating repository...")
         try:
             proc = self._run(cmd_create, check=False, timeout=self._REPO_OP_TIMEOUT)
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
+            logger.debug("Repository create timed out: %s", e)
             raise RuntimeError(
                 f"Repository create timed out after {self._REPO_OP_TIMEOUT}s.\n"
                 "Check backend connectivity, credentials, and kopia_params."
-            )
+            ) from e
 
         # If create failed, check if it's because repo exists
         if proc.returncode != 0:
@@ -313,11 +308,12 @@ class KopiaRepository:
         logger.info("Step 2/3: Connecting to repository...")
         try:
             self._run(cmd_connect, check=True, timeout=self._REPO_OP_TIMEOUT)
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
+            logger.debug("Repository connect timed out: %s", e)
             raise RuntimeError(
                 f"Repository connect timed out after {self._REPO_OP_TIMEOUT}s.\n"
                 "Check backend connectivity and credentials."
-            )
+            ) from e
         except Exception as e:
             logger.error(f"Failed to connect after create: {e}")
             raise
@@ -330,10 +326,11 @@ class KopiaRepository:
                 check=True,
                 timeout=self._REPO_OP_TIMEOUT,
             )
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
+            logger.debug("Repository status timed out: %s", e)
             raise RuntimeError(
                 f"Repository status timed out after {self._REPO_OP_TIMEOUT}s."
-            )
+            ) from e
         except Exception as e:
             raise RuntimeError(f"Repository not accessible after init: {e}")
 
