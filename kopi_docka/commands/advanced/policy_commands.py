@@ -122,35 +122,46 @@ def cmd_prune(ctx: typer.Context, dry_run: bool, force: bool) -> None:
             console.print("[dim]Aborted.[/dim]")
             raise typer.Exit(code=0)
 
-    deleted = 0
-    failed = 0
-    for path in orphaned_paths:
-        target = policy_entries[path]
-        host = target.get("host", "")
-        username = target.get("userName", "")
-        ok = policy_mgr.delete_policy(host=host, username=username, path=path)
-        if ok:
-            console.print(f"  [green]✓[/green] Deleted: {path}")
-            deleted += 1
-        else:
-            console.print(f"  [red]✗[/red] Failed:  {path}")
-            failed += 1
+    entries = [policy_entries[p] for p in orphaned_paths]
+    console.print(f"[cyan]Deleting {len(entries)} policies in one batch call…[/cyan]")
+
+    ok = policy_mgr.delete_policies_batch(entries)
 
     console.print()
-    if failed == 0:
+    if ok:
         console.print(
-            f"[green]Done.[/green] {deleted} orphaned "
-            f"{'policy' if deleted == 1 else 'policies'} removed."
+            f"[green]Done.[/green] {len(entries)} orphaned "
+            f"{'policy' if len(entries) == 1 else 'policies'} removed."
         )
         console.print(
             "[dim]Run [cyan]kopi-docka doctor[/cyan] to confirm clean alignment.[/dim]"
         )
     else:
-        console.print(
-            f"[yellow]Finished with errors.[/yellow] "
-            f"{deleted} deleted, {failed} failed."
-        )
-        raise typer.Exit(code=1)
+        console.print("[yellow]Batch delete failed.[/yellow] Retrying individually…")
+        deleted = 0
+        failed = 0
+        for path in orphaned_paths:
+            target = policy_entries[path]
+            single_ok = policy_mgr.delete_policy(
+                host=target.get("host", ""),
+                username=target.get("userName", ""),
+                path=path,
+            )
+            if single_ok:
+                console.print(f"  [green]✓[/green] Deleted: {path}")
+                deleted += 1
+            else:
+                console.print(f"  [red]✗[/red] Failed:  {path}")
+                failed += 1
+        console.print()
+        if failed == 0:
+            console.print(f"[green]Done.[/green] {deleted} policies removed.")
+            console.print(
+                "[dim]Run [cyan]kopi-docka doctor[/cyan] to confirm clean alignment.[/dim]"
+            )
+        else:
+            console.print(f"[yellow]Finished with errors.[/yellow] {deleted} deleted, {failed} failed.")
+            raise typer.Exit(code=1)
 
 
 def register(app: typer.Typer):

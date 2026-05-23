@@ -5,11 +5,20 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.1.4] - 2026-05-23
+
+### 🐛 Fixed
+
+- **`policy prune` batch delete**: All policies are now deleted in a **single** `kopia policy delete` call instead of 41 sequential calls. Each call against a remote backend (rclone, S3) requires a full repository metadata round-trip (~120s). Batching reduces this to one transaction. Falls back to individual deletes if the batch call fails.
+- **`delete_policy()` timeout**: Raised to 600s to accommodate slow remote backends.
+
+---
+
 ## [7.1.3] - 2026-05-23
 
 ### 🐛 Fixed
 
-- **`policy prune` delete command**: `kopia policy delete` erwartet das Target als `user@host:path` (nicht `--username`/`--host` Flags). Alle 41 Löschvorgänge schlugen fehl. Fix: Target-String als einzelnes Argument übergeben.
+- **`policy prune` delete command**: `kopia policy delete` expects the target as `user@host:path` (not `--username`/`--host` flags). All 41 deletions were failing with incorrect argument syntax. Fixed by passing the target as a single formatted string.
 
 ---
 
@@ -17,9 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ✨ Added
 
-- **`kopi-docka advanced policy prune`**: Neuer Befehl zum Bereinigen verwaister Kopia-Retention-Policies. Vergleicht `kopia policy list` mit `kopia snapshot list --all`; löscht Policies ohne zugehörige Snapshot-Quellen. Unterstützt `--dry-run` (Vorschau) und `--force` (kein Bestätigungs-Prompt).
-- **`KopiaPolicyManager.delete_policy()`**: Neue Methode für `kopia policy delete --username … --host … <path>`.
-- **Doctor Sektion 7 Hinweis**: Bei verwaisten Policies wird jetzt `Fix: kopi-docka advanced policy prune` eingeblendet.
+- **`kopi-docka advanced policy prune`**: New command to clean up orphaned Kopia retention policies. Compares `kopia policy list` against `kopia snapshot list --all`; removes policies with no matching snapshot sources. Supports `--dry-run` (preview only) and `--force` (skip confirmation prompt).
+- **`KopiaPolicyManager.delete_policy()`**: New method wrapping `kopia policy delete`.
+- **Doctor section 7 hint**: When orphaned policies are detected, the output now shows `Fix: kopi-docka advanced policy prune`.
 
 ---
 
@@ -27,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🐛 Fixed
 
-- **`Config.to_dict()`**: Methode fehlte — `doctor` Section 4 "Backend Dependencies" warf `AttributeError` beim Instanziieren von Backends mit rclone/S3/etc. Fix delegiert an das interne `_config`-Dict.
+- **`Config.to_dict()`**: Method was missing — `doctor` section 4 "Backend Dependencies" raised `AttributeError` when instantiating backends (rclone, S3, etc.). Fixed by delegating to the internal `_config` dict.
 
 ---
 
@@ -41,7 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Markdown notification format**: All Apprise sends now use `body_format=MARKDOWN`. Services without Markdown degrade gracefully to plaintext.
 - **`BackendUnreachableError`**: New exception in `backends/base.py`, subclass of `ConnectionError`. Raised on pre-flight failure.
 - **`BackupErrorDetail` dataclass** (`types.py`): Structured error context (phase, message, exit_code, stderr_tail). Persisted in metadata JSON (`error_details` field). `BackupMetadata.from_dict()` is backward-compatible.
-- **`MissedBackupChecker`** (`cores/missed_backup_checker.py`): Zeit-basierte Detection für ausgebliebene Backups. Reads local metadata, compares last-success timestamp against `alerting.missed_backup.max_age_hours` (default 26h). Supports per-unit overrides.
+- **`MissedBackupChecker`** (`cores/missed_backup_checker.py`): Time-based detection for overdue backups. Reads local metadata, compares last-success timestamp against `alerting.missed_backup.max_age_hours` (default 26h). Supports per-unit overrides.
 - **Post-run missed-backup alerting**: After each `backup_unit()` run, `MissedBackupChecker` checks all units and sends a `BACKUP MISSED` notification for newly overdue units. Alert-suppression prevents repeat-spam; reset on successful backup.
 - **Doctor "Backup Freshness" section**: Section 8 in `kopi-docka doctor` lists all units with last-success timestamp, age, and OVERDUE/OK status. Overdue units appear as warnings in the summary.
 - **`NotificationManager.send_connectivity_alert()`** and **`send_missed_backup_alert()`**: New public send methods.
