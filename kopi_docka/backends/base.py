@@ -265,3 +265,12 @@ class ConnectionError(BackendError):
     """Raised when connection test fails"""
 
     pass
+
+
+class BackendUnreachableError(ConnectionError):
+    """Raised when a pre-flight connectivity check fails before container teardown."""
+
+    def __init__(self, backend: str = "", reason: str = ""):
+        self.backend = backend
+        self.reason = reason
+        super().__init__(f"Backend '{backend}' unreachable: {reason}")

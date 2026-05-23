@@ -5,6 +5,23 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.1.0] - Unreleased
+
+### ✨ Added
+
+- **Pre-flight backend connectivity check**: `backup_unit()` now verifies backend reachability via `is_connected(force_refresh=True)` before stopping any containers. If unreachable → `BACKUP ABORTED` notification is sent, containers stay running (zero downtime). Controlled by `notifications.preflight_check` (default `true`).
+- **Structured Kopia error context**: `KopiaCommandError` replaces bare `RuntimeError` in `KopiaRepository._run()`. Carries `cmd`, `returncode`, `stderr_tail` (UTF-8 safe, max 1 KB). Structured context flows into `BackupErrorDetail` in metadata and verbose failure notifications.
+- **Verbose failure notifications**: When `notifications.verbose = true` (default), failure payloads include phase, exit code, and stderr tail (fenced code block, Markdown-injection-safe).
+- **Markdown notification format**: All Apprise sends now use `body_format=MARKDOWN`. Services without Markdown degrade gracefully to plaintext.
+- **`BackendUnreachableError`**: New exception in `backends/base.py`, subclass of `ConnectionError`. Raised on pre-flight failure.
+- **`BackupErrorDetail` dataclass** (`types.py`): Structured error context (phase, message, exit_code, stderr_tail). Persisted in metadata JSON (`error_details` field). `BackupMetadata.from_dict()` is backward-compatible.
+- **`MissedBackupChecker`** (`cores/missed_backup_checker.py`): Zeit-basierte Detection für ausgebliebene Backups. Reads local metadata, compares last-success timestamp against `alerting.missed_backup.max_age_hours` (default 26h). Supports per-unit overrides.
+- **Post-run missed-backup alerting**: After each `backup_unit()` run, `MissedBackupChecker` checks all units and sends a `BACKUP MISSED` notification for newly overdue units. Alert-suppression prevents repeat-spam; reset on successful backup.
+- **Doctor "Backup Freshness" section**: Section 8 in `kopi-docka doctor` lists all units with last-success timestamp, age, and OVERDUE/OK status. Overdue units appear as warnings in the summary.
+- **`NotificationManager.send_connectivity_alert()`** and **`send_missed_backup_alert()`**: New public send methods.
+- **`is_connected(force_refresh=True)`**: New parameter on `KopiaRepository.is_connected()`. Bypasses the 60s cache for the initial pre-flight check; result (positive or negative) is written back to cache so subsequent unit checks stay fast.
+- **Config keys** — `notifications.verbose` (bool, default `true`), `notifications.preflight_check` (bool, default `true`), `alerting.missed_backup.enabled` (bool, default `true`), `alerting.missed_backup.max_age_hours` (int, default `26`), `alerting.missed_backup.per_unit` (dict). All new keys have safe defaults; existing configs run unmodified.
+
 ## [7.0.3] - 2026-04-14
 
 ### 🐛 Fixed

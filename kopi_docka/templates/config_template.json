@@ -51,6 +51,15 @@
     "secret": null,
     "secret_file": null,
     "on_success": true,
-    "on_failure": true
+    "on_failure": true,
+    "verbose": true,
+    "preflight_check": true
+  },
+  "alerting": {
+    "missed_backup": {
+      "enabled": true,
+      "max_age_hours": 26,
+      "per_unit": {}
+    }
   }
 }

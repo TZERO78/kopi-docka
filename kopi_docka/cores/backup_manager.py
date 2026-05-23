@@ -38,14 +38,15 @@ from typing import List, Optional, Tuple
 
 from ..helpers.logging import get_logger
 from ..helpers.ui_utils import run_command, SubprocessError
-from ..types import BackupUnit, ContainerInfo, BackupMetadata
+from ..types import BackupUnit, ContainerInfo, BackupMetadata, BackupErrorDetail
 from ..helpers.config import Config
-from ..cores.repository_manager import KopiaRepository
+from ..cores.repository_manager import KopiaRepository, KopiaCommandError
 from ..cores.kopia_policy_manager import KopiaPolicyManager
 from ..cores.hooks_manager import HooksManager
 from ..cores.notification_manager import NotificationManager, BackupStats
 from ..cores.safe_exit_manager import SafeExitManager, ServiceContinuityHandler
 from ..cores.backup_volume_handler import BackupVolumeHandler
+from ..backends.base import BackendUnreachableError
 from ..helpers.constants import (
     CONTAINER_STOP_TIMEOUT,
     CONTAINER_START_TIMEOUT,
@@ -115,6 +116,9 @@ class BackupManager:
         service_handler = ServiceContinuityHandler()
         safe_exit.register_handler(service_handler)
 
+        _preflight_error: Optional[BackendUnreachableError] = None
+        _containers_stopped = False
+
         try:
             # Apply retention policies up front
             self._ensure_policies(unit)
@@ -129,12 +133,24 @@ class BackupManager:
                 metadata.success = False
                 return metadata
 
+            # 0.5) Pre-flight backend connectivity check (before container teardown)
+            if self.config.getboolean("notifications", "preflight_check", fallback=True):
+                if not self.repo.is_connected(force_refresh=True):
+                    kopia_params = self.config.get("kopia", "kopia_params", fallback="")
+                    backend_type = kopia_params.strip().split()[0] if kopia_params.strip() else "unknown"
+                    _preflight_error = BackendUnreachableError(
+                        backend=backend_type,
+                        reason="kopia repository status returned non-zero",
+                    )
+                    raise _preflight_error
+
             # 1) Stop containers
             logger.info(
                 f"Stopping {len(unit.containers)} containers...",
                 extra={"unit_name": unit.name},
             )
             self._stop_containers(unit.containers, service_handler)
+            _containers_stopped = True
 
             # 2) Recipes (skip for minimal scope)
             if backup_scope != BACKUP_SCOPE_MINIMAL:
@@ -207,26 +223,47 @@ class BackupManager:
                             extra={"unit_name": unit.name},
                         )
 
+        except BackendUnreachableError as e:
+            _preflight_error = e
+            metadata.errors.append(f"Pre-flight check failed: {e}")
+            metadata.success = False
+            logger.error(
+                f"Pre-flight check failed for unit {unit.name}: {e}",
+                extra={"unit_name": unit.name},
+            )
+
+        except KopiaCommandError as e:
+            metadata.error_details.append(
+                BackupErrorDetail(
+                    phase=e.phase or "kopia",
+                    message=str(e),
+                    exit_code=e.returncode,
+                    stderr_tail=e.stderr_tail,
+                )
+            )
+            metadata.errors.append(f"Backup failed: {e}")
+            logger.error(f"Kopia command error during backup: {e}", extra={"unit_name": unit.name})
+
         except Exception as e:
             metadata.errors.append(f"Backup failed: {str(e)}")
             logger.error(f"Critical error during backup: {e}", extra={"unit_name": unit.name})
 
         finally:
-            # 4) Always try to restart containers
-            logger.info(
-                f"Starting {len(unit.containers)} containers...",
-                extra={"unit_name": unit.name},
-            )
-            self._start_containers(unit.containers, service_handler)
-
-            # Unregister ServiceContinuityHandler (cleanup complete)
             safe_exit.unregister_handler(service_handler)
 
-            # 5) Post-backup hook
-            logger.info("Executing post-backup hook...", extra={"unit_name": unit.name})
-            if not self.hooks_manager.execute_post_backup(unit.name):
-                logger.warning("Post-backup hook failed", extra={"unit_name": unit.name})
-                metadata.errors.append("Post-backup hook failed")
+            if _containers_stopped:
+                # 4) Restart containers only if they were stopped
+                logger.info(
+                    f"Starting {len(unit.containers)} containers...",
+                    extra={"unit_name": unit.name},
+                )
+                self._start_containers(unit.containers, service_handler)
+
+                # 5) Post-backup hook
+                logger.info("Executing post-backup hook...", extra={"unit_name": unit.name})
+                if not self.hooks_manager.execute_post_backup(unit.name):
+                    logger.warning("Post-backup hook failed", extra={"unit_name": unit.name})
+                    metadata.errors.append("Post-backup hook failed")
 
         # Track executed hooks
         metadata.hooks_executed = self.hooks_manager.get_executed_hooks()
@@ -275,14 +312,51 @@ class BackupManager:
         # Send notification (fire-and-forget, never blocks)
         try:
             stats = BackupStats.from_metadata(metadata)
-            if metadata.success:
+            if _preflight_error is not None:
+                self.notification_manager.send_connectivity_alert(
+                    unit_name=unit.name,
+                    backend=_preflight_error.backend,
+                    reason=_preflight_error.reason,
+                )
+            elif metadata.success:
                 self.notification_manager.send_success(stats)
             else:
                 self.notification_manager.send_failure(stats)
         except Exception as e:
             logger.debug(f"Notification failed (non-blocking): {e}")
 
+        # Post-run missed-backup check (fire-and-forget)
+        if _preflight_error is None:
+            self._check_missed_backups_post_run(unit.name, success=metadata.success)
+
         return metadata
+
+    def _check_missed_backups_post_run(self, completed_unit: str, success: bool) -> None:
+        """After a backup run, check all units for missed backups and alert."""
+        try:
+            from ..cores.missed_backup_checker import MissedBackupChecker
+            from ..helpers.metadata_reader import MetadataReader
+
+            metadata_dir = self.config.backup_base_path / "metadata"
+            reader = MetadataReader(metadata_dir)
+            checker = MissedBackupChecker(self.config, reader)
+
+            # Reset alert suppression for this unit if it just succeeded
+            if success:
+                checker.reset_unit(completed_unit)
+
+            missed = checker.check_all_units()
+            to_alert = checker.get_units_to_alert(missed)
+
+            if to_alert:
+                checker.mark_alerted(to_alert)
+                self.notification_manager.send_missed_backup_alert(to_alert)
+                logger.warning(
+                    f"Missed-backup alert sent for {len(to_alert)} unit(s): "
+                    f"{[u.name for u in to_alert]}"
+                )
+        except Exception as e:
+            logger.debug(f"Missed-backup check failed (non-blocking): {e}")
 
     def _stop_containers(self, containers: List[ContainerInfo], service_handler: ServiceContinuityHandler):
         """Stop containers gracefully and register them for emergency restart."""

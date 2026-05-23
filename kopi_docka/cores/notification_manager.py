@@ -37,7 +37,7 @@ from typing import List, Optional, Tuple
 
 from ..helpers.config import Config
 from ..helpers.logging import get_logger
-from ..types import BackupMetadata
+from ..types import BackupMetadata, BackupErrorDetail
 
 logger = get_logger(__name__)
 
@@ -55,6 +55,7 @@ class BackupStats:
     backup_id: str = ""
     networks_backed_up: int = 0
     hooks_executed: List[str] = field(default_factory=list)
+    error_details: List[BackupErrorDetail] = field(default_factory=list)
 
     @classmethod
     def from_metadata(cls, metadata: BackupMetadata) -> "BackupStats":
@@ -69,6 +70,7 @@ class BackupStats:
             backup_id=metadata.backup_id,
             networks_backed_up=metadata.networks_backed_up,
             hooks_executed=metadata.hooks_executed.copy(),
+            error_details=metadata.error_details.copy(),
         )
 
 
@@ -225,50 +227,82 @@ class NotificationManager:
 
     # --- Template Rendering ---
 
+    @staticmethod
+    def _escape_stderr_for_markdown(text: str) -> str:
+        """Wrap stderr in a fenced code block and neutralize embedded triple-backticks."""
+        # Replace any ``` sequences inside the tail so the fence cannot close prematurely
+        safe = text.replace("```", "`​`​`")
+        return f"```text\n{safe}\n```"
+
+    def _is_verbose(self) -> bool:
+        return self.config.getboolean("notifications", "verbose", fallback=True)
+
     def _render_success_message(self, stats: BackupStats) -> Tuple[str, str]:
-        """
-        Render success notification message.
-
-        Args:
-            stats: Backup statistics
-
-        Returns:
-            Tuple of (title, body)
-        """
+        """Render success notification (Markdown)."""
         title = f"Backup OK: {stats.unit_name}"
         body = (
-            f"Unit: {stats.unit_name}\n"
-            f"Status: SUCCESS\n"
-            f"Volumes: {stats.volumes_backed_up}\n"
-            f"Networks: {stats.networks_backed_up}\n"
-            f"Duration: {stats.duration_seconds:.1f}s\n"
-            f"Backup-ID: {stats.backup_id[:8]}..."
+            f"**Unit:** {stats.unit_name}\n"
+            f"**Status:** SUCCESS\n"
+            f"**Volumes:** {stats.volumes_backed_up}\n"
+            f"**Networks:** {stats.networks_backed_up}\n"
+            f"**Duration:** {stats.duration_seconds:.1f}s\n"
+            f"**Backup-ID:** {stats.backup_id[:8]}..."
         )
         return title, body
 
     def _render_failure_message(self, stats: BackupStats) -> Tuple[str, str]:
-        """
-        Render failure notification message.
-
-        Args:
-            stats: Backup statistics
-
-        Returns:
-            Tuple of (title, body)
-        """
+        """Render failure notification with optional verbose error details (Markdown)."""
         title = f"BACKUP FAILED: {stats.unit_name}"
 
-        # Summarize errors (max 3)
         error_summary = "; ".join(stats.errors[:3])
         if len(stats.errors) > 3:
             error_summary += f" (+{len(stats.errors) - 3} more)"
 
         body = (
-            f"Unit: {stats.unit_name}\n"
-            f"Status: FAILED\n"
-            f"Errors: {error_summary or 'Unknown error'}\n"
-            f"Duration: {stats.duration_seconds:.1f}s"
+            f"**Unit:** {stats.unit_name}\n"
+            f"**Status:** FAILED\n"
+            f"**Errors:** {error_summary or 'Unknown error'}\n"
+            f"**Duration:** {stats.duration_seconds:.1f}s"
         )
+
+        if self._is_verbose() and stats.error_details:
+            detail = stats.error_details[0]
+            body += f"\n**Phase:** {detail.phase}"
+            if detail.exit_code is not None:
+                body += f"\n**Exit Code:** {detail.exit_code}"
+            if detail.stderr_tail:
+                body += f"\n**Error Details:**\n{self._escape_stderr_for_markdown(detail.stderr_tail)}"
+
+        return title, body
+
+    def _render_connectivity_alert(self, unit_name: str, backend: str, reason: str) -> Tuple[str, str]:
+        """Render pre-flight abort notification (Markdown)."""
+        title = f"BACKUP ABORTED: {unit_name} — Backend unreachable"
+        body = (
+            f"**Unit:** {unit_name}\n"
+            f"**Status:** ABORTED (pre-flight check failed)\n"
+            f"**Backend:** {backend}\n"
+            f"**Containers:** NOT stopped — no downtime incurred\n"
+            f"**Error:** {reason}"
+        )
+        return title, body
+
+    def _render_missed_backup_alert(self, missed_units: list) -> Tuple[str, str]:
+        """Render missed-backup summary notification (Markdown)."""
+        count = len(missed_units)
+        title = f"BACKUP MISSED: {count} unit(s) overdue"
+
+        lines = ["**Status:** No recent backup for the following units:"]
+        for unit in missed_units:
+            if unit.last_success_at is None:
+                age_str = "never backed up"
+            else:
+                hours = unit.overdue_hours + unit.threshold_hours
+                days = int(hours // 24)
+                age_str = f"last successful: {unit.last_success_at.strftime('%Y-%m-%d %H:%M')} ({days}d ago, threshold {unit.threshold_hours}h)"
+            lines.append(f"- **{unit.name}** — {age_str}")
+
+        body = "\n".join(lines)
         return title, body
 
     # --- Public API ---
@@ -315,6 +349,20 @@ class NotificationManager:
         title, body = self._render_failure_message(stats)
         return self._send_notification(title, body)
 
+    def send_connectivity_alert(self, unit_name: str, backend: str, reason: str) -> bool:
+        """Send pre-flight abort notification (fire-and-forget)."""
+        if not self._enabled:
+            return True
+        title, body = self._render_connectivity_alert(unit_name, backend, reason)
+        return self._send_notification(title, body)
+
+    def send_missed_backup_alert(self, missed_units: list) -> bool:
+        """Send missed-backup summary notification (fire-and-forget)."""
+        if not self._enabled or not missed_units:
+            return True
+        title, body = self._render_missed_backup_alert(missed_units)
+        return self._send_notification(title, body)
+
     def send_test(self) -> bool:
         """
         Send test notification.
@@ -357,8 +405,12 @@ class NotificationManager:
             apobj = apprise.Apprise()
             apobj.add(url)
 
-            # Send notification
-            result = apobj.notify(title=title, body=body)
+            # Markdown format — services without Markdown support degrade to plaintext
+            result = apobj.notify(
+                title=title,
+                body=body,
+                body_format=apprise.NotifyFormat.MARKDOWN,
+            )
             return result
 
         try:

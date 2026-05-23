@@ -322,6 +322,22 @@ class NotificationsConfig(BaseModel):
     secret_file: Optional[str] = Field(default=None, description="Path to secret file")
     on_success: bool = Field(default=True, description="Notify on successful backup")
     on_failure: bool = Field(default=True, description="Notify on backup failure")
+    verbose: bool = Field(default=True, description="Include exit code and stderr tail in failure notifications")
+    preflight_check: bool = Field(default=True, description="Check backend reachability before stopping containers")
+
+
+class MissedBackupConfig(BaseModel):
+    """Configuration for missed-backup detection."""
+
+    enabled: bool = Field(default=True, description="Enable missed-backup alerting")
+    max_age_hours: int = Field(default=26, ge=1, le=8760, description="Alert threshold in hours")
+    per_unit: Dict[str, int] = Field(default_factory=dict, description="Per-unit hour overrides")
+
+
+class AlertingConfig(BaseModel):
+    """Alerting section for time-based and event-based alerts."""
+
+    missed_backup: MissedBackupConfig = Field(default_factory=MissedBackupConfig)
 
 
 class ConfigModel(BaseModel):
@@ -334,6 +350,7 @@ class ConfigModel(BaseModel):
     retention: RetentionConfig = Field(default_factory=RetentionConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     notifications: NotificationsConfig = Field(default_factory=NotificationsConfig)
+    alerting: AlertingConfig = Field(default_factory=AlertingConfig)
 
     model_config = {"extra": "allow"}  # Allow extra fields for forward compatibility
 

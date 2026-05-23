@@ -135,8 +135,8 @@ class TestBackupWorkflow:
         # Verify backup was aborted (stop and backup not called)
         mock_stop.assert_not_called()
         mock_backup.assert_not_called()
-        # Note: _start_containers IS called because it's in finally block (safety feature)
-        mock_start.assert_called_once()
+        # Containers were never stopped → _start_containers must NOT be called
+        mock_start.assert_not_called()
 
         # Verify metadata shows failure
         assert metadata.success is False

@@ -179,3 +179,9 @@ CONTAINER_START_TIMEOUT = 60
 # Logging
 LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+# Missed-backup detection: default alert threshold (covers daily + margin)
+MISSED_BACKUP_MAX_AGE_HOURS = 26
+
+# State file for missed-backup alert suppression
+MISSED_BACKUP_STATE_FILE = Path.home() / ".config" / "kopi-docka" / "missed_state.json"

@@ -131,6 +131,16 @@ class BackupUnit:
 
 
 @dataclass
+class BackupErrorDetail:
+    """Structured error context captured from a failed Kopia command."""
+
+    phase: str
+    message: str
+    exit_code: Optional[int] = None
+    stderr_tail: Optional[str] = None
+
+
+@dataclass
 class BackupMetadata:
     unit_name: str
     timestamp: datetime
@@ -147,6 +157,7 @@ class BackupMetadata:
     docker_config_backed_up: bool = False
     hooks_executed: List[str] = field(default_factory=list)
     backup_format: str = "direct"  # "tar" (legacy) or "direct" (v5.0+)
+    error_details: List["BackupErrorDetail"] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -165,6 +176,15 @@ class BackupMetadata:
             "docker_config_backed_up": self.docker_config_backed_up,
             "hooks_executed": self.hooks_executed,
             "backup_format": self.backup_format,
+            "error_details": [
+                {
+                    "phase": d.phase,
+                    "message": d.message,
+                    "exit_code": d.exit_code,
+                    "stderr_tail": d.stderr_tail,
+                }
+                for d in self.error_details
+            ],
         }
 
     @classmethod
@@ -179,6 +199,18 @@ class BackupMetadata:
             timestamp = datetime.fromisoformat(timestamp_raw)
         else:
             timestamp = timestamp_raw
+
+        raw_details = data.get("error_details", [])
+        error_details = [
+            BackupErrorDetail(
+                phase=d.get("phase", ""),
+                message=d.get("message", ""),
+                exit_code=d.get("exit_code"),
+                stderr_tail=d.get("stderr_tail"),
+            )
+            for d in raw_details
+            if isinstance(d, dict)
+        ]
 
         return cls(
             unit_name=data.get("unit_name", "unknown"),
@@ -196,6 +228,7 @@ class BackupMetadata:
             docker_config_backed_up=data.get("docker_config_backed_up", False),
             hooks_executed=data.get("hooks_executed", []),
             backup_format=data.get("backup_format", "direct"),
+            error_details=error_details,
         )
 
 
