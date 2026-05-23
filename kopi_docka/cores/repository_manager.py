@@ -143,7 +143,9 @@ class KopiaRepository:
         the higher timeout — no reconnect required. No-op for non-rclone
         backends or when the value already matches.
         """
-        if self._rclone_timeout_patched:
+        # Defensive getattr: tests often instantiate via __new__ and may skip
+        # setting this flag. Treat absence as "not yet patched" and proceed.
+        if getattr(self, "_rclone_timeout_patched", False):
             return
         self._rclone_timeout_patched = True
         cfg_path = Path(self._get_config_file())
