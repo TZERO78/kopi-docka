@@ -51,9 +51,7 @@ from ..backends.base import BackendUnreachableError
 from ..helpers.constants import (
     CONTAINER_STOP_TIMEOUT,
     CONTAINER_START_TIMEOUT,
-    RECIPE_BACKUP_DIR,
     VOLUME_BACKUP_DIR,
-    NETWORK_BACKUP_DIR,
     DOCKER_CONFIG_BACKUP_DIR,
     BACKUP_SCOPE_MINIMAL,
     BACKUP_SCOPE_STANDARD,
