@@ -60,22 +60,26 @@ class MissedBackupChecker:
         self.reader = metadata_reader
         self._state_file = MISSED_BACKUP_STATE_FILE
 
+    def _alerting_cfg(self) -> dict:
+        """Return the alerting.missed_backup dict from the raw config."""
+        return self.config._config.get("alerting", {}).get("missed_backup", {})
+
     def _get_threshold_hours(self, unit_name: str) -> int:
         """Return the effective threshold for a unit (per-unit override > global)."""
         try:
-            alerting = self.config._model.alerting
-            per_unit = alerting.missed_backup.per_unit
+            mb = self._alerting_cfg()
+            per_unit = mb.get("per_unit", {})
             if unit_name in per_unit:
                 return int(per_unit[unit_name])
-            return int(alerting.missed_backup.max_age_hours)
+            return int(mb.get("max_age_hours", MISSED_BACKUP_MAX_AGE_HOURS))
         except Exception:
             return MISSED_BACKUP_MAX_AGE_HOURS
 
     def check_all_units(self) -> List[MissedUnit]:
         """Return units whose last successful backup exceeded their threshold."""
         try:
-            alerting = self.config._model.alerting
-            if not alerting.missed_backup.enabled:
+            mb = self._alerting_cfg()
+            if not mb.get("enabled", True):
                 return []
         except Exception:
             pass
