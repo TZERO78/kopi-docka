@@ -90,6 +90,7 @@ class KopiaRepository:
             )
         self.profile_name = config.kopia_profile
         self._connected_cache: tuple[bool, float] | None = None  # (result, monotonic ts)
+        self._rclone_timeout_patched = False  # one-shot self-healing flag
 
     # --------------- Low-level helpers ---------------
 
@@ -118,6 +119,60 @@ class KopiaRepository:
         # Optional: also expose path via env (we *also* pass --config-file explicitly)
         env.setdefault("KOPIA_CONFIG_PATH", self._get_config_file())
         return env
+
+    def _get_rclone_args(self) -> List[str]:
+        """Rclone-specific args appended to `kopia repository create/connect`.
+
+        Empty for non-rclone backends — Kopia rejects unknown flags otherwise.
+        Currently used to override Kopia's 15s default for the rclone-serve
+        subprocess startup, which is unreliable on cold starts against
+        cloud backends like Google Drive.
+        """
+        if not self.kopia_params.strip().lower().startswith("rclone"):
+            return []
+        return [f"--rclone-startup-timeout={self.config.kopia_rclone_startup_timeout}"]
+
+    def _maybe_patch_repo_config_for_rclone(self) -> None:
+        """Self-heal existing repo configs that were created with the old 15s rclone timeout.
+
+        Kopia persists the rclone-startup-timeout into the repo config file at
+        `kopia repository connect` time. Pre-7.2.0 installs were connected with
+        Kopia's 15s default, which causes the
+        "timed out waiting for rclone to start" error chain on cold starts.
+        We patch the value in place on first use so the next Kopia call uses
+        the higher timeout — no reconnect required. No-op for non-rclone
+        backends or when the value already matches.
+        """
+        if self._rclone_timeout_patched:
+            return
+        self._rclone_timeout_patched = True
+        cfg_path = Path(self._get_config_file())
+        if not cfg_path.exists():
+            return
+        try:
+            with cfg_path.open() as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            logger.debug("Could not read repo config for rclone timeout migration: %s", e)
+            return
+        storage = data.get("storage") or {}
+        if storage.get("type") != "rclone":
+            return
+        sc = storage.setdefault("config", {})
+        desired = self.config.kopia_rclone_startup_timeout
+        current = sc.get("startupTimeout", "15s")
+        if current == desired:
+            return
+        sc["startupTimeout"] = desired
+        try:
+            with cfg_path.open("w") as f:
+                json.dump(data, f, indent=2)
+            logger.info(
+                "Migrated rclone startupTimeout %s → %s in %s",
+                current, desired, cfg_path,
+            )
+        except OSError as e:
+            logger.warning("Could not write patched repo config: %s", e)
 
     def _get_cache_params(self) -> List[str]:
         """
@@ -162,6 +217,8 @@ class KopiaRepository:
                          (e.g. for create_filesystem_repo_at_path).
             timeout: Maximum seconds to wait. None means no timeout (use for snapshots/restore).
         """
+        self._maybe_patch_repo_config_for_rclone()
+
         cfg = config_file or self._get_config_file()
         if "--config-file" not in args:
             args = [*args, "--config-file", cfg]
@@ -277,7 +334,12 @@ class KopiaRepository:
 
         params = shlex.split(self.kopia_params)
         # Include cache size limits to prevent unbounded cache growth
-        cmd = ["kopia", "repository", "connect"] + params + self._get_cache_params()
+        cmd = (
+            ["kopia", "repository", "connect"]
+            + params
+            + self._get_cache_params()
+            + self._get_rclone_args()
+        )
 
         # Try connect
         proc = self._run(cmd, check=False)
@@ -328,9 +390,15 @@ class KopiaRepository:
             ["kopia", "repository", "create"]
             + params
             + ["--description", f"Kopi-Docka Backup Repository ({self.profile_name})"]
+            + self._get_rclone_args()
         )
         # Include cache size limits to prevent unbounded cache growth
-        cmd_connect = ["kopia", "repository", "connect"] + params + self._get_cache_params()
+        cmd_connect = (
+            ["kopia", "repository", "connect"]
+            + params
+            + self._get_cache_params()
+            + self._get_rclone_args()
+        )
 
         # Try to create (may fail if exists); timeout prevents indefinite hang on
         # unreachable backends or wrong credentials.
