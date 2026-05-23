@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Migration warning is now actionable**. When `_maybe_patch_repo_config_for_rclone` hits EROFS, the log line now points directly at the systemd `ReadWritePaths` fix instead of just reporting the errno — saves users the systemd-manpage hunt.
 
+- **Kopia subprocess OS timeouts now larger than `rclone_startup_timeout`**. v7.2.0 raised the in-Kopia `--rclone-startup-timeout` to 120s but left the wrapping OS-level timeouts at 120s too (`KopiaRepository._REPO_OP_TIMEOUT` and `KopiaPolicyManager._run` default). On prod with a cold rclone start that consumed most of the 120s on the rclone-serve spawn itself, the actual `kopia policy set` for volume mountpoints was getting killed before it could complete. Bumped both to 300s — gives the rclone-startup-timeout its full 120s budget plus ~3 min for the actual operation.
+
 ### Upgrade from 7.2.0 on systemd-managed installs
 
 Existing 7.2.0 installs that hit the read-only error need a one-time override (kopi-docka itself can't rewrite its own service unit):

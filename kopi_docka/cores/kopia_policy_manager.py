@@ -199,8 +199,14 @@ class KopiaPolicyManager:
 
     # --- Low-level passthrough ---
 
-    def _run(self, args, check: bool = True, timeout: int = 120):
-        # Ensure we pass the repo's profile/config every time
+    def _run(self, args, check: bool = True, timeout: int = 300):
+        # Default 300s = 120s rclone-serve cold-start (matches Plan 0026's
+        # kopia_rclone_startup_timeout default) + ~3 min for the actual operation.
+        # Pre-Plan-0026 default was 120s, but the OS-level timeout has to be
+        # LARGER than the rclone-startup-timeout Kopia waits on internally —
+        # otherwise we'd kill the subprocess before Kopia even finished spawning
+        # rclone, which we saw in v7.2.0 prod logs after the migration set
+        # startupTimeout=120s.
         if "--config-file" not in args:
             args = [*args, "--config-file", self.repo._get_config_file()]
         return self.repo._run(args, check=check, timeout=timeout)

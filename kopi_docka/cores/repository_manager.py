@@ -71,7 +71,12 @@ class KopiaRepository:
 
     # Timeout for repo management operations (status/create/connect).
     # Snapshots and restore use timeout=None (unlimited) via _run() default.
-    _REPO_OP_TIMEOUT = 120  # seconds
+    # Sized larger than kopia_rclone_startup_timeout (default 120s) so the OS
+    # timeout doesn't kill a kopia subprocess while it's still waiting on the
+    # rclone-serve spawn it's allowed to wait for. Without this margin, a cold
+    # rclone start would consume the full timeout and the actual repo op
+    # (status/create/connect) would get killed before doing anything useful.
+    _REPO_OP_TIMEOUT = 300  # seconds
 
     # TTL for is_connected() result cache within a single process run.
     # Remote backends (rclone/GDrive) can take 30s+ per status check — caching
