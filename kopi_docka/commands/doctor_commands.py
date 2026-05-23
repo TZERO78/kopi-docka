@@ -337,6 +337,73 @@ def _check_policy_alignment(repo, console: Console, warnings: list):
     console.print()
 
 
+def _check_backup_freshness(cfg: "Config", console: Console, warnings: list):
+    """Show last-backup age per unit and highlight overdue units."""
+    from ..cores.missed_backup_checker import MissedBackupChecker
+    from ..helpers.metadata_reader import MetadataReader
+
+    console.print("[bold]8. Backup Freshness[/bold]")
+    console.print("-" * 40)
+
+    freshness_table = Table(box=box.SIMPLE)
+    freshness_table.add_column("Unit", style="cyan", width=20)
+    freshness_table.add_column("Last Success", width=20)
+    freshness_table.add_column("Age", width=12)
+    freshness_table.add_column("Status", width=15)
+
+    try:
+        metadata_dir = cfg.backup_base_path / "metadata"
+        reader = MetadataReader(metadata_dir)
+        checker = MissedBackupChecker(cfg, reader)
+
+        unit_names = reader.get_unit_names()
+        if not unit_names:
+            console.print("[dim]No backup metadata found[/dim]")
+            console.print()
+            return
+
+        missed_set = {u.name for u in checker.check_all_units()}
+
+        from datetime import datetime, timezone
+        now = datetime.now(tz=timezone.utc)
+
+        for name in unit_names:
+            entries = reader.read_all(unit_name=name)
+            last_success = next((m for m in entries if m.success), None)
+
+            if last_success is None:
+                freshness_table.add_row(name, "—", "—", "[red]Never[/red]")
+                warnings.append(f"Unit '{name}' has no successful backup on record")
+                continue
+
+            ts = last_success.timestamp
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+
+            age_hours = (now - ts).total_seconds() / 3600
+            if age_hours < 24:
+                age_str = f"{age_hours:.1f}h"
+            else:
+                age_str = f"{age_hours / 24:.1f}d"
+
+            ts_str = ts.strftime("%Y-%m-%d %H:%M")
+
+            if name in missed_set:
+                status = "[red]OVERDUE[/red]"
+                warnings.append(f"Unit '{name}' backup is overdue ({age_str} old)")
+            else:
+                status = "[green]OK[/green]"
+
+            freshness_table.add_row(name, ts_str, age_str, status)
+
+        console.print(freshness_table)
+
+    except Exception as e:
+        console.print(f"[yellow]Could not check backup freshness: {e}[/yellow]")
+
+    console.print()
+
+
 def cmd_doctor(ctx: typer.Context, verbose: bool = False):
     """
     Run comprehensive system health check.
@@ -509,6 +576,11 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
         # ═══════════════════════════════════════════
         if repo and repo.is_connected():
             _check_policy_alignment(repo, console, warnings)
+
+        # Section 8: Backup Freshness
+        # ═══════════════════════════════════════════
+        if cfg:
+            _check_backup_freshness(cfg, console, warnings)
 
     # ═══════════════════════════════════════════
     # Summary

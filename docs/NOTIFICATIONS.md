@@ -351,15 +351,43 @@ Kopi-Docka uses [Apprise](https://github.com/caronc/apprise), which supports 100
 
 ### Field Descriptions
 
-| Field | Type | Description | Required |
-|-------|------|-------------|----------|
-| `enabled` | boolean | Enable/disable notifications | Yes |
-| `service` | string | Service type: `telegram`, `discord`, `email`, `webhook`, `custom` | Yes |
-| `url` | string | Service URL or identifier (supports `${ENV_VAR}` substitution) | Yes |
-| `secret` | string | Token/password (stored in config - less secure) | No |
-| `secret_file` | string | Path to file containing secret (recommended) | No |
-| `on_success` | boolean | Send notification on backup success | No (default: true) |
-| `on_failure` | boolean | Send notification on backup failure | No (default: true) |
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | `false` | Enable/disable notifications |
+| `service` | string | — | Service type: `telegram`, `discord`, `email`, `webhook`, `custom` |
+| `url` | string | — | Service URL or identifier (supports `${ENV_VAR}` substitution) |
+| `secret` | string | — | Token/password (stored in config - less secure) |
+| `secret_file` | string | — | Path to file containing secret (recommended) |
+| `on_success` | boolean | `true` | Send notification on backup success |
+| `on_failure` | boolean | `true` | Send notification on backup failure |
+| `verbose` | boolean | `true` | Include exit code and stderr tail in failure notifications |
+| `preflight_check` | boolean | `true` | Check backend reachability before stopping containers |
+
+### Alerting Section (Missed-Backup Detection)
+
+The `alerting` section controls time-based missed-backup detection:
+
+```json
+{
+  "alerting": {
+    "missed_backup": {
+      "enabled": true,
+      "max_age_hours": 26,
+      "per_unit": {
+        "my-db": 12
+      }
+    }
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `alerting.missed_backup.enabled` | boolean | `true` | Enable missed-backup alerting |
+| `alerting.missed_backup.max_age_hours` | integer | `26` | Alert threshold in hours (26h covers daily + margin) |
+| `alerting.missed_backup.per_unit.<name>` | integer | — | Per-unit hour override (takes precedence over global) |
+
+**How it works:** After every `backup` run, Kopi-Docka checks all known units against their threshold. If a unit's last successful backup exceeds the threshold, a `BACKUP MISSED` notification is sent. Repeat alerts are suppressed until the unit backs up successfully again. State is persisted in `~/.config/kopi-docka/missed_state.json`.
 
 ### Secret Management
 
@@ -426,31 +454,61 @@ export TELEGRAM_CHAT_ID="987654321"
 
 ## Notification Messages
 
+All messages use Markdown formatting. Services that support Markdown (Discord, Telegram, Gotify) will render it richly; others degrade gracefully to plaintext.
+
 ### Success Message
 
-```
-Backup OK: mystack
-
-Unit: mystack
-Status: SUCCESS
-Volumes: 3
-Networks: 2
-Duration: 45.2s
-Backup-ID: backup_a...
+```markdown
+**Unit:** mystack
+**Status:** SUCCESS
+**Volumes:** 3
+**Networks:** 2
+**Duration:** 45.2s
+**Backup-ID:** a1b2c3d4...
 ```
 
-### Failure Message
+### Failure Message (verbose=true, default)
 
+```markdown
+**Unit:** mystack
+**Status:** FAILED
+**Errors:** kopia snapshot create failed (rc=1): connection timeout
+**Duration:** 12.5s
+**Phase:** snapshot create
+**Exit Code:** 1
+**Error Details:**
+\```text
+ERROR connection refused: dial tcp 192.168.1.1:443: connect: connection refused
+\```
 ```
-BACKUP FAILED: mystack
 
-Unit: mystack
-Status: FAILED
-Errors: Docker connection failed; Timeout occurred
-Duration: 12.5s
+**Note:** Error lists are truncated to 3 errors. The `verbose=false` setting omits phase, exit code, and stderr tail.
+
+### Backend Unreachable (ABORTED) — `preflight_check=true`
+
+Sent when the backend is unreachable before containers are stopped. **No downtime incurred.**
+
+```markdown
+BACKUP ABORTED: mystack — Backend unreachable
+
+**Unit:** mystack
+**Status:** ABORTED (pre-flight check failed)
+**Backend:** rclone
+**Containers:** NOT stopped — no downtime incurred
+**Error:** kopia repository status returned non-zero
 ```
 
-**Note:** Error lists are truncated to 3 errors. Additional errors are shown as "+N more".
+### Missed Backup Alert
+
+Sent after a backup run when units exceed their `max_age_hours` threshold.
+
+```markdown
+BACKUP MISSED: 2 unit(s) overdue
+
+**Status:** No recent backup for the following units:
+- **vaultwarden** — last successful: 2026-05-20 03:00 (3d ago, threshold 26h)
+- **postgres** — never backed up
+```
 
 ---
 

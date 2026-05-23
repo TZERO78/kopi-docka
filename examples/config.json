@@ -46,5 +46,22 @@
     "file": "/var/log/kopi-docka.log",
     "max_size_mb": 100,
     "backup_count": 5
+  },
+  "notifications": {
+    "enabled": false,
+    "service": null,
+    "url": null,
+    "secret_file": null,
+    "on_success": true,
+    "on_failure": true,
+    "verbose": true,
+    "preflight_check": true
+  },
+  "alerting": {
+    "missed_backup": {
+      "enabled": true,
+      "max_age_hours": 26,
+      "per_unit": {}
+    }
   }
 }
