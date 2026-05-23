@@ -5,6 +5,14 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.1.3] - 2026-05-23
+
+### 🐛 Fixed
+
+- **`policy prune` delete command**: `kopia policy delete` erwartet das Target als `user@host:path` (nicht `--username`/`--host` Flags). Alle 41 Löschvorgänge schlugen fehl. Fix: Target-String als einzelnes Argument übergeben.
+
+---
+
 ## [7.1.2] - 2026-05-23
 
 ### ✨ Added

@@ -170,8 +170,9 @@ class KopiaPolicyManager:
 
     def delete_policy(self, host: str, username: str, path: str) -> bool:
         """Delete a specific retention policy by host/user/path. Returns True on success."""
+        target = f"{username}@{host}:{path}"
         result = self._run(
-            ["kopia", "policy", "delete", "--username", username, "--host", host, path],
+            ["kopia", "policy", "delete", target],
             check=False,
         )
         return result is not None and result.returncode == 0
