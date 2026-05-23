@@ -6,7 +6,7 @@ Kopi-Docka is a Python CLI tool that wraps **Kopia** for encrypted, deduplicated
 
 **Important**: This project will always be a Kopia wrapper. No second backup engine planned.
 
-- **Version**: 7.1.1
+- **Version**: 7.1.2
 - **Python**: 3.10, 3.11, 3.12
 - **License**: MIT
 - **Author**: Markus F. (TZERO78)
@@ -87,9 +87,11 @@ All Kopia CLI calls should go through `KopiaRepository` in `cores/repository_man
 
 Top-level commands ("The Big 6"): `setup`, `backup`, `restore`, `disaster-recovery`, `dry-run`, `doctor`, `version`
 
-Admin/advanced subcommands: `config`, `repo`, `snapshot`, `service`, `system`, `notification`
+Admin/advanced subcommands: `config`, `repo`, `snapshot`, `service`, `system`, `notification`, `policy`
 
 `admin snapshot` subcommands: `list`, `estimate-size`, `manage`, `maintenance [--full]`, `prune-empty [--dry-run]`, `delete <id> [--force]`, `pin <id>`, `unpin <id>`, `retention show`, `retention set [options]`
+
+`admin policy` subcommands: `prune [--dry-run] [--force]`
 
 Note: `admin repo maintenance` was moved to `admin snapshot maintenance` in v7.0.0.
 
@@ -163,6 +165,7 @@ The tag triggers the GitHub Actions workflow that publishes to PyPI.
 - **Plan 0023**: Security Hardening & Docs Overhaul — done, merged (v6.5.0)
 - **Plan 0024**: Snapshot Management Wizard — done, merged (v7.0.0)
 - **Plan 0025**: Alerting Overhaul (pre-flight check, verbose failures, missed-backup detection) — done, merged (v7.1.0)
+- **Plan 0027**: Orphaned Policy Cleanup (`advanced policy prune`) — done, merged (v7.1.2)
 
 ### Known Technical Debt
 - Bypass points: 2 intentional exceptions remain (see KopiaRepository section above)

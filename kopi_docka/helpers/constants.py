@@ -6,7 +6,7 @@
 # @description: Central dictionary of application constants and tuning thresholds.
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
-# @version:     6.1.0
+# @version:     7.1.2
 #
 # ------------------------------------------------------------------------------
 # Copyright (c) 2025-2026 Markus F. (TZERO78)
@@ -32,7 +32,7 @@ Notes:
 from pathlib import Path
 
 # Version information
-VERSION = "7.1.1"
+VERSION = "7.1.2"
 
 # Backup Scope Levels
 BACKUP_SCOPE_MINIMAL = "minimal"  # Only volumes

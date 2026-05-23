@@ -8,7 +8,7 @@
 # @description: Policy helpers for Kopia (compression, retention, targets).
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
-# @version:     1.0.0
+# @version:     7.1.2
 #
 # ------------------------------------------------------------------------------
 # MIT-Lizenz: siehe LICENSE oder https://opensource.org/licenses/MIT
@@ -167,6 +167,14 @@ class KopiaPolicyManager:
     def set_compression_for_target(self, target: str, compression: str = "zstd") -> None:
         """Set compression for a specific target."""
         self._run(["kopia", "policy", "set", target, "--compression", compression], check=True)
+
+    def delete_policy(self, host: str, username: str, path: str) -> bool:
+        """Delete a specific retention policy by host/user/path. Returns True on success."""
+        result = self._run(
+            ["kopia", "policy", "delete", "--username", username, "--host", host, path],
+            check=False,
+        )
+        return result is not None and result.returncode == 0
 
     # --- Low-level passthrough ---
 
