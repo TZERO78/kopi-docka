@@ -81,9 +81,10 @@ def cmd_prune(ctx: typer.Context, dry_run: bool, force: bool) -> None:
         if path and path != "(global)":
             policy_entries[path] = target
 
+    # list_snapshots() returns flat dicts with "path" at top level — not nested under "source".
     snapshot_paths: set[str] = set()
     for snap in snapshots:
-        path = snap.get("source", {}).get("path", "")
+        path = snap.get("path", "")
         if path:
             snapshot_paths.add(path)
 
