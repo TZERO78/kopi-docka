@@ -5,6 +5,14 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.1.5] - 2026-05-23
+
+### 🐛 Fixed
+
+- **`policy prune` & `doctor` orphan detection**: Both commands extracted snapshot paths via `snap.get("source", {}).get("path", "")`, but `KopiaRepository.list_snapshots()` returns flat dicts (`snap["path"]`, no `source` key). The result was an always-empty snapshot-paths set, which made every per-path policy look orphaned. `doctor` over-reported orphans on healthy repos, and `policy prune` would have deleted every per-path policy if any existed. Fixed by reading `snap["path"]` directly; added regression tests in `tests/unit/test_commands/test_policy_path_extraction.py`.
+
+---
+
 ## [7.1.4] - 2026-05-23
 
 ### 🐛 Fixed

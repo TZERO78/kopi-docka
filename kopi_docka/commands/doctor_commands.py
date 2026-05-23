@@ -293,12 +293,12 @@ def _check_policy_alignment(repo, console: Console, warnings: list):
             if path and path != "(global)":
                 policy_targets.add(path)
 
-        # Get all snapshot source paths
+        # Get all snapshot source paths.
+        # list_snapshots() returns flat dicts with "path" at top level — not nested under "source".
         snapshots = repo.list_snapshots()
         snapshot_sources = set()
         for snap in snapshots:
-            source = snap.get("source", {})
-            path = source.get("path", "")
+            path = snap.get("path", "")
             if path:
                 snapshot_sources.add(path)
 
