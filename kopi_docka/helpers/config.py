@@ -710,6 +710,10 @@ class Config:
             logger.error(f"Failed to save configuration: {e}")
             raise e
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Return the full configuration as a plain dict."""
+        return self._config
+
     def display(self) -> None:
         """Display current configuration (with sensitive values masked)."""
         print(f"Configuration file: {self.config_file}")
