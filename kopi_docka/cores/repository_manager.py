@@ -47,6 +47,19 @@ from ..helpers.ui_utils import run_command, SubprocessError
 
 logger = get_logger(__name__)
 
+_STDERR_TAIL_MAX = 1024  # bytes capped for notification payloads
+
+
+class KopiaCommandError(RuntimeError):
+    """Structured Kopia CLI failure — carries phase, returncode, and stderr tail."""
+
+    def __init__(self, cmd: list, returncode: int, stderr_tail: str, phase: str | None = None):
+        self.cmd = cmd
+        self.returncode = returncode
+        self.stderr_tail = stderr_tail
+        self.phase = phase
+        super().__init__(f"{' '.join(cmd[:3])} failed (rc={returncode}): {stderr_tail[:200]}")
+
 
 class KopiaRepository:
     """
@@ -167,8 +180,15 @@ class KopiaRepository:
                 timeout=timeout,
             )
         except SubprocessError as e:
-            # Backward compatibility: convert SubprocessError → RuntimeError
-            raise RuntimeError(f"{' '.join(args)} failed: {e.stderr.strip() or e.stdout.strip()}")
+            raw = e.stderr or ""
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8", errors="replace")
+            stderr_tail = raw.strip()[-_STDERR_TAIL_MAX:] if len(raw) > _STDERR_TAIL_MAX else raw.strip()
+            raise KopiaCommandError(
+                cmd=args,
+                returncode=e.returncode,
+                stderr_tail=stderr_tail,
+            ) from e
 
     # --------------- Status / Connect / Create ---------------
 
@@ -201,18 +221,23 @@ class KopiaRepository:
                 return out
         return out
 
-    def is_connected(self) -> bool:
+    def is_connected(self, force_refresh: bool = False) -> bool:
         """True when 'kopia repository status' succeeds for our profile.
 
         Result is cached for _CONNECTED_CACHE_TTL seconds to avoid repeated
         network round-trips on slow backends (e.g. rclone/GDrive ~35s per call).
+
+        Args:
+            force_refresh: Bypass cache and perform a live check. Both positive
+                and negative results are written back to the cache so subsequent
+                calls (same or other units in a multi-unit run) hit cache.
         """
         if not shutil.which("kopia"):
             return False
 
         now = time.monotonic()
         cached = getattr(self, "_connected_cache", None)
-        if cached is not None:
+        if not force_refresh and cached is not None:
             cached_result, cached_ts = cached
             if now - cached_ts < self._CONNECTED_CACHE_TTL:
                 logger.debug("is_connected() returning cached result: %s", cached_result)

@@ -280,6 +280,45 @@ kopi-docka version
 
 ---
 
+## Migration from v7.0.x to v7.1.0
+
+### No breaking changes — zero-effort upgrade
+
+All new features in v7.1.0 use **safe defaults**. Existing configs run unmodified.
+
+**What changed (additive only):**
+
+| New Config Key | Default | Effect without key |
+|---|---|---|
+| `notifications.verbose` | `true` | Failure notifications include stderr tail |
+| `notifications.preflight_check` | `true` | Backend checked before container teardown |
+| `alerting.missed_backup.enabled` | `true` | Missed-backup detection active |
+| `alerting.missed_backup.max_age_hours` | `26` | 26h threshold for daily backups |
+
+**To opt out of any new behavior**, add the key explicitly to your config:
+
+```json
+{
+  "notifications": {
+    "verbose": false,
+    "preflight_check": false
+  },
+  "alerting": {
+    "missed_backup": { "enabled": false }
+  }
+}
+```
+
+**After upgrading:**
+
+```bash
+sudo kopi-docka doctor
+```
+
+Section 8 ("Backup Freshness") is new in `doctor`. It shows last-backup age per unit.
+
+---
+
 ## Migration from v5.4.x
 
 ### Breaking Changes in v5.5.0
