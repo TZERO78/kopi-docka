@@ -6,7 +6,7 @@ Kopi-Docka is a Python CLI tool that wraps **Kopia** for encrypted, deduplicated
 
 **Important**: This project will always be a Kopia wrapper. No second backup engine planned.
 
-- **Version**: 7.1.5
+- **Version**: 7.2.0
 - **Python**: 3.10, 3.11, 3.12
 - **License**: MIT
 - **Author**: Markus F. (TZERO78)
@@ -156,7 +156,7 @@ The tag triggers the GitHub Actions workflow that publishes to PyPI.
 ## Current State (Mai 2026)
 
 ### Active Plans
-- **Plan 0026**: Policy Smart-Skip (Hash-basiert) — **draft** (`plan/active/plan_0026_policy-smart-skip.md`)
+- *(none — Plan 0026 finished as v7.2.0)*
 
 ### Completed Plans
 - **Plan 0020**: Bypass Cleanup — done, merged (v6.2.3)
@@ -166,6 +166,7 @@ The tag triggers the GitHub Actions workflow that publishes to PyPI.
 - **Plan 0024**: Snapshot Management Wizard — done, merged (v7.0.0)
 - **Plan 0025**: Alerting Overhaul (pre-flight check, verbose failures, missed-backup detection) — done, merged (v7.1.0)
 - **Plan 0027**: Orphaned Policy Cleanup (`advanced policy prune`) — done, merged (v7.1.2)
+- **Plan 0026**: Policy Overhaul — Staging cleanup, Smart-Skip, Auto-prune, Single Pre-flight, plus configurable rclone startup timeout with self-healing migration — done (v7.2.0)
 
 ### Known Technical Debt
 - Bypass points: 2 intentional exceptions remain (see KopiaRepository section above)

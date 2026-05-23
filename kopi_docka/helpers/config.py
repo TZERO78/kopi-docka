@@ -410,6 +410,21 @@ class Config:
         return self.getint("kopia", "cache_size_mb", fallback=500)
 
     @property
+    def kopia_rclone_startup_timeout(self) -> str:
+        """
+        Timeout for `rclone serve` subprocess spawn (Kopia rclone backend only).
+
+        Kopia's default is 15s, which is unreliable on cold starts against cloud
+        backends like Google Drive (rclone spawn + OAuth refresh + first API call
+        often exceeds 15s). On prod that triggers the
+        "timed out waiting for rclone to start" error chain.
+
+        Default: 120s — matches our standard kopia command timeout.
+        Value is a Go duration string ("120s", "2m", etc.).
+        """
+        return self.get("kopia", "rclone_startup_timeout", fallback="120s")
+
+    @property
     def kopia_password(self) -> str:
         """Get kopia password (deprecated, use get_password() instead)."""
         try:

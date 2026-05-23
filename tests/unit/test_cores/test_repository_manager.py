@@ -24,6 +24,7 @@ def make_mock_config(kopia_params: str = "filesystem --path /backup/repo") -> Mo
     config.get_password.return_value = "test-password"
     config.kopia_cache_directory = "/tmp/kopia-cache"
     config.kopia_cache_size_mb = 500
+    config.kopia_rclone_startup_timeout = "120s"
     return config
 
 
@@ -33,6 +34,12 @@ def make_repository(config: Mock = None) -> KopiaRepository:
     repo.config = config or make_mock_config()
     repo.kopia_params = repo.config.get("kopia", "kopia_params", fallback="")
     repo.profile_name = repo.config.kopia_profile
+    # Mark rclone-timeout migration as already done — _run() calls it as a hook,
+    # and re-running it under partial test setup would try to read the real
+    # ~/.config/kopia/ config file. Tests for the migration itself use a different
+    # setup helper that exercises this flag.
+    repo._rclone_timeout_patched = True
+    repo._connected_cache = None
     return repo
 
 
@@ -766,3 +773,132 @@ class TestListBackupUnits:
         # app1 should have the newer snapshot
         app1 = next(u for u in units if u["name"] == "app1")
         assert app1["snapshot_id"] == "snap2"
+
+
+# =============================================================================
+# Plan 0026 Phase B: rclone startup-timeout configurability + self-healing
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestGetRcloneArgs:
+    """Tests for _get_rclone_args() — only appends --rclone-startup-timeout
+    when the backend is rclone."""
+
+    def test_returns_empty_for_filesystem_backend(self):
+        repo = make_repository(make_mock_config(kopia_params="filesystem --path /x"))
+        assert repo._get_rclone_args() == []
+
+    def test_returns_empty_for_s3_backend(self):
+        repo = make_repository(make_mock_config(kopia_params="s3 --bucket=mybucket"))
+        assert repo._get_rclone_args() == []
+
+    def test_appends_timeout_for_rclone_backend(self):
+        repo = make_repository(make_mock_config(kopia_params="rclone --remote-path=g:"))
+        assert repo._get_rclone_args() == ["--rclone-startup-timeout=120s"]
+
+    def test_honors_config_override(self):
+        config = make_mock_config(kopia_params="rclone --remote-path=g:")
+        config.kopia_rclone_startup_timeout = "300s"
+        repo = make_repository(config)
+        assert repo._get_rclone_args() == ["--rclone-startup-timeout=300s"]
+
+    def test_case_insensitive_backend_match(self):
+        """kopia_params may be edited by users — accept any case for the
+        backend keyword."""
+        repo = make_repository(make_mock_config(kopia_params="RCLONE --remote-path=g:"))
+        assert repo._get_rclone_args() == ["--rclone-startup-timeout=120s"]
+
+
+@pytest.mark.unit
+class TestMaybePatchRepoConfigForRclone:
+    """Tests for _maybe_patch_repo_config_for_rclone() — the self-healing
+    migration that bumps existing repo configs from Kopia's 15s default to
+    our configured timeout. Critical for transparent upgrade of prod installs."""
+
+    def _write_repo_config(self, tmp_path, storage_config: dict) -> None:
+        cfg_dir = tmp_path / ".config" / "kopia"
+        cfg_dir.mkdir(parents=True)
+        cfg_file = cfg_dir / "repository-kopi-docka.config"
+        cfg_file.write_text(json.dumps({"storage": storage_config}))
+
+    def _setup_repo_with_home(self, tmp_path, monkeypatch, kopia_params: str):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        config = make_mock_config(kopia_params=kopia_params)
+        repo = KopiaRepository.__new__(KopiaRepository)
+        repo.config = config
+        repo.kopia_params = kopia_params
+        repo.profile_name = "kopi-docka"
+        repo._rclone_timeout_patched = False
+        repo._connected_cache = None
+        return repo
+
+    def test_noop_when_config_file_missing(self, tmp_path, monkeypatch):
+        repo = self._setup_repo_with_home(tmp_path, monkeypatch, "rclone --remote-path=g:")
+        # No config file written — must not raise
+        repo._maybe_patch_repo_config_for_rclone()
+        assert repo._rclone_timeout_patched is True
+
+    def test_noop_for_non_rclone_backend(self, tmp_path, monkeypatch):
+        self._write_repo_config(tmp_path, {
+            "type": "filesystem", "config": {"path": "/x"},
+        })
+        repo = self._setup_repo_with_home(tmp_path, monkeypatch, "filesystem --path /x")
+        repo._maybe_patch_repo_config_for_rclone()
+        # File unchanged
+        data = json.loads(Path(repo._get_config_file()).read_text())
+        assert data["storage"]["config"] == {"path": "/x"}
+
+    def test_patches_15s_to_configured_default(self, tmp_path, monkeypatch):
+        self._write_repo_config(tmp_path, {
+            "type": "rclone",
+            "config": {"remotePath": "g:", "startupTimeout": "15s"},
+        })
+        repo = self._setup_repo_with_home(tmp_path, monkeypatch, "rclone --remote-path=g:")
+        repo._maybe_patch_repo_config_for_rclone()
+
+        data = json.loads(Path(repo._get_config_file()).read_text())
+        assert data["storage"]["config"]["startupTimeout"] == "120s"
+
+    def test_noop_when_already_at_desired_value(self, tmp_path, monkeypatch):
+        """Don't rewrite the file unnecessarily — keeps mtime stable for ops who watch it."""
+        self._write_repo_config(tmp_path, {
+            "type": "rclone",
+            "config": {"remotePath": "g:", "startupTimeout": "120s"},
+        })
+        repo = self._setup_repo_with_home(tmp_path, monkeypatch, "rclone --remote-path=g:")
+        cfg_path = Path(repo._get_config_file())
+        original_mtime = cfg_path.stat().st_mtime
+        repo._maybe_patch_repo_config_for_rclone()
+        assert cfg_path.stat().st_mtime == original_mtime
+
+    def test_one_shot_per_process(self, tmp_path, monkeypatch):
+        """Called from _run() on every kopia command — must only patch once."""
+        self._write_repo_config(tmp_path, {
+            "type": "rclone",
+            "config": {"remotePath": "g:", "startupTimeout": "15s"},
+        })
+        repo = self._setup_repo_with_home(tmp_path, monkeypatch, "rclone --remote-path=g:")
+        cfg_path = Path(repo._get_config_file())
+
+        repo._maybe_patch_repo_config_for_rclone()
+        assert repo._rclone_timeout_patched is True
+
+        # Externally tamper with the file — second call should NOT re-patch
+        data = json.loads(cfg_path.read_text())
+        data["storage"]["config"]["startupTimeout"] = "15s"
+        cfg_path.write_text(json.dumps(data))
+
+        repo._maybe_patch_repo_config_for_rclone()
+        # Still 15s because the one-shot flag is already set — the patcher
+        # did NOT run a second time even though the file is now "wrong" again.
+        data = json.loads(cfg_path.read_text())
+        assert data["storage"]["config"]["startupTimeout"] == "15s"
+
+    def test_corrupt_config_does_not_raise(self, tmp_path, monkeypatch):
+        cfg_dir = tmp_path / ".config" / "kopia"
+        cfg_dir.mkdir(parents=True)
+        (cfg_dir / "repository-kopi-docka.config").write_text("{not json")
+        repo = self._setup_repo_with_home(tmp_path, monkeypatch, "rclone --remote-path=g:")
+        # Must not raise — best-effort migration
+        repo._maybe_patch_repo_config_for_rclone()
