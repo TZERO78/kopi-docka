@@ -223,6 +223,22 @@ def _run_backup(
 
     repo = ensure_repository(ctx)
 
+    # Pre-flight backend connectivity check — once per backup run (Plan 0026).
+    # Kopia connections are persistent via ~/.config/kopia/repository-<profile>.config;
+    # once we've confirmed the backend is reachable here, the unit loop can trust it.
+    # If we instead checked per-unit (the old behavior), an N-unit run paid N × 35s
+    # on slow backends, and a transient backend failure would stop containers in
+    # each unit one-by-one before failing — pure downtime for no backup.
+    if cfg.getboolean("notifications", "preflight_check", fallback=True):
+        if not repo.is_connected(force_refresh=True):
+            kopia_params = cfg.get("kopia", "kopia_params", fallback="")
+            backend_type = kopia_params.strip().split()[0] if kopia_params.strip() else "unknown"
+            print_error_panel(
+                f"Pre-flight check failed: backend '{backend_type}' not reachable.\n"
+                f"Aborting before container teardown to avoid downtime."
+            )
+            raise typer.Exit(code=1)
+
     # Validate scope
     if scope not in BACKUP_SCOPES:
         print_error_panel(
@@ -259,6 +275,10 @@ def _run_backup(
             return
 
         bm = BackupManager(cfg)
+        # Remove stale per-path policies for paths kopi-docka no longer manages
+        # (Plan 0026 Section 3). Safe by construction: scoped to this host's
+        # user@host only, never touches foreign-host policies.
+        bm.auto_prune_orphaned_policies()
         overall_ok = True
 
         for u in selected:

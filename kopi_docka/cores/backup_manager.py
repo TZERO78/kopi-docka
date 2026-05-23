@@ -34,7 +34,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from ..helpers.logging import get_logger
 from ..helpers.ui_utils import run_command, SubprocessError
@@ -42,6 +42,7 @@ from ..types import BackupUnit, ContainerInfo, BackupMetadata, BackupErrorDetail
 from ..helpers.config import Config
 from ..cores.repository_manager import KopiaRepository, KopiaCommandError
 from ..cores.kopia_policy_manager import KopiaPolicyManager
+from ..helpers.policy_state import PolicyStateManager, compute_policy_hash
 from ..cores.hooks_manager import HooksManager
 from ..cores.notification_manager import NotificationManager, BackupStats
 from ..cores.safe_exit_manager import SafeExitManager, ServiceContinuityHandler
@@ -72,6 +73,7 @@ class BackupManager:
         self.config = config
         self.repo = KopiaRepository(config)
         self.policy_manager = KopiaPolicyManager(self.repo)
+        self.policy_state = PolicyStateManager(self.repo.profile_name)
         self.hooks_manager = HooksManager(config)
         self.notification_manager = NotificationManager(config)
         self.max_workers = config.parallel_workers
@@ -133,16 +135,10 @@ class BackupManager:
                 metadata.success = False
                 return metadata
 
-            # 0.5) Pre-flight backend connectivity check (before container teardown)
-            if self.config.getboolean("notifications", "preflight_check", fallback=True):
-                if not self.repo.is_connected(force_refresh=True):
-                    kopia_params = self.config.get("kopia", "kopia_params", fallback="")
-                    backend_type = kopia_params.strip().split()[0] if kopia_params.strip() else "unknown"
-                    _preflight_error = BackendUnreachableError(
-                        backend=backend_type,
-                        reason="kopia repository status returned non-zero",
-                    )
-                    raise _preflight_error
+            # Pre-flight is done once per backup run (in _run_backup), not per unit (Plan 0026).
+            # If we get here, the backend was reachable when the run started; transient
+            # failures mid-run will surface as KopiaCommandError from the first failing
+            # kopia call below and unwind via the existing error path.
 
             # 1) Stop containers
             logger.info(
@@ -788,95 +784,149 @@ class BackupManager:
             extra={"unit_name": metadata.unit_name},
         )
 
-    def _ensure_policies(self, unit: BackupUnit):
-        """Set Kopia retention policies for this unit (volumes + recipes + networks).
+    def auto_prune_orphaned_policies(self) -> None:
+        """Remove per-path policies for paths kopi-docka manages but no longer snapshots.
 
-        Note: In Direct Mode, policies are applied to actual volume mountpoints
-        (e.g., /var/lib/docker/volumes/...) to match snapshot paths.
-        In TAR Mode, policies are applied to virtual paths (e.g., volumes/unit_name).
+        Called once per backup run before the unit loop (Plan 0026). Removes
+        orphans accumulated when volumes are deleted, stacks renamed, or staging
+        paths change format across versions. Without this, Kopia's policy list
+        grows unbounded.
+
+        Safety constraints — we touch a policy only if ALL apply:
+          1. target.host matches this host's socket.gethostname()
+          2. target.userName matches getpass.getuser()
+          3. policy path starts with a prefix kopi-docka actually manages
+          4. no active snapshot exists for that path on this host
+
+        Constraints 1+2 protect cross-host restore scenarios (Plan 0024
+        restore --advanced): a host that connects to a foreign repo to read
+        another machine's snapshots must never delete the source host's
+        policies. Constraint 3 is defense-in-depth against future bugs in
+        list_snapshots() — we still won't touch /home/user/custom even if it
+        looks orphaned.
         """
-        # Static targets: recipes, networks, docker-config
-        # Must use absolute staging paths to match snapshot source paths
-        static_targets = [
-            str(STAGING_BASE_DIR / RECIPE_BACKUP_DIR / unit.name),
-            str(STAGING_BASE_DIR / NETWORK_BACKUP_DIR / unit.name),
-            str(STAGING_BASE_DIR / DOCKER_CONFIG_BACKUP_DIR / unit.name),
-        ]
+        import getpass
+        import socket
 
-        # Apply policies to static targets
-        for target in static_targets:
-            try:
-                self.policy_manager.set_retention_for_target(
-                    target,
-                    keep_latest=self.config.getint("retention", "latest", 10),
-                    keep_hourly=self.config.getint("retention", "hourly", 0),
-                    keep_daily=self.config.getint("retention", "daily", 7),
-                    keep_weekly=self.config.getint("retention", "weekly", 4),
-                    keep_monthly=self.config.getint("retention", "monthly", 12),
-                    keep_annual=self.config.getint("retention", "annual", 3),
-                )
-                logger.debug(
-                    f"Applied Kopia retention policy on {target}",
-                    extra={"unit_name": unit.name, "target": target},
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Could not apply Kopia policy on {target}: {e}",
-                    extra={"unit_name": unit.name, "target": target},
-                )
+        try:
+            policies = self.policy_manager.list_policies()
+            snapshots = self.repo.list_snapshots()
+        except Exception as e:
+            logger.warning("Auto-prune skipped (could not fetch state): %s", e)
+            return
 
-        # Volume targets depend on backup format
+        local_host = socket.gethostname()
+        local_user = getpass.getuser()
+
+        # list_snapshots() returns FLAT dicts (Plan 0026 Phase 0 bugfix in v7.1.5);
+        # snap["path"], not snap["source"]["path"].
+        snapshot_paths = {s.get("path", "") for s in snapshots if s.get("path")}
+
+        owned_prefixes = (
+            str(STAGING_BASE_DIR),       # /var/cache/kopi-docka/staging/...
+            "/var/lib/docker/volumes/",  # direct-mode volume mountpoints
+        )
+
+        orphaned = []
+        for pol in policies:
+            target = pol.get("target", {})
+            path = target.get("path", "")
+            host = target.get("host", "")
+            user = target.get("userName", "")
+            if not path or path == "(global)":
+                continue
+            if host != local_host or user != local_user:
+                continue
+            if path in snapshot_paths:
+                continue
+            if not path.startswith(owned_prefixes):
+                continue
+            orphaned.append(target)
+
+        if not orphaned:
+            return
+
+        logger.info("Auto-pruning %d orphaned policies", len(orphaned))
+        ok = self.policy_manager.delete_policies_batch(orphaned)
+        if not ok:
+            logger.warning(
+                "Auto-prune batch delete failed — run 'kopi-docka advanced policy prune' to clean up"
+            )
+            return
+
+        # Drop pruned targets from the smart-skip state — otherwise we'd skip
+        # reapplying when (if ever) the path returns.
+        for entry in orphaned:
+            self.policy_state.remove(entry.get("path", ""))
+        logger.info("Auto-pruned %d orphaned policies", len(orphaned))
+
+    def _ensure_policies(self, unit: BackupUnit):
+        """Set Kopia retention policies for this unit's volumes (with smart-skip).
+
+        Staging paths (recipes/networks/docker-config) inherit from the global
+        policy set at `kopia repository connect` time — no per-path overrides
+        needed. Per-path policies are only applied to volume mountpoints in
+        Direct Mode (or the virtual volumes/<unit> path in TAR Mode).
+
+        Smart-skip: each target's retention config is hashed and persisted via
+        PolicyStateManager. If the hash matches the previous run's hash for the
+        same (profile, target), the `kopia policy set` call is skipped — pure
+        overhead on slow remote backends. Hash is recorded only on success, so
+        a failure (timeout, backend down) will retry next run.
+        """
+        retention = {
+            "latest": self.config.getint("retention", "latest", 10),
+            "hourly": self.config.getint("retention", "hourly", 0),
+            "daily": self.config.getint("retention", "daily", 7),
+            "weekly": self.config.getint("retention", "weekly", 4),
+            "monthly": self.config.getint("retention", "monthly", 12),
+            "annual": self.config.getint("retention", "annual", 3),
+        }
+
         if BACKUP_FORMAT_DEFAULT == BACKUP_FORMAT_DIRECT:
-            # Direct Mode: apply policies to actual volume mountpoints
-            for volume in unit.volumes:
-                try:
-                    self.policy_manager.set_retention_for_target(
-                        volume.mountpoint,
-                        keep_latest=self.config.getint("retention", "latest", 10),
-                        keep_hourly=self.config.getint("retention", "hourly", 0),
-                        keep_daily=self.config.getint("retention", "daily", 7),
-                        keep_weekly=self.config.getint("retention", "weekly", 4),
-                        keep_monthly=self.config.getint("retention", "monthly", 12),
-                        keep_annual=self.config.getint("retention", "annual", 3),
-                    )
-                    logger.debug(
-                        f"Applied Kopia retention policy on volume {volume.name} "
-                        f"at {volume.mountpoint}",
-                        extra={
-                            "unit_name": unit.name,
-                            "volume": volume.name,
-                            "target": volume.mountpoint,
-                        },
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Could not apply Kopia policy on volume {volume.name} "
-                        f"at {volume.mountpoint}: {e}",
-                        extra={
-                            "unit_name": unit.name,
-                            "volume": volume.name,
-                            "target": volume.mountpoint,
-                        },
-                    )
+            targets = [(v.mountpoint, v.name) for v in unit.volumes]
         else:
-            # TAR Mode: apply policy to virtual path (legacy behavior)
-            target = f"{VOLUME_BACKUP_DIR}/{unit.name}"
-            try:
-                self.policy_manager.set_retention_for_target(
-                    target,
-                    keep_latest=self.config.getint("retention", "latest", 10),
-                    keep_hourly=self.config.getint("retention", "hourly", 0),
-                    keep_daily=self.config.getint("retention", "daily", 7),
-                    keep_weekly=self.config.getint("retention", "weekly", 4),
-                    keep_monthly=self.config.getint("retention", "monthly", 12),
-                    keep_annual=self.config.getint("retention", "annual", 3),
-                )
-                logger.debug(
-                    f"Applied Kopia retention policy on {target}",
-                    extra={"unit_name": unit.name, "target": target},
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Could not apply Kopia policy on {target}: {e}",
-                    extra={"unit_name": unit.name, "target": target},
-                )
+            targets = [(f"{VOLUME_BACKUP_DIR}/{unit.name}", None)]
+
+        for target, volume_name in targets:
+            self._apply_target_policy(unit, target, volume_name, retention)
+
+    def _apply_target_policy(
+        self,
+        unit: BackupUnit,
+        target: str,
+        volume_name: Optional[str],
+        retention: Dict[str, int],
+    ) -> None:
+        """Apply retention policy to one target, with hash-based smart-skip."""
+        expected_hash = compute_policy_hash(target, retention)
+        if self.policy_state.is_current(target, expected_hash):
+            logger.debug(
+                "Policy for %s unchanged — skipping kopia policy set",
+                target,
+                extra={"unit_name": unit.name, "target": target},
+            )
+            return
+
+        log_target = f"volume {volume_name} at {target}" if volume_name else target
+        log_extra = {"unit_name": unit.name, "target": target}
+        if volume_name:
+            log_extra["volume"] = volume_name
+
+        try:
+            self.policy_manager.set_retention_for_target(target, **{
+                f"keep_{k}": v for k, v in retention.items()
+            })
+        except Exception as e:
+            # Don't record the hash — next run will retry naturally.
+            logger.warning(
+                f"Could not apply Kopia policy on {log_target}: {e}",
+                extra=log_extra,
+            )
+            return
+
+        self.policy_state.mark_applied(target, expected_hash)
+        logger.debug(
+            f"Applied Kopia retention policy on {log_target}",
+            extra=log_extra,
+        )
