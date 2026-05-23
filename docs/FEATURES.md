@@ -1511,6 +1511,7 @@ Output includes:
 | `admin system` | install-deps, show-deps | Dependency management |
 | `admin snapshot` | list, estimate-size, manage, maintenance, prune-empty, delete, pin, unpin, retention | Snapshot & unit management |
 | `advanced notification` | test, status, enable, disable | Notification management |
+| `advanced policy` | prune [--dry-run] [--force] | Retention policy cleanup |
 
 ---
 

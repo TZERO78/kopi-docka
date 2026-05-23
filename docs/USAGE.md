@@ -33,18 +33,20 @@ kopi-docka
     │   └── write-units
     ├── system         # Dependencies
     │   └── show-deps
-    └── snapshot       # Snapshots & units
-        ├── list
-        ├── estimate-size
-        ├── manage              ← interactive wizard (new in v7.0.0)
-        ├── maintenance [--full] ← moved from admin repo (v7.0.0)
-        ├── prune-empty [--dry-run]
-        ├── delete <id> [--force]
-        ├── pin <id>
-        ├── unpin <id>
-        └── retention
-            ├── show
-            └── set [--latest N] [--daily N] ...
+    ├── snapshot       # Snapshots & units
+    │   ├── list
+    │   ├── estimate-size
+    │   ├── manage              ← interactive wizard (new in v7.0.0)
+    │   ├── maintenance [--full] ← moved from admin repo (v7.0.0)
+    │   ├── prune-empty [--dry-run]
+    │   ├── delete <id> [--force]
+    │   ├── pin <id>
+    │   ├── unpin <id>
+    │   └── retention
+    │       ├── show
+    │       └── set [--latest N] [--daily N] ...
+    └── policy         # Kopia retention policy management (new in v7.1.2)
+        └── prune [--dry-run] [--force]
 ```
 
 **Note:** For backward compatibility, `admin` is still supported as a hidden alias for `advanced`.
@@ -117,6 +119,7 @@ kopi-docka
 | `advanced snapshot unpin <id>` | Remove pin from snapshot |
 | `advanced snapshot retention show` | Show retention policy (config + Kopia global) |
 | `advanced snapshot retention set [options]` | Update retention: `--latest`, `--hourly`, `--daily`, `--weekly`, `--monthly`, `--annual` |
+| `advanced policy prune [--dry-run] [--force]` | Delete orphaned Kopia retention policies (policies with no matching snapshot sources) |
 
 ### Legacy/Hidden Commands
 
