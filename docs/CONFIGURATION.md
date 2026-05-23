@@ -326,6 +326,7 @@ Fix the errors in: /etc/kopi-docka.conf
 | `kopia_params` | Kopia repository parameters | `filesystem --path /backup/...` |
 | `password` | Repository password | `CHANGE_ME_...` |
 | `compression` | Compression | `zstd` |
+| `rclone_startup_timeout` | Timeout for `rclone serve` subprocess spawn (rclone backend only). Kopia's 15s default is unreliable on cold starts against GDrive. Go duration string. | `120s` |
 | `parallel_workers` | Backup threads | `auto` (based on RAM/CPU) |
 | `stop_timeout` | Container stop timeout (sec) | `30` |
 | `start_timeout` | Container start timeout (sec) | `60` |
@@ -420,6 +421,45 @@ Prior to v5.3.0, there was a critical bug where:
 - ✅ Mixed repositories (old TAR + new Direct backups) are handled correctly
 
 **Path matching happens automatically** based on your backup format setting. Just configure your desired retention values in the config file.
+
+---
+
+### Policy State Cache (since v7.2.0)
+
+`kopia policy set` is a metadata round-trip even when nothing changed — on slow remote backends (rclone/GDrive) every call costs 15–40s. To avoid that overhead, kopi-docka fingerprints the policy it *would* apply per volume and skips the kopia call when the previous run already applied an identical policy.
+
+**State file**: `~/.config/kopi-docka/policy_state.json` (under `/root/.config/...` for systemd-managed runs).
+
+The state file is a performance cache, not backup data — losing it just causes the next run to be slower (one extra `kopia policy set` call per volume).
+
+**When does the smart-skip miss?**
+- Hash records `target` + `retention` fields only. Change any retention value in your config → hash changes → policy reapplied.
+- If you run `kopia policy set <target> ...` directly from the CLI, the local hash still matches → kopi-docka silently skips → your manual change persists undisturbed. Two workarounds: change the config (forces a reapply) or delete `policy_state.json` (full reapply next run).
+
+**Side effects**:
+- Auto-prune (`BackupManager.auto_prune_orphaned_policies`, runs at backup start) automatically removes the state entry when it deletes the corresponding policy — so a path that gets re-added later is reapplied rather than silently skipped.
+- Staging paths no longer get per-path policies at all (v7.2.0): the global policy covers them via Kopia's inheritance tree. If you ran older versions and have leftover staging policies, the auto-prune cleans them up on the next backup run.
+
+---
+
+### rclone Backend Tuning (since v7.2.0)
+
+Kopia's `rclone` backend (`[Not maintained]` per Kopia upstream) spawns `rclone serve` as a subprocess for each kopia invocation. The default `startupTimeout` is 15s, which is unreliable on cold starts against Google Drive — the rclone-serve startup plus OAuth refresh plus first API call routinely exceeds 15s and produces:
+
+```
+unable to start rclone: timed out waiting for rclone to start
+```
+
+**Fix**: kopi-docka now defaults to `120s` and persists this into the Kopia repo config (`storage.config.startupTimeout`) so subsequent kopia calls use it too. Existing installs are migrated automatically on first run after upgrade — look for `Migrated rclone startupTimeout 15s → 120s` in the log.
+
+**Override**:
+```json
+"kopia": {
+  "rclone_startup_timeout": "300s"
+}
+```
+
+Go duration string (`"60s"`, `"2m"`, `"5m"`, etc.).
 
 ---
 

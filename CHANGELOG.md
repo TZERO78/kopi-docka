@@ -5,6 +5,34 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.2.0] - 2026-05-23
+
+### 🚀 Performance & Reliability — Plan 0026
+
+This release eliminates the policy/pre-flight overhead that dominated backup runtime on slow cloud backends. On a 5-unit rclone/GDrive setup with timeouts at 15s each, prior versions spent ~30–45 minutes per run just on policy-set calls before any data was written. Plan 0026 removes most of those calls outright and ensures the rest don't trip the cold-start timeout.
+
+#### ✨ Added
+
+- **`kopia.rclone_startup_timeout` config option** (default `120s`): Kopia's rclone backend defaults to 15s for the `rclone serve` subprocess spawn. On cold starts against Google Drive this is unreliable (OAuth refresh + first API call routinely exceeds 15s), producing the `unable to start rclone: timed out waiting for rclone to start` error chain. New config value is appended to `kopia repository create/connect` for rclone backends and persisted into the repo config.
+- **Self-healing migration**: On first use after upgrade, existing repo configs with `startupTimeout=15s` are automatically patched to the configured value. No reconnect required, logs `"Migrated rclone startupTimeout 15s → 120s"`.
+- **Hash-based smart-skip for volume policies** (`helpers/policy_state.py`): `_ensure_policies` now fingerprints `(target, retention)` per `(profile, target)` tuple and persists hashes to `~/.config/kopi-docka/policy_state.json`. When the hash matches the previous run, the `kopia policy set` call is skipped entirely. Hash is recorded only after success so failures retry naturally next run.
+- **Auto-prune orphaned policies at backup start**: `BackupManager.auto_prune_orphaned_policies()` runs once per backup run before the unit loop. Removes per-path policies for paths kopi-docka manages but no longer snapshots (deleted volumes, renamed stacks, legacy staging paths). Safety: only touches policies where `target.host == socket.gethostname()` AND `target.userName == getpass.getuser()` AND path starts with a kopi-docka prefix — never deletes another host's policies (cross-host restore safety, Plan 0024). `kopi-docka advanced policy prune` remains available for manual one-time cleanup of pre-7.2.0 legacy orphans.
+
+#### 🗑️ Removed
+
+- **Per-path policies on staging dirs**: `_ensure_policies` no longer sets policies on `staging/recipes/<unit>`, `staging/networks/<unit>`, `staging/docker-config/<unit>`. The global policy already covers them via Kopia's policy inheritance tree. Net effect: 3 fewer `kopia policy set` calls per backed-up unit. On a 5-unit prod run with each call timing out at 120s, this alone saves ~30 minutes.
+- **Per-unit pre-flight check**: `backup_unit()` no longer calls `is_connected(force_refresh=True)`. The check now runs once per backup run in `_run_backup()` (after `ensure_repository`, before the unit loop). On rclone this saves `(N-1) × ~35s`. More importantly: a backend outage now aborts the whole run before ANY container is stopped — the old per-unit pre-flight would still stop the first unit's containers between failures.
+
+#### 🐛 Side-effects worth knowing
+
+- Smart-skip means the local hash and the actual repo policy can drift if someone runs `kopia policy set` directly. Workarounds: change retention in the YAML config (hash changes → reapply) or delete `~/.config/kopi-docka/policy_state.json` (full reapply next run). Documented in `docs/CONFIGURATION.md`.
+
+#### 🧪 Tests
+
+41 new unit tests in `tests/unit/test_helpers/test_policy_state.py`, `tests/unit/test_cores/test_backup_manager_policies.py`, and the rclone-timeout section of `tests/unit/test_cores/test_repository_manager.py`. Existing `TestEnsurePolicies` adapted (2 tests removed that verified the now-removed staging-path matching; the rest rewritten for the new call counts). Full suite: 1132/1132 passing.
+
+---
+
 ## [7.1.5] - 2026-05-23
 
 ### 🐛 Fixed
