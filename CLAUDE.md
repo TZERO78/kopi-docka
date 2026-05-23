@@ -151,10 +151,10 @@ The tag triggers the GitHub Actions workflow that publishes to PyPI.
 - Standard frontmatter with status, target_release
 - Plans are local-only, never pushed to GitHub (`plan/` is in `.gitignore`)
 
-## Current State (April 2026)
+## Current State (Mai 2026)
 
 ### Active Plans
-- **Plan 0022**: Missed Backup Alerting — **draft** (`plan/active/plan_0022_missed-backup-alerting.md`)
+- **Plan 0026**: Policy Smart-Skip (Hash-basiert) — **draft** (`plan/active/plan_0026_policy-smart-skip.md`)
 
 ### Completed Plans
 - **Plan 0020**: Bypass Cleanup — done, merged (v6.2.3)
@@ -162,10 +162,11 @@ The tag triggers the GitHub Actions workflow that publishes to PyPI.
 - **Retention Policy Fix**: Path mismatch + doctor check — done (v6.4.0)
 - **Plan 0023**: Security Hardening & Docs Overhaul — done, merged (v6.5.0)
 - **Plan 0024**: Snapshot Management Wizard — done, merged (v7.0.0)
+- **Plan 0025**: Alerting Overhaul (pre-flight check, verbose failures, missed-backup detection) — done, merged (v7.1.0)
 
 ### Known Technical Debt
 - Bypass points: 2 intentional exceptions remain (see KopiaRepository section above)
-- Test coverage at ~44% (target: higher)
+- Test coverage at ~52% (target: higher)
 - `tests/README.md` is outdated (copy of v2.0 project README)
 - Commands and backends have very low test coverage (~18% and ~20%)
 - `engine/` directory exists but is empty (reserved, may not be needed)
