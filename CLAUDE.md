@@ -87,9 +87,11 @@ All Kopia CLI calls should go through `KopiaRepository` in `cores/repository_man
 
 Top-level commands ("The Big 6"): `setup`, `backup`, `restore`, `disaster-recovery`, `dry-run`, `doctor`, `version`
 
-Admin/advanced subcommands: `config`, `repo`, `snapshot`, `service`, `system`, `notification`
+Admin/advanced subcommands: `config`, `repo`, `snapshot`, `service`, `system`, `notification`, `policy`
 
 `admin snapshot` subcommands: `list`, `estimate-size`, `manage`, `maintenance [--full]`, `prune-empty [--dry-run]`, `delete <id> [--force]`, `pin <id>`, `unpin <id>`, `retention show`, `retention set [options]`
+
+`admin policy` subcommands: `prune [--dry-run] [--force]`
 
 Note: `admin repo maintenance` was moved to `admin snapshot maintenance` in v7.0.0.
 
