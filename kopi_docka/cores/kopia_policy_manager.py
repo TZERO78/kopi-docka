@@ -168,6 +168,14 @@ class KopiaPolicyManager:
         """Set compression for a specific target."""
         self._run(["kopia", "policy", "set", target, "--compression", compression], check=True)
 
+    def delete_policy(self, host: str, username: str, path: str) -> bool:
+        """Delete a specific retention policy by host/user/path. Returns True on success."""
+        result = self._run(
+            ["kopia", "policy", "delete", "--username", username, "--host", host, path],
+            check=False,
+        )
+        return result is not None and result.returncode == 0
+
     # --- Low-level passthrough ---
 
     def _run(self, args, check: bool = True, timeout: int = 120):

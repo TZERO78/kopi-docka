@@ -318,6 +318,10 @@ def _check_policy_alignment(repo, console: Console, warnings: list):
                 )
                 for path in sorted(orphaned):
                     policy_table.add_row("", "", f"  {path}")
+                policy_table.add_row(
+                    "", "",
+                    "[dim]Fix: kopi-docka advanced policy prune[/dim]",
+                )
                 warnings.append(f"{len(orphaned)} orphaned retention policies found")
 
             if uncovered:
