@@ -5,6 +5,15 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.1.4] - 2026-05-23
+
+### 🐛 Fixed
+
+- **`policy prune` Batch-Delete**: Alle Policies werden jetzt in **einem einzigen** `kopia policy delete`-Aufruf gelöscht (statt 41 sequenzieller Calls). Remote-Backends (rclone, S3) brauchen pro Call ~120s für die Repo-Metadaten-Transaktion — Batch reduziert das auf einen einzigen Round-Trip. Fallback auf einzelne Calls wenn Batch fehlschlägt.
+- **`delete_policy()` Timeout**: Erhöht auf 600s für Remote-Backends.
+
+---
+
 ## [7.1.3] - 2026-05-23
 
 ### 🐛 Fixed

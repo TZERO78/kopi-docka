@@ -169,11 +169,31 @@ class KopiaPolicyManager:
         self._run(["kopia", "policy", "set", target, "--compression", compression], check=True)
 
     def delete_policy(self, host: str, username: str, path: str) -> bool:
-        """Delete a specific retention policy by host/user/path. Returns True on success."""
+        """Delete a single retention policy. Returns True on success."""
         target = f"{username}@{host}:{path}"
         result = self._run(
             ["kopia", "policy", "delete", target],
             check=False,
+            timeout=600,
+        )
+        return result is not None and result.returncode == 0
+
+    def delete_policies_batch(self, entries: list) -> bool:
+        """Delete multiple policies in a single kopia call (one repo transaction).
+
+        entries: list of target dicts with keys 'userName', 'host', 'path'.
+        Returns True if all were deleted successfully.
+        Remote backends (rclone, S3, etc.) need time to read+write repo metadata;
+        batching avoids 41 separate round-trips.
+        """
+        targets = [
+            f"{e.get('userName', '')}@{e.get('host', '')}:{e.get('path', '')}"
+            for e in entries
+        ]
+        result = self._run(
+            ["kopia", "policy", "delete", *targets],
+            check=False,
+            timeout=600,
         )
         return result is not None and result.returncode == 0
 
