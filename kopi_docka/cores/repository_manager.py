@@ -174,7 +174,20 @@ class KopiaRepository:
                 current, desired, cfg_path,
             )
         except OSError as e:
-            logger.warning("Could not write patched repo config: %s", e)
+            # EROFS typically means a systemd hardening setting (ProtectHome=read-only)
+            # is blocking writes to /root/.config/kopia. Surface the fix path explicitly
+            # because Kopia's own `repository connect` will fail with the same error
+            # right after this warning, and the user would otherwise need to grep
+            # systemd manpages to find the right knob.
+            hint = ""
+            if e.errno == 30:  # EROFS
+                hint = (
+                    " — running under systemd? Add "
+                    "'ReadWritePaths=-/root/.config/kopia -/root/.config/kopi-docka' "
+                    "to the service unit (via `systemctl edit kopi-docka-backup.service`). "
+                    "kopi-docka 7.2.1+ ships this carve-out in the bundled templates."
+                )
+            logger.warning("Could not write patched repo config: %s%s", e, hint)
 
     def _get_cache_params(self) -> List[str]:
         """

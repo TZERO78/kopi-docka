@@ -5,6 +5,35 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.2.1] - 2026-05-23
+
+### 🐛 Fixed
+
+- **systemd service templates now carve out write access for Kopia and kopi-docka config dirs**. v7.2.0 (Plan 0026) introduced two new writers under `/root/.config/`: the self-healing rclone-startup-timeout migration in Kopia's repo config, and the smart-skip cache in `policy_state.json`. The bundled service templates set `ProtectHome=read-only`, which blocked both. The same `ProtectHome=read-only` also blocked Kopia's own `repository connect` from updating the config when the new `--rclone-startup-timeout` flag was added — so the first backup after upgrading to v7.2.0 on a systemd-managed install failed with `cannot create temp file: read-only file system`.
+
+  Both `kopi-docka-backup.service.template` and `kopi-docka.service.template` now include `ReadWritePaths=-/root/.config/kopia -/root/.config/kopi-docka -/root/.cache/kopia`. The `-` prefix makes each path optional so fresh installs without those directories yet don't crash systemd's NAMESPACE setup.
+
+- **Migration warning is now actionable**. When `_maybe_patch_repo_config_for_rclone` hits EROFS, the log line now points directly at the systemd `ReadWritePaths` fix instead of just reporting the errno — saves users the systemd-manpage hunt.
+
+### Upgrade from 7.2.0 on systemd-managed installs
+
+Existing 7.2.0 installs that hit the read-only error need a one-time override (kopi-docka itself can't rewrite its own service unit):
+
+```bash
+sudo mkdir -p /root/.config/kopia /root/.config/kopi-docka
+sudo systemctl edit kopi-docka-backup.service
+```
+
+Add:
+```ini
+[Service]
+ReadWritePaths=-/root/.config/kopia -/root/.config/kopi-docka -/root/.cache/kopia
+```
+
+Then `sudo systemctl daemon-reload`. Fresh installs and `kopi-docka setup` runs against 7.2.1+ get this automatically.
+
+---
+
 ## [7.2.0] - 2026-05-23
 
 ### 🚀 Performance & Reliability — Plan 0026
