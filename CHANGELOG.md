@@ -5,6 +5,41 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.3.3] - 2026-05-24
+
+### 🐛 Fixed
+
+`scripts/migrate-config.sh` UX hardening after the first live-system run.
+
+- **Template auto-locate is no longer `python3 -c 'import kopi_docka'` only.**
+  When kopi-docka is installed under pipx or in a venv, the default
+  `/usr/bin/python3` can't import the package — the script printed
+  `tried: <empty>` with no further hint. New strategy chain:
+    1. explicit `--template` flag
+    2. default `python3 -c 'import kopi_docka'`
+    3. python from `which kopi-docka`'s shebang (handles pipx / venv)
+    4. GitHub raw fallback (no install needed)
+  Each failed step now logs *why*; the final "could not locate" error
+  lists all four strategies plus how to fix each one.
+- **Documented the `chmod +x` step inline.** The `curl -o /usr/local/bin/...`
+  command leaves the file without an execute bit; the docs now chain
+  the `chmod` on the same line so the copy-paste path works first try.
+
+### ✨ Added
+
+- **`--config` is now optional.** When omitted, the script probes the
+  same default locations kopi-docka itself uses
+  (`$HOME/.config/kopi-docka/config.json` first, then
+  `/etc/kopi-docka.json`). Honors `$SUDO_USER` so that
+  `sudo migrate-config.sh` finds the invoking user's per-user config
+  instead of root's.
+- **kopi-docka version banner.** Every run prints the installed
+  kopi-docka version and binary path up front, or says "not found on
+  PATH — will use the GitHub-hosted template" if the binary is missing.
+  Makes it obvious which release the migration is checking against.
+
+---
+
 ## [7.3.2] - 2026-05-24
 
 ### ✨ Added

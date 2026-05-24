@@ -300,18 +300,45 @@ template, there's a helper script that ships in the source tree and is
 also published as a single file on GitHub:
 
 ```bash
-# Download (one-time)
+# Download (one-time). The chmod is on the same line because `curl -o`
+# does NOT set the execute bit.
 sudo curl -fsSL -o /usr/local/bin/kopi-docka-migrate-config \
-  https://raw.githubusercontent.com/TZERO78/kopi-docka/main/scripts/migrate-config.sh
-sudo chmod +x /usr/local/bin/kopi-docka-migrate-config
+  https://raw.githubusercontent.com/TZERO78/kopi-docka/main/scripts/migrate-config.sh \
+  && sudo chmod +x /usr/local/bin/kopi-docka-migrate-config
 
-# Or run it directly from GitHub:
+# Or run it directly from GitHub (no install needed):
 curl -fsSL https://raw.githubusercontent.com/TZERO78/kopi-docka/main/scripts/migrate-config.sh \
-  | sudo bash -s -- --config /etc/kopi-docka.json [OPTIONS]
+  | sudo bash -s -- [--config /etc/kopi-docka.json] [OPTIONS]
 
 # Or — if you've cloned the repo — from the source tree:
-scripts/migrate-config.sh --config /etc/kopi-docka.json [OPTIONS]
+scripts/migrate-config.sh [--config /etc/kopi-docka.json] [OPTIONS]
 ```
+
+**`--config` is optional.** If omitted, the script probes the same
+defaults kopi-docka itself uses, in this order:
+
+1. `$HOME/.config/kopi-docka/config.json` (honors `$SUDO_USER` under
+   sudo, so you get the invoking user's config, not root's)
+2. `/etc/kopi-docka.json`
+
+**Version banner.** Every run prints the installed kopi-docka version
+and binary path up front so you can confirm which release the
+migration is checking against:
+
+```
+kopi-docka installed: 7.3.3  (/usr/local/bin/kopi-docka)
+```
+
+If kopi-docka isn't on `PATH`, the banner says so and the GitHub raw
+template fallback takes over. In that mode the template reflects
+whatever is on the `main` branch — usually fine, but pass
+`--template` if you need to pin to a specific release.
+
+**Template auto-location.** Strategies tried, in order: an explicit
+`--template` flag, the default `python3 -c 'import kopi_docka'`, the
+python from `kopi-docka`'s own shebang (handles pipx and venv installs
+where `/usr/bin/python3` can't import the package), and a GitHub raw
+fallback. Each failed step explains why so you know what to fix.
 
 **What it does**
 
