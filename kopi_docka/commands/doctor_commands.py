@@ -207,8 +207,16 @@ def _show_systemd_status():
     console.print()
 
 
-def _show_backend_dependencies(cfg: Optional[Config]):
-    """Display backend-specific dependencies."""
+def _show_backend_dependencies(cfg: Optional[Config], warnings: Optional[list] = None):
+    """Display backend-specific dependencies.
+
+    ``warnings`` accumulates user-visible health warnings (same list the
+    rest of the doctor checks append to). Accepting it here lets the
+    rclone/Google-Drive performance heuristic add to the summary even
+    though the check itself lives in the backend-dependencies section.
+    """
+    if warnings is None:
+        warnings = []
     console.print("[bold]4. Backend Dependencies[/bold]")
     console.print("-" * 40)
 
@@ -260,6 +268,41 @@ def _show_backend_dependencies(cfg: Optional[Config]):
             console.print(f"[dim]Backend {repo_type} has no dependency requirements[/dim]")
     except Exception as e:
         console.print(f"[yellow]Could not check backend dependencies: {e}[/yellow]")
+
+    # Performance warning for rclone backends, especially against Google Drive.
+    # Kopia upstream marks rclone as "[Not maintained]" and a single backup
+    # snapshot routinely takes 1-5 minutes per source over GDrive; users see
+    # 30+ minute backups for repos that would take seconds over SFTP. See
+    # docs/TROUBLESHOOTING.md → "Backups against rclone+Google Drive feel
+    # very slow" for measurements and alternatives.
+    if repo_type == "rclone":
+        is_gdrive = any(s in kopia_params.lower() for s in ("gdrive", "drive:", "google"))
+        message = (
+            "[yellow]⚠ rclone backend in use.[/yellow] Kopia upstream marks the "
+            "rclone backend as 'Not maintained' in its CLI docs."
+        )
+        if is_gdrive:
+            message += (
+                "\n   On Google Drive in particular each `kopia snapshot create` "
+                "round-trip costs 1-5 minutes. Consider switching to a native "
+                "Kopia backend ([bold]Tailscale[/bold]/[bold]SFTP[/bold] for "
+                "self-hosted, [bold]Backblaze B2[/bold] for cloud) for an order-"
+                "of-magnitude speedup."
+            )
+        else:
+            message += (
+                "\n   For native Kopia backends (S3, B2, SFTP, etc.) performance "
+                "is typically much better; consider one of those if your provider "
+                "supports it."
+            )
+        message += (
+            "\n   [dim]See docs/TROUBLESHOOTING.md → \"Backups against "
+            "rclone+Google Drive feel very slow\" for details.[/dim]"
+        )
+        console.print(message)
+        warnings.append(
+            "rclone backend in use — known slow on Google Drive (see TROUBLESHOOTING.md)"
+        )
 
     console.print()
 
@@ -470,7 +513,7 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
     # ═══════════════════════════════════════════
     # Section 4: Backend Dependencies
     # ═══════════════════════════════════════════
-    _show_backend_dependencies(cfg)
+    _show_backend_dependencies(cfg, warnings)
 
     # ═══════════════════════════════════════════
     # Section 5: Configuration

@@ -720,7 +720,20 @@ For complete setup guides, troubleshooting, and examples, see:
 
 ## Storage Backends
 
-Kopi-Docka supports 8 different backends. The **config wizard** (`advanced config new`) interactively guides you through backend selection and configuration!
+Kopi-Docka supports 8 different backends. The **config wizard**
+(`advanced config new`) interactively guides you through backend
+selection and configuration!
+
+> **Performance reality check.** Not all backends are equal under the
+> hood. Kopia's own CLI docs mark the **rclone** backend as
+> `[Not maintained]`, and on a Google Drive repository it's measurably
+> ~30–60× slower than SFTP (e.g. via Tailscale) for the same workload —
+> see [TROUBLESHOOTING.md → "Backups against rclone+Google Drive feel
+> very slow"](TROUBLESHOOTING.md#-backups-against-rclonegoogle-drive-feel-very-slow)
+> for numbers and forum links. If you have any choice in the matter,
+> prefer **Tailscale → SFTP**, **Backblaze B2**, **S3-compatible**, or
+> **native SFTP/WebDAV** over rclone. rclone stays as a fallback for
+> providers Kopia doesn't natively support.
 
 **Backend selection in wizard:**
 ```
