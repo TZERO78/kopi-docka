@@ -5,6 +5,80 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.6.0] - 2026-05-24
+
+### ♻️ `sudo_helper` — central SUDO_USER handling, replaces 11 duplicated patterns
+
+Plan 0037 — a real refactor with a small security bonus.
+
+**Before:** the `SUDO_USER` / `SUDO_UID` / `SUDO_GID` env-var pattern
+was duplicated **11 times across 4 files** with **three different
+validation niveaus**:
+
+- `cores/disaster_recovery_manager.py` (2 sites) — chown bundle to
+  invoking user; find rclone.conf in user's home (validated)
+- `cores/restore_manager.py` (2 sites) — uid/gid/name tuple; running-
+  with-sudo boolean
+- `helpers/file_operations.py` (1 site) — chown for config-backup
+- `backends/rclone.py` (4 sites) — rclone.conf candidate paths (some
+  validated, some not)
+
+Some sites checked `SUDO_USER` against a shell-injection regex
+(`^[a-zA-Z0-9._-]+$`), others didn't. That meant a malicious
+`SUDO_USER=";rm -rf /"` env-var could in theory have ended up
+interpolated into a path at the unvalidated sites.
+
+**After:** new module `kopi_docka/helpers/sudo_helper.py` provides one
+typed API:
+
+```python
+@dataclass(frozen=True)
+class SudoUserInfo:
+    name: Optional[str]           # validated SUDO_USER, else None
+    uid: int                      # SUDO_UID or os.getuid()
+    gid: int                      # SUDO_GID or os.getgid()
+    home: Optional[Path]          # /home/<name> when name is valid
+    invoked_with_sudo: bool
+
+def get_sudo_user_info() -> SudoUserInfo
+def chown_to_sudo_user(path: Path) -> None
+def find_in_sudo_user_home(relative: str) -> Optional[Path]
+def sudo_user_home_path(relative: str) -> Optional[Path]
+```
+
+All 11 sites migrated to the new helper. As a side effect, the four
+previously-unvalidated `SUDO_USER` reads (3 in rclone.py + the chown
+sites in DR/file_operations/restore_manager) now go through the
+validation regex too — closing the (theoretical) shell-injection vector
+at zero behavioral cost for legitimate usernames.
+
+#### Tests
+
+- New `tests/unit/test_helpers/test_sudo_helper.py` with **18 cases**
+  covering: under-sudo / no-sudo, shell-injection rejection, path
+  traversal rejection, garbage-UID-fallback, valid-punctuation
+  acceptance, chown success/failure paths, find/path-build variants,
+  permission-error handling.
+- All 1234 prior tests pass unchanged (behavioral parity).
+- Total: **1252 unit tests** (+18).
+
+#### Side benefit: cleaner import topology
+
+`backends/rclone.py` no longer needs `import os` after the migration
+(all SUDO_USER reading goes through sudo_helper). Three other files
+drop their inline `re` validation regex.
+
+#### Why minor (v7.6.0) not patch (v7.5.4)
+
+Subtle behavior change: three sites that previously accepted any
+`SUDO_USER` value now silently fall back to "no sudo detected" when
+the value fails validation. Real-world impact: zero (legitimate
+usernames pass; only adversarial values were ever rejected at the
+other sites). But since the *contract* of those code paths changed,
+this is conservatively a minor bump.
+
+---
+
 ## [7.5.3] - 2026-05-24
 
 ### 🧹 Timezone-aware datetime cleanup (mop-up after v7.5.2)
