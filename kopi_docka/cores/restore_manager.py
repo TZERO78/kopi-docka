@@ -75,6 +75,26 @@ from ..helpers import (
 logger = get_logger(__name__)
 
 
+def _parse_snapshot_timestamp(ts_str: Optional[str]) -> datetime:
+    """Parse an ISO snapshot-tag timestamp, always returning a tz-aware UTC datetime.
+
+    Why: snapshots written before v7.5.2 stored naive timestamps
+    (datetime.now().isoformat()); the default/fallback branch produced aware ones
+    (datetime.now(timezone.utc)). Sorting a mixed list crashed the restore wizard
+    with "can't compare offset-naive and offset-aware datetimes". Treat naive
+    legacy tags as UTC so they can be compared with newer tz-aware tags.
+    """
+    if not ts_str:
+        return datetime.now(timezone.utc)
+    try:
+        dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.now(timezone.utc)
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 class RestoreManager:
     """Interactive restore wizard for cold backups (recipes + volumes)."""
 
@@ -576,14 +596,7 @@ class RestoreManager:
                 if not unit or not backup_id:
                     continue
 
-                try:
-                    # Handle ISO format with timezone (Z suffix)
-                    ts_clean = ts_str.replace("Z", "+00:00") if ts_str else None
-                    ts = (
-                        datetime.fromisoformat(ts_clean) if ts_clean else datetime.now(timezone.utc)
-                    )
-                except ValueError:
-                    ts = datetime.now(timezone.utc)
+                ts = _parse_snapshot_timestamp(ts_str)
 
                 key = f"{unit}:{backup_id}"
                 if key not in groups:
@@ -632,14 +645,7 @@ class RestoreManager:
                 if not unit or not backup_id:
                     continue  # enforce backup_id
 
-                try:
-                    # Handle ISO format with timezone (Z suffix)
-                    ts_clean = ts_str.replace("Z", "+00:00") if ts_str else None
-                    ts = (
-                        datetime.fromisoformat(ts_clean) if ts_clean else datetime.now(timezone.utc)
-                    )
-                except ValueError:
-                    ts = datetime.now(timezone.utc)
+                ts = _parse_snapshot_timestamp(ts_str)
 
                 key = f"{unit}:{backup_id}"
                 if key not in groups:
