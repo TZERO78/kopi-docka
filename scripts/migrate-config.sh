@@ -326,17 +326,23 @@ MISSING="$(comm -23 <(echo "$T_SET" | sort) <(echo "$U_SET" | sort) || true)"
 UNKNOWN="$(comm -13 <(echo "$T_SET" | sort) <(echo "$U_SET" | sort) || true)"
 
 # Type mismatches: paths present in both, but different JSON type.
-TYPE_MISMATCH=""
+#
+# Special case: when the template's value is `null` and the user has any
+# scalar/array/object set, that is *not* a mismatch — `null` in the
+# template is a "not configured yet" placeholder (password_file,
+# notifications.url, etc.). Suppressing this kept several pages of
+# false-positive "! " lines off the report on the first live-system run.
+declare -a TYPE_MISMATCH_LINES=()
 while IFS= read -r path; do
     [[ -z "$path" ]] && continue
-    # Convert dot-path back to jq filter (every segment is a string key).
-    filter=".$(echo "$path" | sed 's/\./"."/g'; )"
+    # Convert dot-path "a.b.c" → jq filter `."a"."b"."c"`.
     filter="$(echo "$path" | awk -F'.' '{out="."; for (i=1;i<=NF;i++) out = out "[\"" $i "\"]"; print out}')"
     t_type="$(jq -r "$filter | type" "$TEMPLATE_PATH" 2>/dev/null || echo missing)"
     u_type="$(jq -r "$filter | type" "$USER_CONFIG"   2>/dev/null || echo missing)"
-    if [[ "$t_type" != "$u_type" ]]; then
-        TYPE_MISMATCH+="$path  (template=$t_type, user=$u_type)"$'\n'
-    fi
+    [[ "$t_type" == "$u_type" ]] && continue
+    # Suppress the null-placeholder case in either direction.
+    [[ "$t_type" == "null" || "$u_type" == "null" ]] && continue
+    TYPE_MISMATCH_LINES+=("$path  (template=$t_type, user=$u_type)")
 done < <(comm -12 <(echo "$T_SET" | sort) <(echo "$U_SET" | sort) || true)
 
 # ---------------------------------------------------------------------------
@@ -366,13 +372,13 @@ if [[ -n "$UNKNOWN" ]]; then
     echo
 fi
 
-if [[ -n "$TYPE_MISMATCH" ]]; then
+if (( ${#TYPE_MISMATCH_LINES[@]} > 0 )); then
     echo "Type mismatches (user value kept verbatim — review manually):"
-    echo "$TYPE_MISMATCH" | sed 's/^/  ! /'
+    printf '  ! %s\n' "${TYPE_MISMATCH_LINES[@]}"
     echo
 fi
 
-if [[ -z "$MISSING" && -z "$UNKNOWN" && -z "$TYPE_MISMATCH" ]]; then
+if [[ -z "$MISSING" && -z "$UNKNOWN" ]] && (( ${#TYPE_MISMATCH_LINES[@]} == 0 )); then
     echo "Config already matches the current template. Nothing to do."
     exit 0
 fi

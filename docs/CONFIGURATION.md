@@ -351,7 +351,22 @@ present in each (it does not look at values, so your password and
 |---|---|---|
 | Missing | Path in the template, not in your file. | Added with the template default. |
 | Unknown | Path in your file, not in the template (deprecated keys *or* your own additions). | Kept. Add `--prune-unknown` to remove. |
-| Type mismatch | Same path, different JSON type. | Left alone, flagged in the report — review manually. |
+| Type mismatch | Same path, different JSON type. *Exception:* `null` in the template against a scalar in your config is **not** flagged — `null` in the template marks a "not configured yet" slot (e.g. `kopia.password_file`, `notifications.url`). | Left alone, flagged in the report — review manually. |
+
+**Known legacy renames worth knowing**
+
+A few "Unknown" entries you may see are not custom additions but old
+names that kopi-docka renamed. The script doesn't rename them
+automatically (it has no opinions about your data), but you can
+`--prune-unknown` once you've copied the value into the new key:
+
+| Legacy key (in your config) | New name | Since |
+|---|---|---|
+| `retention.yearly`           | `retention.annual`         | very early — value semantics identical |
+| `backup.pre_backup_hook`     | `backup.hooks.pre_backup`  | 5.x |
+| `backup.post_backup_hook`    | `backup.hooks.post_backup` | 5.x |
+| `backup.parallel_workers`    | *(removed)*                | v7.3.0 / Plan 0028 — sequential loop |
+| `backup.task_timeout`        | *(removed)*                | v7.3.0 / Plan 0028 — sequential loop |
 
 **Important properties**
 

@@ -5,6 +5,44 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.3.4] - 2026-05-24
+
+### 🐛 Fixed
+
+Round two of UX cleanup for `scripts/migrate-config.sh`, after a real
+production config (with full notification setup, legacy hooks, and a
+`retention.yearly` key from an old version) exposed several false
+positives and a missing template field.
+
+- **Stop flagging `template=null` vs scalar as a type mismatch.** A
+  `null` value in the template marks a "not configured yet" slot —
+  `kopia.password_file`, `notifications.service`, `notifications.url`
+  and similar. On the first live-system run these produced page after
+  page of `! kopia.password_file (template=null, user=string)` lines.
+  Mismatch detection now suppresses null↔scalar in either direction;
+  only genuine type clashes (e.g. `int` vs `bool`) surface.
+- **Trailing empty `! ` entry in the type-mismatch block** removed.
+  The block was concatenated with `$'\n'` between entries plus a
+  terminating `$'\n'`, which produced one extra blank line at the
+  end of the report. Switched to a proper bash array.
+- **Template now ships `backup.database_backup`.** The Pydantic schema
+  has had this field with default `"true"` since 5.x, but it was
+  missing from `config_template.json` — so the migration helper would
+  otherwise warn on every install that still had the key.
+
+### 📝 Documentation
+
+- **Known legacy renames table** in `docs/CONFIGURATION.md`. Several
+  "Unknown keys" the script reports are not custom additions but old
+  names: `retention.yearly` → `retention.annual`,
+  `backup.pre_backup_hook` → `backup.hooks.pre_backup`,
+  `backup.post_backup_hook` → `backup.hooks.post_backup`. The script
+  doesn't auto-rename (it has no opinion about your data); the doc
+  tells you which "Unknown" lines are safe to `--prune-unknown` once
+  you've copied the value into the new key.
+
+---
+
 ## [7.3.3] - 2026-05-24
 
 ### 🐛 Fixed
