@@ -156,7 +156,7 @@ The tag triggers the GitHub Actions workflow that publishes to PyPI.
 ## Current State (Mai 2026)
 
 ### Active Plans
-- *(none — Plan 0026 finished as v7.2.0)*
+- **Plan 0028**: Global-Policy-Only + Interface-Vorbereitung für Multi-Path — committed on `refactor/global-policy-only` (target v7.3.0), end-to-end test in testlab pending
 
 ### Completed Plans
 - **Plan 0020**: Bypass Cleanup — done, merged (v6.2.3)
@@ -170,10 +170,11 @@ The tag triggers the GitHub Actions workflow that publishes to PyPI.
 
 ### Known Technical Debt
 - Bypass points: 2 intentional exceptions remain (see KopiaRepository section above)
-- Test coverage at ~52% (target: higher)
+- Test coverage at ~52 % (target: higher)
 - `tests/README.md` is outdated (copy of v2.0 project README)
-- Commands and backends have very low test coverage (~18% and ~20%)
+- Commands and backends have very low test coverage (~18 % and ~20 %)
 - `engine/` directory exists but is empty (reserved, may not be needed)
+- TAR-mode volume backup keeps its own per-volume path through `volume_handler.backup_volume_tar` instead of going through `create_snapshots()` — stdin streams don't fit the BackupSource shape. Low priority; TAR mode is legacy and not the default.
 
 ## Documentation
 
