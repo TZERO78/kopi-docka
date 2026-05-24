@@ -424,7 +424,16 @@ Kopi-Docka supports 8 different storage backends:
 5. **Google Cloud Storage** - GCS
 6. **SFTP** - Remote server via SSH
 7. **Tailscale** - P2P over WireGuard mesh network
-8. **Rclone** - Universal adapter (OneDrive, Dropbox, Google Drive, 70+ services)
+8. **Rclone** - Universal adapter (OneDrive, Dropbox, Google Drive, 70+ services) — ⚠️ **slow on Google Drive, [see issue #111](https://github.com/TZERO78/kopi-docka/issues/111)**
+
+> **⚠️ Performance note for rclone + Google Drive users**: a known
+> upstream limitation makes individual snapshot operations take 60-300
+> seconds each (Kopia marks the rclone backend as `[Not maintained]`,
+> Google Drive has high small-file write overhead). If you're seeing
+> 30+ minute backups for a small amount of data, see
+> **[pinned issue #111](https://github.com/TZERO78/kopi-docka/issues/111)**
+> for measurements and recommended alternatives (any of the other 7
+> backends will be an order of magnitude faster).
 
 **[Storage configuration →](docs/CONFIGURATION.md#storage-backends)**
 
