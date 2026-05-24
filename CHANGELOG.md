@@ -5,6 +5,54 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.3.8] - 2026-05-24
+
+### 🐛 Fixed — critical: silent second-config creation under permission failure
+
+A live-system run uncovered a real **data-loss footgun**. Sequence:
+
+1. User has a working `/etc/kopi-docka.json` (root-owned, mode 0600,
+   typical multi-user install with a `password_file` pointing at
+   another root-only file).
+2. User runs e.g. `kopi-docka advanced snapshot retention set --latest 5`
+   *without* `sudo` by accident.
+3. `_find_config_file()` walks the default search order, hits
+   `/etc/kopi-docka.json`, sees it exists, `os.access(..., R_OK)`
+   returns False, **logs a warning and falls through**.
+4. The fall-through branch creates a brand-new
+   `~/.config/kopi-docka/config.json` from `config_template.json` —
+   with the default password `"kopia-docka"` and the default repo
+   path `"filesystem --path /backup/kopia-repository"`.
+5. From now on `kopi-docka` finds the user-scoped config first
+   (search order is user → root) and **never touches the /etc one
+   again until the user notices**. Backups quietly run against a
+   nonexistent repo, the password is wrong, the disaster-recovery
+   bundle exports against the wrong config, and the user has two
+   configs whose drift goes undetected.
+
+Fix: `_find_config_file()` now collects unreadable existing paths
+across the search pass and **raises `PermissionError`** if any were
+found, instead of silently creating a second config. The error
+message lists the unreadable path(s) and — when one of them is under
+`/etc/` — explicitly suggests running with `sudo`.
+
+```
+$ kopi-docka advanced snapshot retention set --latest 5
+Configuration file exists but is not readable: /etc/kopi-docka.json.
+
+It's almost certainly a missing sudo: an /etc-scoped config is normally
+root-owned. Re-run the command with `sudo`.
+
+If you really want to start with a fresh user-scoped config instead of
+using the existing one, point --config at a new path explicitly …
+```
+
+The only way to get a second config is now to ask for it explicitly
+via `--config`. New tests in `tests/unit/test_helpers/test_config.py`
+pin the "raise instead of silent fallback" + the sudo hint.
+
+---
+
 ## [7.3.7] - 2026-05-24
 
 ### 🐛 Fixed — `advanced snapshot retention set`
