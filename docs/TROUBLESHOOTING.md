@@ -83,17 +83,26 @@ curl -fsSL https://raw.githubusercontent.com/TZERO78/kopi-docka/main/scripts/mig
 ```
 
 **Or download it once and keep it on disk** (useful if you'd rather
-review the script before running it):
+review the script before running it). The `chmod` is on the same line
+on purpose — `curl -o` leaves the file without the execute bit:
 
 ```bash
 sudo curl -fsSL -o /usr/local/bin/kopi-docka-migrate-config \
-  https://raw.githubusercontent.com/TZERO78/kopi-docka/main/scripts/migrate-config.sh
-sudo chmod +x /usr/local/bin/kopi-docka-migrate-config
+  https://raw.githubusercontent.com/TZERO78/kopi-docka/main/scripts/migrate-config.sh \
+  && sudo chmod +x /usr/local/bin/kopi-docka-migrate-config
 
 # Then:
 sudo kopi-docka-migrate-config --config /etc/kopi-docka.json --dry-run
 sudo kopi-docka-migrate-config --config /etc/kopi-docka.json
 ```
+
+> **Note**: The script auto-locates the `config_template.json` that
+> ships with the installed kopi-docka. If kopi-docka was installed via
+> `pipx` or into a venv that the default `python3` can't import from,
+> the script will fall back to reading the python interpreter out of
+> `kopi-docka`'s own shebang. If that also fails, it downloads the
+> template directly from GitHub. You can always force a specific path
+> with `--template /path/to/config_template.json`.
 
 **From a source checkout** (if you cloned the repo):
 
