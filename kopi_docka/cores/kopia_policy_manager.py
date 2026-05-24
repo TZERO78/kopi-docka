@@ -16,8 +16,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from ..helpers.logging import get_logger
 
 logger = get_logger(__name__)
@@ -33,7 +31,14 @@ class KopiaPolicyManager:
     # --- Global defaults ---
 
     def apply_global_defaults(self) -> None:
-        """Apply global defaults (compression, retention) from Config. Best-effort."""
+        """Apply global defaults (compression, retention) from Config. Best-effort.
+
+        Called from both ``KopiaRepository.initialize()`` (new repos) and
+        ``KopiaRepository.connect()`` (every connect — idempotent: Kopia treats
+        identical ``--global`` writes as a no-op). Plan 0028 made this the
+        single source of policy truth — there are no per-path policy writes
+        in the backup hot path anymore.
+        """
         try:
             compression = self.repo.config.get("kopia", "compression", fallback="zstd")
             self._run(
@@ -73,34 +78,7 @@ class KopiaPolicyManager:
         except Exception as e:
             logger.debug("Global retention policy skipped: %s", e)
 
-    # --- Targeted policies ---
-
-    def set_retention_for_target(
-        self,
-        target: str,
-        *,
-        keep_latest: Optional[int] = None,
-        keep_hourly: Optional[int] = None,
-        keep_daily: Optional[int] = None,
-        keep_weekly: Optional[int] = None,
-        keep_monthly: Optional[int] = None,
-        keep_annual: Optional[int] = None,
-    ) -> None:
-        """Set retention for a specific policy target (e.g., a path or user@host:path)."""
-        args = ["kopia", "policy", "set", target]
-        if keep_latest is not None:
-            args += ["--keep-latest", str(keep_latest)]
-        if keep_hourly is not None:
-            args += ["--keep-hourly", str(keep_hourly)]
-        if keep_daily is not None:
-            args += ["--keep-daily", str(keep_daily)]
-        if keep_weekly is not None:
-            args += ["--keep-weekly", str(keep_weekly)]
-        if keep_monthly is not None:
-            args += ["--keep-monthly", str(keep_monthly)]
-        if keep_annual is not None:
-            args += ["--keep-annual", str(keep_annual)]
-        self._run(args, check=True)
+    # --- Listing / inspection ---
 
     def list_policies(self) -> list:
         """List all Kopia policies (parsed JSON)."""
@@ -163,10 +141,6 @@ class KopiaPolicyManager:
             return True
         logger.warning("Failed to update global retention policy")
         return False
-
-    def set_compression_for_target(self, target: str, compression: str = "zstd") -> None:
-        """Set compression for a specific target."""
-        self._run(["kopia", "policy", "set", target, "--compression", compression], check=True)
 
     def delete_policy(self, host: str, username: str, path: str) -> bool:
         """Delete a single retention policy. Returns True on success."""

@@ -153,8 +153,8 @@ PrivateDevices=yes
 # paths optional, so a fresh install where they don't exist yet doesn't crash
 # systemd's NAMESPACE setup. Without the /root/.config/kopia carve-out, Kopia
 # can't rewrite the repo config on `repository connect`, which v7.2.0's
-# rclone-startup-timeout self-healing migration triggers. Without the
-# kopi-docka one, the policy_state.json smart-skip cache can't be persisted.
+# rclone-startup-timeout self-healing migration triggers. The /root/.config/
+# kopi-docka path is kept for compatibility with older kopi-docka state files.
 ReadWritePaths=/var/run/docker.sock /tmp -/root/.config/kopia -/root/.config/kopi-docka -/root/.cache/kopia
 
 [Install]

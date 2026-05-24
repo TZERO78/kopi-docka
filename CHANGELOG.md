@@ -5,97 +5,200 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [7.2.1] - 2026-05-23
+## [7.3.0] - 2026-05-24 — Plan 0028: Global-Policy-Only
+
+Eliminates the entire per-path policy apparatus that v7.2.0 still relied on
+for volume retention. With Plan 0028 there is exactly one place where Kopia
+retention is written: the global policy at repository `connect()` /
+`initialize()` time. No more hash-based smart-skip, no more auto-prune of
+orphans, no more divergent timing on rclone backends. Three atomic commits on
+`refactor/global-policy-only`.
+
+### 🚀 Performance & Reliability
+
+- **Backup hot path no longer writes per-path Kopia policies.** Plan 0026
+  trimmed staging-path policies; Plan 0028 removes the remaining volume
+  mountpoint writes too. On the rclone/Google-Drive backend that surfaced this
+  bottleneck, a 5-unit backup run that previously paid 5+ `kopia policy set`
+  round-trips now pays zero — global policy already covers every snapshot via
+  Kopia's policy inheritance tree.
+- **Global policy is applied on every `connect()`** (in addition to
+  `initialize()`). Idempotent (Kopia treats identical `--global` writes as a
+  no-op), so retention changes in `kopi-docka.json` reach Kopia on the next
+  run without a manual step.
+
+### 🗑️ Removed
+
+- `BackupManager._ensure_policies`, `BackupManager._apply_target_policy`,
+  `BackupManager.auto_prune_orphaned_policies` — the entire smart-skip +
+  auto-prune apparatus introduced in Plan 0026.
+- `BackupManager.policy_state` attribute and the `helpers/policy_state.py`
+  module (PolicyStateManager + `compute_policy_hash`).
+- `KopiaPolicyManager.set_retention_for_target` and
+  `set_compression_for_target` — global-only retention has no consumer for
+  these.
+- The `auto_prune_orphaned_policies()` call from `commands/backup_commands.py`.
 
 ### 🐛 Fixed
 
-- **systemd service templates now carve out write access for Kopia and kopi-docka config dirs**. v7.2.0 (Plan 0026) introduced two new writers under `/root/.config/`: the self-healing rclone-startup-timeout migration in Kopia's repo config, and the smart-skip cache in `policy_state.json`. The bundled service templates set `ProtectHome=read-only`, which blocked both. The same `ProtectHome=read-only` also blocked Kopia's own `repository connect` from updating the config when the new `--rclone-startup-timeout` flag was added — so the first backup after upgrading to v7.2.0 on a systemd-managed install failed with `cannot create temp file: read-only file system`.
+- **`advanced policy prune` is now a true legacy-cleanup.** Pre-Plan-0028
+  versions only deleted *orphaned* per-path policies — entries whose path
+  no longer matched any snapshot. With per-path policies obsolete under
+  Plan 0028, that left a confusing gap: doctor flagged any leftover
+  per-path entry as "Legacy" and pointed at `policy prune`, but prune
+  refused to touch it as long as a snapshot still lived at that path.
+  `cmd_prune` now removes every per-path entry on this host/user under
+  a kopi-docka-managed prefix (`/var/lib/docker/volumes/`,
+  `/var/cache/kopi-docka/staging/`), regardless of snapshot state.
+  Cross-host policies and unknown prefixes stay untouched as before
+  (Plan 0024 safety). Verified end-to-end on the rclone+GDrive testlab:
+  one leftover per-path policy detected by doctor, pruned in one batch
+  call, doctor reports clean global-only state.
 
-  Both `kopi-docka-backup.service.template` and `kopi-docka.service.template` now include `ReadWritePaths=-/root/.config/kopia -/root/.config/kopi-docka -/root/.cache/kopia`. The `-` prefix makes each path optional so fresh installs without those directories yet don't crash systemd's NAMESPACE setup.
+### 🧱 Refactor
 
-- **Migration warning is now actionable**. When `_maybe_patch_repo_config_for_rclone` hits EROFS, the log line now points directly at the systemd `ReadWritePaths` fix instead of just reporting the errno — saves users the systemd-manpage hunt.
+- **Backup discovery decoupled from snapshot execution.** New
+  ``BackupSource`` dataclass in ``kopi_docka/types.py`` carries the
+  ``(path, kind, tags)`` triple a snapshot needs. New ``_collect_*_sources``
+  helpers on ``BackupManager`` produce these — one per kind for
+  recipes / networks / docker_config, one per volume for direct-mode
+  volumes. The aggregate ``_collect_backup_sources()`` returns the full
+  ordered list ``backup_unit()`` would snapshot.
+- **Single sequential snapshot entry point.** New
+  ``KopiaRepository.create_snapshots(sources)`` is the only call
+  ``backup_unit()`` makes to produce snapshots. It iterates ``sources`` in
+  order, returns one ID per source (empty string for failures so callers
+  can map failures back to a kind/volume), and is intentionally sequential
+  — see the docstring for the rationale and the Kopia upstream issue
+  (``kopia/kopia#1725``) that would let the body be swapped for a
+  multi-path call.
+- **ThreadPoolExecutor removed from the volume loop.** Per-volume
+  parallelism is gone (user preference: log determinism and predictable
+  rclone behaviour beat throughput on VPS-class hardware). If a future
+  user needs parallelism, ``kopia policy set --global --max-parallel-snapshots=N``
+  is the right knob at the Kopia layer.
+- **Discovery now runs before container stop.** Compose-file copy, docker
+  inspect, network export and config staging happen with containers
+  alive (docker inspect needs them); the snapshot loop runs after stop.
+  This is also a friendlier failure mode — a discovery error aborts
+  before anything is stopped.
 
-- **Kopia subprocess OS timeouts now larger than `rclone_startup_timeout`**. v7.2.0 raised the in-Kopia `--rclone-startup-timeout` to 120s but left the wrapping OS-level timeouts at 120s too (`KopiaRepository._REPO_OP_TIMEOUT` and `KopiaPolicyManager._run` default). On prod with a cold rclone start that consumed most of the 120s on the rclone-serve spawn itself, the actual `kopia policy set` for volume mountpoints was getting killed before it could complete. Bumped both to 300s — gives the rclone-startup-timeout its full 120s budget plus ~3 min for the actual operation.
+### 🧹 Migration
 
-### Upgrade from 7.2.0 on systemd-managed installs
+- **`~/.config/kopi-docka/policy_state.json` is removed automatically.**
+  v7.2.0's smart-skip hash cache is dead data after Plan 0028. On the
+  first kopia call after upgrade, `KopiaRepository._maybe_cleanup_legacy_state_files()`
+  unlinks the file once (idempotent, logged at INFO). No action required.
+- **`backup.parallel_workers` and `backup.task_timeout` config fields are
+  ignored.** Both are kept in the schema so existing `kopi-docka.json`
+  files still validate, but the sequential snapshot loop reads neither.
+  Fresh `config_template.json` no longer ships these keys.
 
-Existing 7.2.0 installs that hit the read-only error need a one-time override (kopi-docka itself can't rewrite its own service unit):
+### Upgrade Notes
+
+- Existing repositories that still carry per-path policies from older
+  kopi-docka versions are *not* automatically cleaned up by the backup
+  run anymore (auto-prune is gone). Run **`kopi-docka advanced policy prune`**
+  once after upgrading — under Plan 0028 it removes *every* per-path
+  policy on this host (kopi-docka-managed prefixes only; cross-host
+  policies stay untouched). Doctor flags any leftovers as "Legacy
+  Per-Path Policies" with the same hint.
+- The systemd templates still carve out write access to
+  `/root/.config/kopi-docka` so the one-time `policy_state.json` cleanup
+  on first run after upgrade can happen — after that the directory is
+  no longer written to by kopi-docka.
+
+## [7.1.2 – 7.2.1] - 2026-05-23 — Rclone/Policy convergence
+
+Seven tightly-related point releases spanning Plan 0026 (the original
+„policy overhead on rclone backends" rework) and the chain of follow-ups
+that hardened it on real prod systems. They all converge on the same
+story: per-path Kopia policies on slow remote backends were the dominant
+runtime cost, and every regression fix added a layer of skip / prune /
+timeout / systemd carve-out. **Plan 0028 (v7.3.0) makes most of this
+obsolete by removing per-path policies entirely** — kept here for
+historical context.
+
+### ✨ Added (during the convergence)
+
+- **`kopi-docka advanced policy prune`** (v7.1.2): clean up orphaned
+  per-path Kopia retention policies. Compares `kopia policy list` against
+  `kopia snapshot list --all`. Supports `--dry-run` and `--force`. Plan
+  0028 still uses this for the post-upgrade legacy-cleanup workflow.
+- **`KopiaPolicyManager.delete_policy()` / `delete_policies_batch()`**
+  (v7.1.2 / v7.1.4): wrappers for `kopia policy delete`. Batch variant
+  collapses N deletes into one rclone round-trip — critical when each
+  round-trip costs ~120 s.
+- **`kopia.rclone_startup_timeout` config option** (v7.2.0, default
+  `120s`): Kopia's rclone backend default of 15 s is unreliable on cold
+  Google Drive starts. Appended to `kopia repository create/connect` and
+  persisted in the repo config. Self-healing migration patches existing
+  configs (logs `"Migrated rclone startupTimeout 15s → 120s"`).
+- **Hash-based smart-skip for volume policies** (v7.2.0,
+  `helpers/policy_state.py`): fingerprinted `(target, retention)` per
+  profile, persisted to `~/.config/kopi-docka/policy_state.json`. Removed
+  in Plan 0028 (v7.3.0).
+- **Auto-prune at backup start** (v7.2.0,
+  `BackupManager.auto_prune_orphaned_policies()`): removed orphans before
+  each backup run, guarded by `host == socket.gethostname()` /
+  `user == getpass.getuser()` / known-prefix checks (cross-host restore
+  safety, Plan 0024). Removed in Plan 0028.
+
+### 🗑️ Removed (during the convergence)
+
+- Per-path policies on staging dirs (v7.2.0): `_ensure_policies` stopped
+  setting policies on `staging/recipes/<unit>` etc. — global covered them
+  via Kopia's inheritance tree.
+- Per-unit pre-flight check (v7.2.0): moved to a single check per backup
+  run; a backend outage now aborts before any container is stopped.
+
+### 🐛 Fixed (the chain of follow-ups)
+
+- **`policy prune` delete syntax** (v7.1.3): `kopia policy delete` expects
+  the target as `user@host:path`, not `--username`/`--host` flags. 41 of
+  41 deletions were silently failing.
+- **`policy prune` batch delete + timeout** (v7.1.4): batched into one
+  call; `delete_policy()` timeout raised to 600 s for slow remotes.
+- **`policy prune` & `doctor` orphan detection** (v7.1.5):
+  `snap.get("source", {}).get("path")` returned an empty set because
+  `list_snapshots()` already produces flat dicts. `doctor` over-reported
+  orphans; `policy prune` would have deleted every per-path policy on
+  certain repos. Fixed by reading `snap["path"]` directly; regression
+  tests in `tests/unit/test_commands/test_policy_path_extraction.py`.
+- **`Config.to_dict()`** (v7.1.1): missing method broke `doctor` section
+  4 (Backend Dependencies) with `AttributeError`.
+- **systemd service templates `ReadWritePaths`** (v7.2.1): the bundled
+  templates set `ProtectHome=read-only`, blocking both Kopia's
+  `repository connect` self-healing migration and kopi-docka's
+  `policy_state.json` writes. Now carve out
+  `-/root/.config/kopia -/root/.config/kopi-docka -/root/.cache/kopia`.
+- **Kopia subprocess OS timeouts** (v7.2.1): the wrapping OS-level
+  timeouts (`_REPO_OP_TIMEOUT`, `KopiaPolicyManager._run` default) were
+  the same 120 s as the in-Kopia `--rclone-startup-timeout`, killing the
+  actual operation before it could finish. Bumped to 300 s — gives
+  rclone-startup its full 120 s budget plus ~3 min for the operation.
+- **Actionable migration warning** (v7.2.1): `_maybe_patch_repo_config_for_rclone`
+  now points at the systemd `ReadWritePaths` fix on EROFS instead of
+  just printing errno.
+
+### Upgrade Notes (v7.2.0 → v7.2.1)
+
+Existing systemd-managed installs that hit the read-only error need a
+one-time override:
 
 ```bash
 sudo mkdir -p /root/.config/kopia /root/.config/kopi-docka
 sudo systemctl edit kopi-docka-backup.service
 ```
 
-Add:
 ```ini
 [Service]
 ReadWritePaths=-/root/.config/kopia -/root/.config/kopi-docka -/root/.cache/kopia
 ```
 
-Then `sudo systemctl daemon-reload`. Fresh installs and `kopi-docka setup` runs against 7.2.1+ get this automatically.
-
----
-
-## [7.2.0] - 2026-05-23
-
-### 🚀 Performance & Reliability — Plan 0026
-
-This release eliminates the policy/pre-flight overhead that dominated backup runtime on slow cloud backends. On a 5-unit rclone/GDrive setup with timeouts at 15s each, prior versions spent ~30–45 minutes per run just on policy-set calls before any data was written. Plan 0026 removes most of those calls outright and ensures the rest don't trip the cold-start timeout.
-
-#### ✨ Added
-
-- **`kopia.rclone_startup_timeout` config option** (default `120s`): Kopia's rclone backend defaults to 15s for the `rclone serve` subprocess spawn. On cold starts against Google Drive this is unreliable (OAuth refresh + first API call routinely exceeds 15s), producing the `unable to start rclone: timed out waiting for rclone to start` error chain. New config value is appended to `kopia repository create/connect` for rclone backends and persisted into the repo config.
-- **Self-healing migration**: On first use after upgrade, existing repo configs with `startupTimeout=15s` are automatically patched to the configured value. No reconnect required, logs `"Migrated rclone startupTimeout 15s → 120s"`.
-- **Hash-based smart-skip for volume policies** (`helpers/policy_state.py`): `_ensure_policies` now fingerprints `(target, retention)` per `(profile, target)` tuple and persists hashes to `~/.config/kopi-docka/policy_state.json`. When the hash matches the previous run, the `kopia policy set` call is skipped entirely. Hash is recorded only after success so failures retry naturally next run.
-- **Auto-prune orphaned policies at backup start**: `BackupManager.auto_prune_orphaned_policies()` runs once per backup run before the unit loop. Removes per-path policies for paths kopi-docka manages but no longer snapshots (deleted volumes, renamed stacks, legacy staging paths). Safety: only touches policies where `target.host == socket.gethostname()` AND `target.userName == getpass.getuser()` AND path starts with a kopi-docka prefix — never deletes another host's policies (cross-host restore safety, Plan 0024). `kopi-docka advanced policy prune` remains available for manual one-time cleanup of pre-7.2.0 legacy orphans.
-
-#### 🗑️ Removed
-
-- **Per-path policies on staging dirs**: `_ensure_policies` no longer sets policies on `staging/recipes/<unit>`, `staging/networks/<unit>`, `staging/docker-config/<unit>`. The global policy already covers them via Kopia's policy inheritance tree. Net effect: 3 fewer `kopia policy set` calls per backed-up unit. On a 5-unit prod run with each call timing out at 120s, this alone saves ~30 minutes.
-- **Per-unit pre-flight check**: `backup_unit()` no longer calls `is_connected(force_refresh=True)`. The check now runs once per backup run in `_run_backup()` (after `ensure_repository`, before the unit loop). On rclone this saves `(N-1) × ~35s`. More importantly: a backend outage now aborts the whole run before ANY container is stopped — the old per-unit pre-flight would still stop the first unit's containers between failures.
-
-#### 🐛 Side-effects worth knowing
-
-- Smart-skip means the local hash and the actual repo policy can drift if someone runs `kopia policy set` directly. Workarounds: change retention in the YAML config (hash changes → reapply) or delete `~/.config/kopi-docka/policy_state.json` (full reapply next run). Documented in `docs/CONFIGURATION.md`.
-
-#### 🧪 Tests
-
-41 new unit tests in `tests/unit/test_helpers/test_policy_state.py`, `tests/unit/test_cores/test_backup_manager_policies.py`, and the rclone-timeout section of `tests/unit/test_cores/test_repository_manager.py`. Existing `TestEnsurePolicies` adapted (2 tests removed that verified the now-removed staging-path matching; the rest rewritten for the new call counts). Full suite: 1132/1132 passing.
-
----
-
-## [7.1.5] - 2026-05-23
-
-### 🐛 Fixed
-
-- **`policy prune` & `doctor` orphan detection**: Both commands extracted snapshot paths via `snap.get("source", {}).get("path", "")`, but `KopiaRepository.list_snapshots()` returns flat dicts (`snap["path"]`, no `source` key). The result was an always-empty snapshot-paths set, which made every per-path policy look orphaned. `doctor` over-reported orphans on healthy repos, and `policy prune` would have deleted every per-path policy if any existed. Fixed by reading `snap["path"]` directly; added regression tests in `tests/unit/test_commands/test_policy_path_extraction.py`.
-
----
-
-## [7.1.4] - 2026-05-23
-
-### 🐛 Fixed
-
-- **`policy prune` batch delete**: All policies are now deleted in a **single** `kopia policy delete` call instead of 41 sequential calls. Each call against a remote backend (rclone, S3) requires a full repository metadata round-trip (~120s). Batching reduces this to one transaction. Falls back to individual deletes if the batch call fails.
-- **`delete_policy()` timeout**: Raised to 600s to accommodate slow remote backends.
-
----
-
-## [7.1.3] - 2026-05-23
-
-### 🐛 Fixed
-
-- **`policy prune` delete command**: `kopia policy delete` expects the target as `user@host:path` (not `--username`/`--host` flags). All 41 deletions were failing with incorrect argument syntax. Fixed by passing the target as a single formatted string.
-
----
-
-## [7.1.2] - 2026-05-23
-
-### ✨ Added
-
-- **`kopi-docka advanced policy prune`**: New command to clean up orphaned Kopia retention policies. Compares `kopia policy list` against `kopia snapshot list --all`; removes policies with no matching snapshot sources. Supports `--dry-run` (preview only) and `--force` (skip confirmation prompt).
-- **`KopiaPolicyManager.delete_policy()`**: New method wrapping `kopia policy delete`.
-- **Doctor section 7 hint**: When orphaned policies are detected, the output now shows `Fix: kopi-docka advanced policy prune`.
+Then `sudo systemctl daemon-reload`. Fresh installs and `kopi-docka setup`
+runs against 7.2.1+ get this automatically. (Note: with Plan 0028 / v7.3.0
+the `kopi-docka` carve-out is only kept for legacy state files.)
 
 ---
 

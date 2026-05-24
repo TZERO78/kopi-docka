@@ -270,10 +270,16 @@ def _show_backend_dependencies(cfg: Optional[Config]):
 
 
 def _check_policy_alignment(repo, console: Console, warnings: list):
-    """Check that Kopia retention policies match actual snapshot source paths."""
+    """Show global retention policy and flag any leftover per-path policies as legacy.
+
+    Plan 0028 made the global policy the single source of retention truth.
+    Per-path policies still in the repository are leftovers from older
+    kopi-docka versions — they're harmless (Kopia merges per-path on top of
+    global), but they slow down rclone backends and should be pruned.
+    """
     from ..cores.kopia_policy_manager import KopiaPolicyManager
 
-    console.print("[bold]7. Retention Policy Alignment[/bold]")
+    console.print("[bold]7. Retention Policy[/bold]")
     console.print("-" * 40)
 
     policy_table = Table(box=box.SIMPLE, show_header=False)
@@ -286,52 +292,59 @@ def _check_policy_alignment(repo, console: Console, warnings: list):
         policies = policy_mgr.list_policies()
 
         # Extract per-path policy targets (exclude global)
-        policy_targets = set()
+        legacy_targets = set()
         for policy in policies:
             target = policy.get("target", {})
             path = target.get("path", "")
             if path and path != "(global)":
-                policy_targets.add(path)
+                legacy_targets.add(path)
 
-        # Get all snapshot source paths.
-        # list_snapshots() returns flat dicts with "path" at top level — not nested under "source".
         snapshots = repo.list_snapshots()
-        snapshot_sources = set()
-        for snap in snapshots:
-            path = snap.get("path", "")
-            if path:
-                snapshot_sources.add(path)
+        snapshot_sources = {snap.get("path", "") for snap in snapshots if snap.get("path")}
 
-        # Find orphaned policies (no matching snapshots)
-        orphaned = policy_targets - snapshot_sources
-        # Find uncovered snapshots (no per-path policy)
-        uncovered = snapshot_sources - policy_targets
-
-        if not orphaned and not uncovered:
-            policy_table.add_row("Policy Alignment", "[green]OK[/green]", "All policies match snapshot paths")
+        global_policy = policy_mgr.get_global_policy()
+        retention = global_policy.get("retention", {}) if isinstance(global_policy, dict) else {}
+        if retention:
+            retention_desc = ", ".join(
+                f"{k.replace('keep', 'keep_').lower()}={v}"
+                for k, v in retention.items()
+                if v is not None
+            )
+            policy_table.add_row(
+                "Global Retention",
+                "[green]OK[/green]",
+                retention_desc or "(defaults)",
+            )
         else:
-            if orphaned:
-                policy_table.add_row(
-                    "Orphaned Policies",
-                    f"[yellow]{len(orphaned)}[/yellow]",
-                    "Policies with no matching snapshots",
-                )
-                for path in sorted(orphaned):
-                    policy_table.add_row("", "", f"  {path}")
-                policy_table.add_row(
-                    "", "",
-                    "[dim]Fix: kopi-docka advanced policy prune[/dim]",
-                )
-                warnings.append(f"{len(orphaned)} orphaned retention policies found")
+            policy_table.add_row(
+                "Global Retention",
+                "[yellow]Missing[/yellow]",
+                "Reconnect to apply defaults from config",
+            )
 
-            if uncovered:
-                policy_table.add_row(
-                    "Uncovered Snapshots",
-                    f"[dim]{len(uncovered)}[/dim]",
-                    "Using global retention policy",
-                )
+        if legacy_targets:
+            policy_table.add_row(
+                "Legacy Per-Path Policies",
+                f"[yellow]{len(legacy_targets)}[/yellow]",
+                "Obsolete — from older kopi-docka versions",
+            )
+            for path in sorted(legacy_targets):
+                policy_table.add_row("", "", f"  {path}")
+            policy_table.add_row(
+                "", "",
+                "[dim]Fix: kopi-docka advanced policy prune[/dim]",
+            )
+            warnings.append(
+                f"{len(legacy_targets)} legacy per-path retention policies — "
+                "run 'kopi-docka advanced policy prune' to clean them up"
+            )
+        else:
+            policy_table.add_row(
+                "Legacy Per-Path Policies",
+                "[green]None[/green]",
+                "Global-only — clean state",
+            )
 
-        policy_table.add_row("Policies", "", str(len(policy_targets)))
         policy_table.add_row("Snapshot Sources", "", str(len(snapshot_sources)))
 
     except Exception as e:

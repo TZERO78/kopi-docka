@@ -155,6 +155,146 @@ class TestIsConnected:
 
 
 # =============================================================================
+# Connect Tests (Plan 0028: global policy must be applied on every connect)
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestConnect:
+    """Tests for the connect() method.
+
+    Plan 0028 contract: a successful connect() must call
+    KopiaPolicyManager.apply_global_defaults() so retention/compression
+    changes in kopi-docka.json reach Kopia without a manual step. This
+    replaces the per-path policy writes the backup hot path used to do.
+    """
+
+    @patch("kopi_docka.cores.kopia_policy_manager.KopiaPolicyManager")
+    def test_successful_connect_applies_global_defaults(self, policy_cls):
+        """A successful connect must trigger apply_global_defaults() exactly once."""
+        instance = Mock()
+        policy_cls.return_value = instance
+        repo = make_repository()
+        repo.is_connected = Mock(return_value=False)
+        repo._run = Mock(return_value=CompletedProcess([], 0, stdout="", stderr=""))
+        repo._get_cache_params = Mock(return_value=[])
+        repo._get_rclone_args = Mock(return_value=[])
+
+        repo.connect()
+
+        policy_cls.assert_called_once_with(repo)
+        instance.apply_global_defaults.assert_called_once_with()
+
+    @patch("kopi_docka.cores.kopia_policy_manager.KopiaPolicyManager")
+    def test_short_circuit_when_already_connected_does_not_reapply(self, policy_cls):
+        """Already-connected path returns early — no point reapplying defaults."""
+        repo = make_repository()
+        repo.is_connected = Mock(return_value=True)
+
+        repo.connect()
+
+        policy_cls.assert_not_called()
+
+    @patch("kopi_docka.cores.kopia_policy_manager.KopiaPolicyManager")
+    def test_apply_global_defaults_failure_does_not_abort_connect(self, policy_cls):
+        """Policy application is best-effort: if it raises, connect() still
+        completes successfully — otherwise a flaky write would lock the user
+        out of an otherwise reachable repo."""
+        instance = Mock()
+        instance.apply_global_defaults.side_effect = RuntimeError("backend hiccup")
+        policy_cls.return_value = instance
+        repo = make_repository()
+        repo.is_connected = Mock(return_value=False)
+        repo._run = Mock(return_value=CompletedProcess([], 0, stdout="", stderr=""))
+        repo._get_cache_params = Mock(return_value=[])
+        repo._get_rclone_args = Mock(return_value=[])
+
+        # Must not raise
+        repo.connect()
+
+        instance.apply_global_defaults.assert_called_once_with()
+
+    @patch("kopi_docka.cores.kopia_policy_manager.KopiaPolicyManager")
+    def test_failed_connect_does_not_apply_global_defaults(self, policy_cls):
+        """If kopia connect fails, we should NOT try to write policies."""
+        repo = make_repository()
+        repo.is_connected = Mock(return_value=False)
+        repo._run = Mock(
+            return_value=CompletedProcess([], 1, stdout="", stderr="wrong password")
+        )
+        repo._get_cache_params = Mock(return_value=[])
+        repo._get_rclone_args = Mock(return_value=[])
+
+        with pytest.raises(RuntimeError):
+            repo.connect()
+
+        policy_cls.assert_not_called()
+
+
+# =============================================================================
+# Legacy state-file cleanup (Plan 0028 housekeeping)
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestLegacyStateCleanup:
+    """``policy_state.json`` was the smart-skip cache from v7.2.0. Plan 0028
+    removed the manager that produced it; the file on disk is dead data on
+    upgraded installs. ``_maybe_cleanup_legacy_state_files`` removes it on
+    first ``_run`` after upgrade and stays a no-op afterwards.
+    """
+
+    def test_removes_legacy_file_when_present(self, tmp_path, monkeypatch):
+        legacy_dir = tmp_path / ".config" / "kopi-docka"
+        legacy_dir.mkdir(parents=True)
+        legacy = legacy_dir / "policy_state.json"
+        legacy.write_text('{"some": "stale data"}')
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        repo = make_repository()
+        # Reset the flag in case the helper has been called before in fixtures
+        repo._legacy_state_cleaned = False
+
+        repo._maybe_cleanup_legacy_state_files()
+
+        assert not legacy.exists()
+
+    def test_noop_when_file_absent(self, tmp_path, monkeypatch):
+        """Fresh installs (or installs already cleaned) must not log noise
+        and must not raise."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        repo = make_repository()
+        repo._legacy_state_cleaned = False
+
+        # Must not raise even though the file isn't there
+        repo._maybe_cleanup_legacy_state_files()
+
+        assert repo._legacy_state_cleaned is True
+
+    def test_runs_at_most_once_per_repo_instance(self, tmp_path, monkeypatch):
+        """The helper sets a flag and short-circuits on subsequent calls — no
+        repeated stat() calls per kopia subprocess invocation."""
+        legacy_dir = tmp_path / ".config" / "kopi-docka"
+        legacy_dir.mkdir(parents=True)
+        legacy = legacy_dir / "policy_state.json"
+        legacy.write_text("{}")
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        repo = make_repository()
+        repo._legacy_state_cleaned = False
+        repo._maybe_cleanup_legacy_state_files()
+        # Re-create the file as if a third party wrote it; second call must
+        # NOT remove it (we already ran the migration this session).
+        legacy.write_text("{}")
+        repo._maybe_cleanup_legacy_state_files()
+
+        assert legacy.exists()
+
+
+# =============================================================================
 # Status Tests
 # =============================================================================
 

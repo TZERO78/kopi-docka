@@ -12,10 +12,8 @@
   "backup": {
     "base_path": "/backup/kopi-docka",
     "backup_scope": "standard",
-    "parallel_workers": "auto",
     "stop_timeout": 30,
     "start_timeout": 60,
-    "task_timeout": 0,
     "update_recovery_bundle": false,
     "recovery_bundle_path": "/backup/recovery",
     "recovery_bundle_retention": 3,

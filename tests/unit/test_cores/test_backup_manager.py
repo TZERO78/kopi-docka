@@ -37,23 +37,29 @@ def make_mock_config() -> Mock:
 
 
 def make_backup_manager() -> BackupManager:
-    """Create a BackupManager instance without running __init__."""
+    """Create a BackupManager instance without running __init__.
+
+    Plan 0028 Phase 3: ``backup_unit`` drives discovery via
+    ``_collect_backup_sources`` (which writes to staging dirs and runs docker
+    inspect) and the snapshot loop via ``repo.create_snapshots``. Both are
+    stubbed here with empty defaults so individual tests can opt in by
+    overriding either.
+    """
     manager = BackupManager.__new__(BackupManager)
     manager.config = make_mock_config()
     manager.repo = Mock()
     manager.repo.create_snapshot.return_value = "snap123"
+    manager.repo.create_snapshots.return_value = []
     manager.policy_manager = Mock()
     manager.hooks_manager = Mock()
     manager.hooks_manager.execute_pre_backup.return_value = True
     manager.hooks_manager.execute_post_backup.return_value = True
     manager.hooks_manager.get_executed_hooks.return_value = []
-    manager.max_workers = 2
     manager.stop_timeout = 30
     manager.start_timeout = 60
     manager.exclude_patterns = []
     manager.volume_handler = BackupVolumeHandler(manager.repo, manager.exclude_patterns)
-    manager.policy_state = Mock()
-    manager.policy_state.is_current.return_value = False  # Force apply by default
+    manager._collect_backup_sources = Mock(return_value=[])
     return manager
 
 
@@ -147,58 +153,62 @@ class TestBackupId:
 
 @pytest.mark.unit
 class TestBackupScope:
-    """Tests for backup scope handling."""
+    """Plan 0028 Phase 3: ``backup_unit`` no longer dispatches to per-kind
+    ``_backup_*`` helpers — it asks ``_collect_backup_sources`` for a flat
+    list keyed off ``backup_scope`` and pipes that into
+    ``repo.create_snapshots``. These tests verify the scope is propagated
+    into discovery and that the metadata field round-trips."""
 
     @patch("kopi_docka.cores.backup_manager.run_command")
-    def test_minimal_scope_skips_recipes(self, mock_run):
-        """MINIMAL scope should only backup volumes, not recipes."""
+    def test_minimal_scope_forwarded_to_collect(self, mock_run):
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
         unit = make_backup_unit()
+        manager._collect_backup_sources = Mock(return_value=[])
+        manager.repo.create_snapshots = Mock(return_value=[])
 
-        with patch.object(manager, "_backup_recipes") as mock_recipes:
-            with patch.object(manager, "_backup_networks") as mock_networks:
-                with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
-                    metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+        with patch.object(manager, "_stop_containers"), patch.object(
+            manager, "_start_containers"
+        ), patch.object(manager, "_save_metadata"):
+            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
-        mock_recipes.assert_not_called()
-        mock_networks.assert_not_called()
+        manager._collect_backup_sources.assert_called_once()
+        scope_arg = manager._collect_backup_sources.call_args[0][2]
+        assert scope_arg == BACKUP_SCOPE_MINIMAL
         assert metadata.backup_scope == BACKUP_SCOPE_MINIMAL
 
     @patch("kopi_docka.cores.backup_manager.run_command")
-    def test_standard_scope_includes_recipes_and_networks(self, mock_run):
-        """STANDARD scope should include recipes and networks."""
+    def test_standard_scope_forwarded_to_collect(self, mock_run):
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
         unit = make_backup_unit()
+        manager._collect_backup_sources = Mock(return_value=[])
+        manager.repo.create_snapshots = Mock(return_value=[])
 
-        with patch.object(manager, "_backup_recipes", return_value="recipe_snap") as mock_recipes:
-            with patch.object(
-                manager, "_backup_networks", return_value=("net_snap", 1)
-            ) as mock_networks:
-                with patch.object(manager.volume_handler, "backup_volume", return_value="vol_snap"):
-                    metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_STANDARD)
+        with patch.object(manager, "_stop_containers"), patch.object(
+            manager, "_start_containers"
+        ), patch.object(manager, "_save_metadata"):
+            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_STANDARD)
 
-        mock_recipes.assert_called_once()
-        mock_networks.assert_called_once()
+        scope_arg = manager._collect_backup_sources.call_args[0][2]
+        assert scope_arg == BACKUP_SCOPE_STANDARD
         assert metadata.backup_scope == BACKUP_SCOPE_STANDARD
 
     @patch("kopi_docka.cores.backup_manager.run_command")
-    def test_full_scope_includes_everything(self, mock_run):
-        """FULL scope should include all backup types."""
+    def test_full_scope_forwarded_to_collect(self, mock_run):
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
         unit = make_backup_unit()
+        manager._collect_backup_sources = Mock(return_value=[])
+        manager.repo.create_snapshots = Mock(return_value=[])
 
-        with patch.object(manager, "_backup_recipes", return_value="recipe_snap") as mock_recipes:
-            with patch.object(
-                manager, "_backup_networks", return_value=("net_snap", 2)
-            ) as mock_networks:
-                with patch.object(manager.volume_handler, "backup_volume", return_value="vol_snap"):
-                    metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_FULL)
+        with patch.object(manager, "_stop_containers"), patch.object(
+            manager, "_start_containers"
+        ), patch.object(manager, "_save_metadata"):
+            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_FULL)
 
-        mock_recipes.assert_called_once()
-        mock_networks.assert_called_once()
+        scope_arg = manager._collect_backup_sources.call_args[0][2]
+        assert scope_arg == BACKUP_SCOPE_FULL
         assert metadata.backup_scope == BACKUP_SCOPE_FULL
 
 
@@ -370,32 +380,41 @@ class TestBackupScopeTag:
         assert tags["backup_id"] == "backup-id-123"
 
     @patch("kopi_docka.cores.backup_manager.run_command")
-    def test_all_snapshots_have_same_scope_in_backup_unit(self, mock_run):
-        """All snapshots in a backup_unit should have the same backup_scope tag."""
+    def test_all_sources_in_backup_unit_share_one_backup_scope(self, mock_run):
+        """Every BackupSource handed to ``repo.create_snapshots`` carries the
+        same ``backup_scope`` tag — the value passed into ``backup_unit``."""
+        from kopi_docka.types import BackupSource
+
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
-        manager.repo.create_snapshot.return_value = "snap123"
         unit = make_backup_unit(volumes=2)
 
-        # Make volume paths exist
-        with patch.object(Path, "exists", return_value=True):
-            with patch.object(Path, "is_dir", return_value=True):
-                with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
-                    with patch.object(
-                        manager, "_backup_networks", return_value=("net_snap", 1)
-                    ):
-                        metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_FULL)
+        sample_sources = [
+            BackupSource(
+                path="/stage/recipes/u",
+                kind="recipe",
+                tags={"type": "recipe", "unit": unit.name,
+                      "backup_id": "bid", "backup_scope": BACKUP_SCOPE_FULL},
+            ),
+            BackupSource(
+                path=unit.volumes[0].mountpoint,
+                kind="volume",
+                tags={"type": "volume", "unit": unit.name, "volume": unit.volumes[0].name,
+                      "backup_id": "bid", "backup_scope": BACKUP_SCOPE_FULL,
+                      "backup_format": "direct"},
+            ),
+        ]
+        manager._collect_backup_sources = Mock(return_value=sample_sources)
+        manager.repo.create_snapshots = Mock(return_value=["recipe_snap", "vol_snap"])
 
-        # Check that all snapshot calls used the same backup_scope
-        scopes = set()
-        for call_args in manager.repo.create_snapshot.call_args_list:
-            tags = call_args[1].get("tags", {}) if call_args[1] else call_args[0][1]
-            if "backup_scope" in tags:
-                scopes.add(tags["backup_scope"])
+        with patch.object(manager, "_stop_containers"), patch.object(
+            manager, "_start_containers"
+        ), patch.object(manager, "_save_metadata"):
+            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_FULL)
 
-        # All snapshots should share the same backup_scope
-        assert len(scopes) == 1
-        assert BACKUP_SCOPE_FULL in scopes
+        scopes = {s.tags["backup_scope"] for s in sample_sources}
+        assert scopes == {BACKUP_SCOPE_FULL}
+        assert metadata.backup_scope == BACKUP_SCOPE_FULL
 
 
 # =============================================================================
@@ -514,60 +533,83 @@ class TestBackupDockerConfig:
         assert result is None
 
     @patch("kopi_docka.cores.backup_manager.run_command")
-    def test_full_scope_calls_docker_config_backup(self, mock_run):
-        """FULL scope should call _backup_docker_config."""
+    def test_full_scope_records_docker_config_when_source_present(self, mock_run):
+        """A docker_config source in the collected list flips
+        ``metadata.docker_config_backed_up`` once create_snapshots returns
+        a non-empty ID for it."""
+        from kopi_docka.types import BackupSource
+
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
         unit = make_backup_unit()
 
-        with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
-            with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager.volume_handler, "backup_volume", return_value="vol_snap"):
-                    with patch.object(
-                        manager, "_backup_docker_config", return_value="docker_snap"
-                    ) as mock_docker_config:
-                        metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_FULL)
+        sources = [
+            BackupSource(
+                path="/stage/docker-config/u",
+                kind="docker_config",
+                tags={"type": "docker_config", "unit": unit.name,
+                      "backup_id": "bid", "backup_scope": BACKUP_SCOPE_FULL,
+                      "files": "daemon.json"},
+            )
+        ]
+        manager._collect_backup_sources = Mock(return_value=sources)
+        manager.repo.create_snapshots = Mock(return_value=["docker_snap"])
 
-        mock_docker_config.assert_called_once()
+        with patch.object(manager, "_stop_containers"), patch.object(
+            manager, "_start_containers"
+        ), patch.object(manager, "_save_metadata"):
+            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_FULL)
+
         assert metadata.docker_config_backed_up is True
         assert "docker_snap" in metadata.kopia_snapshot_ids
 
     @patch("kopi_docka.cores.backup_manager.run_command")
-    def test_standard_scope_skips_docker_config_backup(self, mock_run):
-        """STANDARD scope should NOT call _backup_docker_config."""
+    def test_no_docker_config_source_leaves_flag_false(self, mock_run):
+        """No docker_config source in the list (because scope < FULL or because
+        the host has no daemon.json) means metadata stays at default ``False``."""
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
         unit = make_backup_unit()
+        manager._collect_backup_sources = Mock(return_value=[])
+        manager.repo.create_snapshots = Mock(return_value=[])
 
-        with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
-            with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager.volume_handler, "backup_volume", return_value="vol_snap"):
-                    with patch.object(
-                        manager, "_backup_docker_config"
-                    ) as mock_docker_config:
-                        metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_STANDARD)
+        with patch.object(manager, "_stop_containers"), patch.object(
+            manager, "_start_containers"
+        ), patch.object(manager, "_save_metadata"):
+            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_STANDARD)
 
-        mock_docker_config.assert_not_called()
         assert metadata.docker_config_backed_up is False
 
     @patch("kopi_docka.cores.backup_manager.run_command")
     def test_docker_config_failure_does_not_fail_backup(self, mock_run):
-        """Docker config backup failure should not fail the entire backup."""
+        """A failed docker_config snapshot (empty string from create_snapshots)
+        records a per-source error but does NOT poison the overall backup."""
+        from kopi_docka.types import BackupSource
+
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
         unit = make_backup_unit()
 
-        with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
-            with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager.volume_handler, "backup_volume", return_value="vol_snap"):
-                    with patch.object(
-                        manager, "_backup_docker_config", return_value=None
-                    ):  # Simulate failure
-                        metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_FULL)
+        sources = [
+            BackupSource(
+                path="/stage/docker-config/u",
+                kind="docker_config",
+                tags={"type": "docker_config", "unit": unit.name,
+                      "backup_id": "bid", "backup_scope": BACKUP_SCOPE_FULL},
+            )
+        ]
+        manager._collect_backup_sources = Mock(return_value=sources)
+        # Empty string = the snapshot failed inside repo.create_snapshots
+        manager.repo.create_snapshots = Mock(return_value=[""])
 
-        # Backup should still succeed
-        assert metadata.success is True
+        with patch.object(manager, "_stop_containers"), patch.object(
+            manager, "_start_containers"
+        ), patch.object(manager, "_save_metadata"):
+            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_FULL)
+
+        # docker_config is best-effort but still surfaced as a per-source error
         assert metadata.docker_config_backed_up is False
+        assert any("docker_config" in e for e in metadata.errors)
 
 
 # =============================================================================
@@ -580,8 +622,10 @@ class TestContainerOrdering:
     """Tests for container stop/start ordering."""
 
     @patch("kopi_docka.cores.backup_manager.run_command")
-    def test_stops_containers_before_backup(self, mock_run):
-        """Containers should be stopped before volume backup starts."""
+    def test_stops_containers_before_snapshot_loop(self, mock_run):
+        """Plan 0028: source discovery happens BEFORE container stop (because
+        docker inspect needs them alive), then the snapshot loop runs after
+        stop. Stop must always precede snapshot."""
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
         unit = make_backup_unit()
@@ -591,28 +635,32 @@ class TestContainerOrdering:
         def track_stop(containers, service_handler):
             call_order.append("stop")
 
-        def track_backup(*args):
-            call_order.append("backup")
-            return "snap123"
-
         def track_start(containers, service_handler):
             call_order.append("start")
 
+        manager._collect_backup_sources = Mock(
+            side_effect=lambda *_: (call_order.append("collect"), [])[1]
+        )
+        manager.repo.create_snapshots = Mock(
+            side_effect=lambda sources: (call_order.append("snapshot"), [])[1]
+        )
+
         with patch.object(manager, "_stop_containers", side_effect=track_stop):
-            with patch.object(manager.volume_handler, "backup_volume", side_effect=track_backup):
-                with patch.object(manager, "_start_containers", side_effect=track_start):
+            with patch.object(manager, "_start_containers", side_effect=track_start):
+                with patch.object(manager, "_save_metadata"):
                     manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
-        # Stop must come before backup, start must come after
-        assert call_order.index("stop") < call_order.index("backup")
-        assert call_order.index("backup") < call_order.index("start")
+        assert call_order.index("stop") < call_order.index("snapshot")
+        assert call_order.index("snapshot") < call_order.index("start")
 
     @patch("kopi_docka.cores.backup_manager.run_command")
     def test_restarts_containers_on_error(self, mock_run):
-        """Containers should restart even if backup fails."""
+        """Containers must restart even if the snapshot loop raises."""
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
         unit = make_backup_unit()
+        manager._collect_backup_sources = Mock(return_value=[])
+        manager.repo.create_snapshots = Mock(side_effect=RuntimeError("Backup failed"))
 
         start_called = False
 
@@ -621,11 +669,13 @@ class TestContainerOrdering:
             start_called = True
 
         with patch.object(manager, "_stop_containers"):
-            with patch.object(manager.volume_handler, "backup_volume", side_effect=Exception("Backup failed")):
-                with patch.object(manager, "_start_containers", side_effect=track_start):
-                    metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+            with patch.object(manager, "_start_containers", side_effect=track_start):
+                with patch.object(manager, "_save_metadata"):
+                    metadata = manager.backup_unit(
+                        unit, backup_scope=BACKUP_SCOPE_MINIMAL
+                    )
 
-        assert start_called, "Containers should restart even after backup failure"
+        assert start_called
         assert not metadata.success
         assert any("Backup failed" in e for e in metadata.errors)
 
@@ -641,34 +691,34 @@ class TestHookExecution:
 
     @patch("kopi_docka.cores.backup_manager.run_command")
     def test_pre_hook_executed_before_stop(self, mock_run):
-        """Pre-backup hook should execute before containers are stopped."""
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
         unit = make_backup_unit()
+        manager._collect_backup_sources = Mock(return_value=[])
+        manager.repo.create_snapshots = Mock(return_value=[])
 
         call_order = []
-
         manager.hooks_manager.execute_pre_backup.side_effect = lambda x: (
-            call_order.append("pre_hook"),
-            True,
+            call_order.append("pre_hook"), True,
         )[1]
 
         def track_stop(containers, service_handler):
             call_order.append("stop")
 
         with patch.object(manager, "_stop_containers", side_effect=track_stop):
-            with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
-                with patch.object(manager, "_start_containers"):
+            with patch.object(manager, "_start_containers"):
+                with patch.object(manager, "_save_metadata"):
                     manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         assert call_order.index("pre_hook") < call_order.index("stop")
 
     @patch("kopi_docka.cores.backup_manager.run_command")
     def test_post_hook_executed_after_start(self, mock_run):
-        """Post-backup hook should execute after containers are started."""
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
         unit = make_backup_unit()
+        manager._collect_backup_sources = Mock(return_value=[])
+        manager.repo.create_snapshots = Mock(return_value=[])
 
         call_order = []
 
@@ -676,31 +726,28 @@ class TestHookExecution:
             call_order.append("start")
 
         manager.hooks_manager.execute_post_backup.side_effect = lambda x: (
-            call_order.append("post_hook"),
-            True,
+            call_order.append("post_hook"), True,
         )[1]
 
         with patch.object(manager, "_stop_containers"):
-            with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
-                with patch.object(manager, "_start_containers", side_effect=track_start):
+            with patch.object(manager, "_start_containers", side_effect=track_start):
+                with patch.object(manager, "_save_metadata"):
                     manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         assert call_order.index("start") < call_order.index("post_hook")
 
     @patch("kopi_docka.cores.backup_manager.run_command")
     def test_pre_hook_failure_aborts_backup(self, mock_run):
-        """If pre-backup hook fails, backup should be aborted."""
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
         manager.hooks_manager.execute_pre_backup.return_value = False
         unit = make_backup_unit()
 
         with patch.object(manager, "_stop_containers") as mock_stop:
-            with patch.object(manager.volume_handler, "backup_volume") as mock_backup:
-                metadata = manager.backup_unit(unit)
+            metadata = manager.backup_unit(unit)
 
         mock_stop.assert_not_called()
-        mock_backup.assert_not_called()
+        manager.repo.create_snapshots.assert_not_called()
         assert not metadata.success
         assert any("Pre-backup hook failed" in e for e in metadata.errors)
 
@@ -716,28 +763,24 @@ class TestErrorAccumulation:
 
     @patch("kopi_docka.cores.backup_manager.run_command")
     def test_accumulates_volume_errors(self, mock_run):
-        """Errors from individual volumes should be accumulated."""
+        """Per-source failures (empty IDs from create_snapshots) accumulate
+        in metadata.errors without aborting the rest of the loop."""
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
         unit = make_backup_unit(volumes=3)
 
-        call_count = [0]
+        manager._collect_backup_sources = Mock(
+            side_effect=lambda u, bid, s: _build_volume_sources(u, bid, s)
+        )
+        manager.repo.create_snapshots = Mock(return_value=["snap1", "", "snap3"])
 
-        def partial_failure(*args):
-            call_count[0] += 1
-            if call_count[0] == 2:
-                raise Exception("Volume 2 failed")
-            return f"snap{call_count[0]}"
+        with patch.object(manager, "_stop_containers"), patch.object(
+            manager, "_start_containers"
+        ), patch.object(manager, "_save_metadata"):
+            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
-        with patch.object(manager, "_stop_containers"):
-            with patch.object(manager.volume_handler, "backup_volume", side_effect=partial_failure):
-                with patch.object(manager, "_start_containers"):
-                    metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
-
-        # 2 succeeded, 1 failed
         assert metadata.volumes_backed_up == 2
         assert len(metadata.errors) == 1
-        assert any("Volume 2 failed" in e for e in metadata.errors)
 
     @patch("kopi_docka.cores.backup_manager.run_command")
     def test_post_hook_failure_adds_error(self, mock_run):
@@ -1109,252 +1152,152 @@ class TestBackupVolumeDirect:
 
 
 # =============================================================================
-# Parallel Backup Tests
+# Sequential Snapshot Loop Tests (Plan 0028 — no more ThreadPool)
 # =============================================================================
 
 
+def _build_volume_sources(unit, backup_id, scope):
+    """Helper: build BackupSource list shaped like _collect_volume_sources would."""
+    from kopi_docka.types import BackupSource
+
+    return [
+        BackupSource(
+            path=v.mountpoint,
+            kind="volume",
+            tags={
+                "type": "volume", "unit": unit.name, "volume": v.name,
+                "backup_id": backup_id, "backup_scope": scope,
+                "backup_format": "direct",
+            },
+        )
+        for v in unit.volumes
+    ]
+
+
 @pytest.mark.unit
-class TestParallelBackup:
-    """Tests for parallel volume backup execution."""
+class TestSequentialSnapshotLoop:
+    """Plan 0028 collapsed the per-volume ThreadPool into one sequential
+    ``repo.create_snapshots(sources)`` call. These tests verify ordering,
+    metadata counts, and per-source failure handling against that contract.
+    """
 
     @patch("kopi_docka.cores.backup_manager.run_command")
-    def test_multiple_volumes_backed_up_in_parallel(self, mock_run):
-        """Should backup all volumes and track successful backups."""
+    def test_all_volumes_snapshotted_in_a_single_call(self, mock_run):
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
-
-        # Create unit with 3 volumes
         unit = make_backup_unit(name="mystack", volumes=3)
 
-        # Track which volumes were backed up
-        backed_up_volumes = []
+        manager._collect_backup_sources = Mock(
+            side_effect=lambda u, bid, s: _build_volume_sources(u, bid, s)
+        )
+        manager.repo.create_snapshots = Mock(
+            side_effect=lambda srcs: [f"snap_{s.tags['volume']}" for s in srcs]
+        )
 
-        def track_backup(volume, unit, backup_id, backup_scope):
-            backed_up_volumes.append(volume.name)
-            return f"snap_{volume.name}"
+        with patch.object(manager, "_stop_containers"), patch.object(
+            manager, "_start_containers"
+        ), patch.object(manager, "_save_metadata"):
+            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
-        with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
-            with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager.volume_handler, "backup_volume", side_effect=track_backup):
-                    metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
-
-        # All 3 volumes should have been backed up
-        assert len(backed_up_volumes) == 3
+        assert manager.repo.create_snapshots.call_count == 1
         assert metadata.volumes_backed_up == 3
         assert len(metadata.kopia_snapshot_ids) == 3
         assert metadata.success is True
 
     @patch("kopi_docka.cores.backup_manager.run_command")
-    def test_partial_failure_one_volume_fails(self, mock_run):
-        """If one volume fails, others should still be backed up."""
+    def test_per_source_failure_marked_by_empty_string(self, mock_run):
+        """``create_snapshots`` indicates per-source failure with ``""`` at
+        that index — backup_unit records the error but processes the rest."""
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
-
-        # Create unit with 3 volumes
         unit = make_backup_unit(name="mystack", volumes=3)
 
-        # First volume fails (returns None), others succeed
-        call_count = [0]
+        manager._collect_backup_sources = Mock(
+            side_effect=lambda u, bid, s: _build_volume_sources(u, bid, s)
+        )
+        manager.repo.create_snapshots = Mock(
+            return_value=["snap_a", "", "snap_c"]
+        )
 
-        def backup_with_failure(volume, unit, backup_id, backup_scope):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return None  # First volume fails
-            return f"snap_{volume.name}"
+        with patch.object(manager, "_stop_containers"), patch.object(
+            manager, "_start_containers"
+        ), patch.object(manager, "_save_metadata"):
+            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
-        with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
-            with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager.volume_handler, "backup_volume", side_effect=backup_with_failure):
-                    metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
-
-        # 2 volumes succeeded, 1 failed
         assert metadata.volumes_backed_up == 2
-        assert len(metadata.kopia_snapshot_ids) == 2
+        assert metadata.kopia_snapshot_ids == ["snap_a", "snap_c"]
         assert len(metadata.errors) == 1
-        assert "Failed to backup volume" in metadata.errors[0]
+        assert "Failed to snapshot volume" in metadata.errors[0]
         assert metadata.success is False
 
     @patch("kopi_docka.cores.backup_manager.run_command")
-    def test_partial_failure_one_volume_raises_exception(self, mock_run):
-        """If one volume raises exception, others should still be backed up."""
+    def test_create_snapshots_exception_aborts_loop_but_restarts_containers(
+        self, mock_run
+    ):
+        """If create_snapshots raises (not per-source — whole call), the
+        snapshot phase fails entirely, but containers still restart."""
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
-
-        # Create unit with 3 volumes
-        unit = make_backup_unit(name="mystack", volumes=3)
-
-        # Second volume raises exception, others succeed
-        call_count = [0]
-
-        def backup_with_exception(volume, unit, backup_id, backup_scope):
-            call_count[0] += 1
-            if call_count[0] == 2:
-                raise Exception("Volume backup failed: disk error")
-            return f"snap_{volume.name}"
-
-        with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
-            with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager.volume_handler, "backup_volume", side_effect=backup_with_exception):
-                    metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
-
-        # 2 volumes succeeded, 1 raised exception
-        assert metadata.volumes_backed_up == 2
-        assert len(metadata.kopia_snapshot_ids) == 2
-        assert len(metadata.errors) == 1
-        assert "Error backing up volume" in metadata.errors[0]
-        assert "disk error" in metadata.errors[0]
-        assert metadata.success is False
-
-    @patch("kopi_docka.cores.backup_manager.run_command")
-    def test_task_timeout_handling(self, mock_run):
-        """Should handle task timeout and add error to metadata."""
-        from concurrent.futures import TimeoutError as FuturesTimeoutError
-
-        mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
-        manager = make_backup_manager()
-        manager.config.getint.return_value = 5  # 5 second timeout
-
-        # Create unit with 2 volumes
         unit = make_backup_unit(name="mystack", volumes=2)
 
-        # First volume times out
-        call_count = [0]
+        manager._collect_backup_sources = Mock(
+            side_effect=lambda u, bid, s: _build_volume_sources(u, bid, s)
+        )
+        manager.repo.create_snapshots = Mock(side_effect=RuntimeError("disk error"))
 
-        def backup_with_timeout(volume, unit, backup_id):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                import time
+        start_called = False
 
-                time.sleep(10)  # Would timeout if actually waited
-            return f"snap_{volume.name}"
+        def track_start(containers, service_handler):
+            nonlocal start_called
+            start_called = True
 
-        # We need to mock the future.result() to raise TimeoutError
-        # This is complex, so let's use a different approach - mock the ThreadPoolExecutor
-        from concurrent.futures import ThreadPoolExecutor, Future
-        from unittest.mock import MagicMock
+        with patch.object(manager, "_stop_containers"), patch.object(
+            manager, "_start_containers", side_effect=track_start
+        ), patch.object(manager, "_save_metadata"):
+            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
-        # Create mock futures
-        future1 = MagicMock(spec=Future)
-        future1.result.side_effect = FuturesTimeoutError("Task timed out")
-
-        future2 = MagicMock(spec=Future)
-        future2.result.return_value = "snap_data1"
-
-        mock_executor = MagicMock(spec=ThreadPoolExecutor)
-        mock_executor.__enter__.return_value = mock_executor
-        mock_executor.__exit__.return_value = None
-
-        # Track submitted tasks
-        submitted_futures = []
-
-        def submit_side_effect(fn, *args, **kwargs):
-            if len(submitted_futures) == 0:
-                submitted_futures.append(future1)
-                return future1
-            else:
-                submitted_futures.append(future2)
-                return future2
-
-        mock_executor.submit = MagicMock(side_effect=submit_side_effect)
-
-        with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
-            with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch(
-                    "kopi_docka.cores.backup_manager.ThreadPoolExecutor", return_value=mock_executor
-                ):
-                    metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
-
-        # First volume timed out, second succeeded
-        assert metadata.volumes_backed_up == 1
-        assert len(metadata.errors) == 1
-        assert "Error backing up volume" in metadata.errors[0]
-        assert metadata.success is False
-
-    @patch("kopi_docka.cores.backup_manager.run_command")
-    def test_max_workers_configuration(self, mock_run):
-        """Should use configured max_workers for ThreadPoolExecutor."""
-        from concurrent.futures import ThreadPoolExecutor
-        from unittest.mock import MagicMock
-
-        mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
-        manager = make_backup_manager()
-        manager.max_workers = 4  # Set to 4 workers
-
-        unit = make_backup_unit(name="mystack", volumes=2)
-
-        # Track ThreadPoolExecutor creation
-        executor_max_workers = []
-        original_executor_init = ThreadPoolExecutor.__init__
-
-        def track_executor_init(self, max_workers=None, *args, **kwargs):
-            executor_max_workers.append(max_workers)
-            # Don't actually initialize to avoid real execution
-            self._max_workers = max_workers
-            self._shutdown = False
-            self._work_queue = MagicMock()
-
-        with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
-            with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
-                    with patch.object(
-                        manager, "_save_metadata"
-                    ):  # Mock to avoid JSON serialization
-                        with patch.object(ThreadPoolExecutor, "__init__", track_executor_init):
-                            with patch.object(
-                                ThreadPoolExecutor, "__enter__", return_value=MagicMock()
-                            ):
-                                with patch.object(
-                                    ThreadPoolExecutor, "__exit__", return_value=None
-                                ):
-                                    # Mock submit to avoid actual execution
-                                    with patch.object(ThreadPoolExecutor, "submit") as mock_submit:
-                                        mock_future = MagicMock()
-                                        mock_future.result.return_value = "snap123"
-                                        mock_submit.return_value = mock_future
-                                        metadata = manager.backup_unit(
-                                            unit, backup_scope=BACKUP_SCOPE_MINIMAL
-                                        )
-
-        # ThreadPoolExecutor should have been created with max_workers=4
-        assert 4 in executor_max_workers
-
-    @patch("kopi_docka.cores.backup_manager.run_command")
-    def test_all_volumes_fail(self, mock_run):
-        """If all volumes fail, backup should report errors."""
-        mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
-        manager = make_backup_manager()
-
-        # Create unit with 3 volumes
-        unit = make_backup_unit(name="mystack", volumes=3)
-
-        # All volumes fail (return None)
-        with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
-            with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager.volume_handler, "backup_volume", return_value=None):
-                    metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
-
-        # No volumes succeeded
+        assert start_called is True
         assert metadata.volumes_backed_up == 0
-        assert len(metadata.errors) == 3  # All 3 volumes failed
-        assert all("Failed to backup volume" in err for err in metadata.errors)
+        assert any("disk error" in e for e in metadata.errors)
         assert metadata.success is False
 
     @patch("kopi_docka.cores.backup_manager.run_command")
-    def test_empty_volume_list(self, mock_run):
-        """Unit with no volumes should complete successfully."""
+    def test_all_volumes_fail_records_one_error_per_source(self, mock_run):
+        """Every-source failure → N errors, success False, no snapshot IDs."""
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
+        unit = make_backup_unit(name="mystack", volumes=3)
 
-        # Create unit with 0 volumes
+        manager._collect_backup_sources = Mock(
+            side_effect=lambda u, bid, s: _build_volume_sources(u, bid, s)
+        )
+        manager.repo.create_snapshots = Mock(return_value=["", "", ""])
+
+        with patch.object(manager, "_stop_containers"), patch.object(
+            manager, "_start_containers"
+        ), patch.object(manager, "_save_metadata"):
+            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+
+        assert metadata.volumes_backed_up == 0
+        assert len(metadata.errors) == 3
+        assert all("Failed to snapshot" in e for e in metadata.errors)
+        assert metadata.success is False
+
+    @patch("kopi_docka.cores.backup_manager.run_command")
+    def test_empty_unit_completes_clean(self, mock_run):
+        mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
+        manager = make_backup_manager()
         unit = make_backup_unit(name="mystack", volumes=0)
+        manager._collect_backup_sources = Mock(return_value=[])
+        manager.repo.create_snapshots = Mock(return_value=[])
 
-        with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
-            with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+        with patch.object(manager, "_stop_containers"), patch.object(
+            manager, "_start_containers"
+        ), patch.object(manager, "_save_metadata"):
+            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
-        # No volumes to backup
         assert metadata.volumes_backed_up == 0
-        assert len(metadata.errors) == 0
+        assert metadata.errors == []
         assert metadata.success is True
 
 
@@ -1370,29 +1313,34 @@ class TestEdgeCases:
     @patch("kopi_docka.cores.backup_manager.run_command")
     def test_empty_container_list(self, mock_run):
         """Unit with no containers should complete successfully."""
+        from kopi_docka.types import BackupSource
+
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
 
-        # Create unit with no containers
         unit = BackupUnit(
             name="empty_stack",
             type="stack",
-            containers=[],  # No containers
+            containers=[],
             volumes=[
-                VolumeInfo(
-                    name="data",
-                    driver="local",
-                    mountpoint="/tmp/data",
-                    size_bytes=1024,
-                )
+                VolumeInfo(name="data", driver="local",
+                           mountpoint="/tmp/data", size_bytes=1024)
             ],
             compose_files=[],
         )
 
-        with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
-            with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager.volume_handler, "backup_volume", return_value="vol_snap"):
-                    metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+        manager._collect_backup_sources = Mock(return_value=[
+            BackupSource(path="/tmp/data", kind="volume",
+                         tags={"type": "volume", "unit": "empty_stack",
+                               "volume": "data", "backup_id": "bid",
+                               "backup_format": "direct"})
+        ])
+        manager.repo.create_snapshots = Mock(return_value=["vol_snap"])
+
+        with patch.object(manager, "_stop_containers"), patch.object(
+            manager, "_start_containers"
+        ), patch.object(manager, "_save_metadata"):
+            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # Should succeed with no container operations
         assert metadata.success is True
@@ -1490,18 +1438,19 @@ class TestEdgeCases:
 
     @patch("kopi_docka.cores.backup_manager.run_command")
     def test_volume_name_with_whitespace(self, mock_run):
-        """Volume names with whitespace should be handled correctly."""
+        """Whitespace in volume name reaches BackupSource.tags['volume'] verbatim."""
+        from kopi_docka.types import BackupSource
+
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
 
-        # Create volume with whitespace in name (Docker allows this)
         unit = BackupUnit(
             name="test_stack",
             type="stack",
             containers=[],
             volumes=[
                 VolumeInfo(
-                    name="my data volume",  # Spaces in name
+                    name="my data volume",
                     driver="local",
                     mountpoint="/tmp/my_data",
                     size_bytes=1024,
@@ -1510,33 +1459,43 @@ class TestEdgeCases:
             compose_files=[],
         )
 
-        with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
-            with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager.volume_handler, "backup_volume", return_value="vol_snap") as mock_vol:
-                    metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+        manager._collect_backup_sources = Mock(
+            return_value=[
+                BackupSource(
+                    path="/tmp/my_data", kind="volume",
+                    tags={"type": "volume", "unit": "test_stack",
+                          "volume": "my data volume", "backup_id": "bid",
+                          "backup_format": "direct"},
+                )
+            ]
+        )
+        manager.repo.create_snapshots = Mock(return_value=["snap-ws"])
 
-        # Should handle whitespace in volume name
+        with patch.object(manager, "_stop_containers"), patch.object(
+            manager, "_start_containers"
+        ), patch.object(manager, "_save_metadata"):
+            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+
         assert metadata.success is True
         assert metadata.volumes_backed_up == 1
-        # Verify volume with whitespace was passed to backup
-        assert mock_vol.called
-        called_volume = mock_vol.call_args[0][0]
-        assert called_volume.name == "my data volume"
+        sources_passed = manager.repo.create_snapshots.call_args[0][0]
+        assert sources_passed[0].tags["volume"] == "my data volume"
 
     @patch("kopi_docka.cores.backup_manager.run_command")
     def test_volume_name_with_special_characters(self, mock_run):
-        """Volume names with special characters should be handled."""
+        """Dashes / dots / underscores in volume name round-trip through tags."""
+        from kopi_docka.types import BackupSource
+
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
 
-        # Create volume with special characters
         unit = BackupUnit(
             name="test_stack",
             type="stack",
             containers=[],
             volumes=[
                 VolumeInfo(
-                    name="data-vol_v1.0",  # Dashes, underscores, dots
+                    name="data-vol_v1.0",
                     driver="local",
                     mountpoint="/tmp/data",
                     size_bytes=1024,
@@ -1545,16 +1504,27 @@ class TestEdgeCases:
             compose_files=[],
         )
 
-        with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
-            with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager.volume_handler, "backup_volume", return_value="vol_snap") as mock_vol:
-                    metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+        manager._collect_backup_sources = Mock(
+            return_value=[
+                BackupSource(
+                    path="/tmp/data", kind="volume",
+                    tags={"type": "volume", "unit": "test_stack",
+                          "volume": "data-vol_v1.0", "backup_id": "bid",
+                          "backup_format": "direct"},
+                )
+            ]
+        )
+        manager.repo.create_snapshots = Mock(return_value=["snap-special"])
 
-        # Should handle special characters
+        with patch.object(manager, "_stop_containers"), patch.object(
+            manager, "_start_containers"
+        ), patch.object(manager, "_save_metadata"):
+            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+
         assert metadata.success is True
         assert metadata.volumes_backed_up == 1
-        called_volume = mock_vol.call_args[0][0]
-        assert called_volume.name == "data-vol_v1.0"
+        sources_passed = manager.repo.create_snapshots.call_args[0][0]
+        assert sources_passed[0].tags["volume"] == "data-vol_v1.0"
 
     @patch("kopi_docka.cores.backup_manager.run_command")
     def test_completely_empty_unit(self, mock_run):
@@ -1645,32 +1615,36 @@ class TestEdgeCases:
 
     @patch("kopi_docka.cores.backup_manager.run_command")
     def test_zero_size_volume(self, mock_run):
-        """Volume with zero size should be backed up."""
+        """A zero-byte volume still produces a BackupSource and snapshot."""
+        from kopi_docka.types import BackupSource
+
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
 
-        # Create volume with zero size
         unit = BackupUnit(
             name="test_stack",
             type="stack",
             containers=[],
             volumes=[
-                VolumeInfo(
-                    name="empty_vol",
-                    driver="local",
-                    mountpoint="/tmp/empty",
-                    size_bytes=0,  # Zero size
-                )
+                VolumeInfo(name="empty_vol", driver="local",
+                           mountpoint="/tmp/empty", size_bytes=0)
             ],
             compose_files=[],
         )
 
-        with patch.object(manager, "_backup_recipes", return_value="recipe_snap"):
-            with patch.object(manager, "_backup_networks", return_value=("net_snap", 1)):
-                with patch.object(manager.volume_handler, "backup_volume", return_value="vol_snap"):
-                    metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+        manager._collect_backup_sources = Mock(return_value=[
+            BackupSource(path="/tmp/empty", kind="volume",
+                         tags={"type": "volume", "unit": "test_stack",
+                               "volume": "empty_vol", "backup_id": "bid",
+                               "backup_format": "direct", "size_bytes": "0"})
+        ])
+        manager.repo.create_snapshots = Mock(return_value=["vol_snap"])
 
-        # Should succeed with zero-size volume
+        with patch.object(manager, "_stop_containers"), patch.object(
+            manager, "_start_containers"
+        ), patch.object(manager, "_save_metadata"):
+            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+
         assert metadata.success is True
         assert metadata.volumes_backed_up == 1
 
@@ -1982,15 +1956,22 @@ class TestBackupMetadata:
 
     @patch("kopi_docka.cores.backup_manager.run_command")
     def test_metadata_tracks_volumes_backed_up(self, mock_run):
-        """Metadata should track number of volumes backed up."""
+        """metadata.volumes_backed_up == number of successful volume snapshots."""
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
         manager = make_backup_manager()
         unit = make_backup_unit(volumes=3)
 
-        with patch.object(manager, "_stop_containers"):
-            with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
-                with patch.object(manager, "_start_containers"):
-                    metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+        manager._collect_backup_sources = Mock(
+            side_effect=lambda u, bid, s: _build_volume_sources(u, bid, s)
+        )
+        manager.repo.create_snapshots = Mock(
+            return_value=["snap1", "snap2", "snap3"]
+        )
+
+        with patch.object(manager, "_stop_containers"), patch.object(
+            manager, "_start_containers"
+        ), patch.object(manager, "_save_metadata"):
+            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         assert metadata.volumes_backed_up == 3
 
@@ -2046,161 +2027,12 @@ class TestBackupNetworks:
 
 
 # =============================================================================
-# Retention Policy Tests (Direct vs TAR Mode)
+# Retention Policy Tests removed in Plan 0028
 # =============================================================================
-#
-# Plan 0026 removed per-path policies for staging dirs (recipes/networks/
-# docker-config) — global policy covers them via inheritance. The remaining
-# per-target logic (volume mountpoints in Direct mode, virtual paths in TAR mode)
-# plus hash-based smart-skip and auto-prune are covered by
-# tests/unit/test_cores/test_backup_manager_policies.py — those tests use
-# a real PolicyStateManager backed by tmp_path, which is cleaner than mocking
-# every interaction.
-
-
-@pytest.mark.unit
-class TestEnsurePoliciesVolumes:
-    """Volume-targeted policy behavior remaining after Plan 0026 Phase A."""
-
-    def test_direct_mode_applies_policies_to_volume_mountpoints(self):
-        """In Direct Mode, policies are applied to actual volume mountpoints — one per volume."""
-        from kopi_docka.helpers.constants import BACKUP_FORMAT_DIRECT
-
-        manager = make_backup_manager()
-        unit = make_backup_unit(name="mystack", volumes=2)
-
-        manager.config.getint.return_value = 5
-
-        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_DIRECT):
-            manager._ensure_policies(unit)
-
-        # Phase A: staging dirs no longer get per-path policies. Only the 2 volumes do.
-        assert manager.policy_manager.set_retention_for_target.call_count == 2
-
-        calls = manager.policy_manager.set_retention_for_target.call_args_list
-        assert any("/var/lib/docker/volumes/mystack_data0/_data" in str(call) for call in calls)
-        assert any("/var/lib/docker/volumes/mystack_data1/_data" in str(call) for call in calls)
-
-    def test_tar_mode_applies_policy_to_virtual_path(self):
-        """In TAR Mode, one virtual-path policy is set for the unit's volumes."""
-        from kopi_docka.helpers.constants import BACKUP_FORMAT_TAR
-
-        manager = make_backup_manager()
-        unit = make_backup_unit(name="mystack", volumes=2)
-        manager.config.getint.return_value = 5
-
-        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_TAR):
-            manager._ensure_policies(unit)
-
-        # Phase A: only the virtual volume path, no static staging targets.
-        assert manager.policy_manager.set_retention_for_target.call_count == 1
-        calls = manager.policy_manager.set_retention_for_target.call_args_list
-        assert "volumes/mystack" in calls[0][0][0]
-
-    def test_retention_config_values_passed_correctly(self):
-        """Retention values from config flow through into the kopia policy call."""
-        from kopi_docka.helpers.constants import BACKUP_FORMAT_DIRECT
-
-        manager = make_backup_manager()
-        unit = make_backup_unit(name="mystack", volumes=1)
-
-        def mock_getint(section, key, default):
-            return {
-                "latest": 10, "hourly": 24, "daily": 7,
-                "weekly": 4, "monthly": 12, "annual": 3,
-            }.get(key, default)
-
-        manager.config.getint = Mock(side_effect=mock_getint)
-
-        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_DIRECT):
-            manager._ensure_policies(unit)
-
-        calls = manager.policy_manager.set_retention_for_target.call_args_list
-        assert len(calls) == 1
-        kwargs = calls[0][1]
-        assert kwargs["keep_latest"] == 10
-        assert kwargs["keep_hourly"] == 24
-        assert kwargs["keep_daily"] == 7
-        assert kwargs["keep_weekly"] == 4
-        assert kwargs["keep_monthly"] == 12
-        assert kwargs["keep_annual"] == 3
-
-    def test_multiple_volumes_each_get_policy_direct_mode(self):
-        """In Direct Mode, each volume gets its own retention policy."""
-        from kopi_docka.helpers.constants import BACKUP_FORMAT_DIRECT
-
-        manager = make_backup_manager()
-        unit = make_backup_unit(name="mystack", volumes=5)
-        manager.config.getint.return_value = 5
-
-        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_DIRECT):
-            manager._ensure_policies(unit)
-
-        assert manager.policy_manager.set_retention_for_target.call_count == 5
-        calls = manager.policy_manager.set_retention_for_target.call_args_list
-        mountpoints = [c[0][0] for c in calls]
-        assert len(set(mountpoints)) == 5  # All unique
-
-    def test_handles_policy_application_errors_gracefully(self):
-        """A failed `kopia policy set` should not abort other volumes' policy applies."""
-        from kopi_docka.helpers.constants import BACKUP_FORMAT_DIRECT
-
-        manager = make_backup_manager()
-        unit = make_backup_unit(name="mystack", volumes=2)
-        manager.config.getint.return_value = 5
-
-        call_count = [0]
-
-        def mock_set_retention(*args, **kwargs):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                raise Exception("Kopia policy error")
-
-        manager.policy_manager.set_retention_for_target.side_effect = mock_set_retention
-
-        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_DIRECT):
-            manager._ensure_policies(unit)  # Must not raise
-
-        # Both volumes attempted; first failed but second still ran.
-        assert manager.policy_manager.set_retention_for_target.call_count == 2
-
-    def test_unit_with_no_volumes_direct_mode_makes_no_calls(self):
-        """No volumes + Direct Mode = nothing to do (no staging policies after Plan 0026)."""
-        from kopi_docka.helpers.constants import BACKUP_FORMAT_DIRECT
-
-        manager = make_backup_manager()
-        unit = make_backup_unit(name="mystack", volumes=0)
-        manager.config.getint.return_value = 5
-
-        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_DIRECT):
-            manager._ensure_policies(unit)
-
-        assert manager.policy_manager.set_retention_for_target.call_count == 0
-
-    def test_direct_mode_uses_actual_mountpoint_paths(self):
-        """Custom mountpoints flow through to kopia policy set verbatim."""
-        from kopi_docka.helpers.constants import BACKUP_FORMAT_DIRECT
-
-        manager = make_backup_manager()
-        custom_unit = BackupUnit(
-            name="custom",
-            type="stack",
-            containers=[],
-            volumes=[
-                VolumeInfo(name="vol1", driver="local", mountpoint="/custom/path/vol1", size_bytes=1024),
-                VolumeInfo(name="vol2", driver="overlay2", mountpoint="/another/path/vol2", size_bytes=2048),
-            ],
-            compose_files=[],
-        )
-        manager.config.getint.return_value = 5
-
-        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_DIRECT):
-            manager._ensure_policies(custom_unit)
-
-        calls = manager.policy_manager.set_retention_for_target.call_args_list
-        targets = [c[0][0] for c in calls]
-        assert "/custom/path/vol1" in targets
-        assert "/another/path/vol2" in targets
+# The previous TestEnsurePoliciesVolumes class exercised _ensure_policies and
+# set_retention_for_target — both gone in Plan 0028 (global-only retention).
+# The replacement contract ("backup_unit must NEVER call per-path setters")
+# lives in tests/unit/test_cores/test_backup_manager_policies.py.
 
 
 class TestPrepareStagingDir:

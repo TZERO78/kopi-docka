@@ -137,6 +137,33 @@ class KopiaRepository:
             return []
         return [f"--rclone-startup-timeout={self.config.kopia_rclone_startup_timeout}"]
 
+    def _maybe_cleanup_legacy_state_files(self) -> None:
+        """Plan 0028: ``~/.config/kopi-docka/policy_state.json`` was the
+        smart-skip hash cache for v7.2.0's per-path policy writes. v7.3.0
+        removed the writes (and the manager that used the file), so the
+        file is dead data on upgraded installs. Remove it idempotently so
+        upgraded systemd installs don't keep a stale carve-out reason.
+
+        No-op when the file is absent (fresh installs, or already cleaned).
+        Failure to delete is logged at debug only — this is housekeeping,
+        not a hard requirement.
+        """
+        if getattr(self, "_legacy_state_cleaned", False):
+            return
+        self._legacy_state_cleaned = True
+        legacy = Path.home() / ".config" / "kopi-docka" / "policy_state.json"
+        if not legacy.exists():
+            return
+        try:
+            legacy.unlink()
+            logger.info(
+                "Removed obsolete %s (smart-skip cache from v7.2.0; "
+                "Plan 0028 / v7.3.0 made it unnecessary).",
+                legacy,
+            )
+        except OSError as e:
+            logger.debug("Could not remove obsolete %s: %s", legacy, e)
+
     def _maybe_patch_repo_config_for_rclone(self) -> None:
         """Self-heal existing repo configs that were created with the old 15s rclone timeout.
 
@@ -238,6 +265,7 @@ class KopiaRepository:
             timeout: Maximum seconds to wait. None means no timeout (use for snapshots/restore).
         """
         self._maybe_patch_repo_config_for_rclone()
+        self._maybe_cleanup_legacy_state_files()
 
         cfg = config_file or self._get_config_file()
         if "--config-file" not in args:
@@ -367,6 +395,16 @@ class KopiaRepository:
         if proc.returncode == 0:
             logger.info("Connected to repository")
             self._connected_cache = (True, time.monotonic())
+            # Apply global retention/compression defaults (idempotent).
+            # Plan 0028: Global-Only — same defaults are also applied in
+            # initialize(); reapplying at connect() ensures config changes
+            # from kopi-docka.json reach Kopia without a manual step.
+            try:
+                from .kopia_policy_manager import KopiaPolicyManager
+
+                KopiaPolicyManager(self).apply_global_defaults()
+            except Exception as e:
+                logger.debug("Skipping policy defaults (optional): %s", e)
             return
 
         # Failed - check why
@@ -614,6 +652,39 @@ class KopiaRepository:
         if not snap_id:
             raise RuntimeError(f"Could not determine snapshot ID from output: {proc.stdout[:200]}")
         return snap_id
+
+    def create_snapshots(self, sources: list) -> List[str]:
+        """Create one Kopia snapshot per BackupSource. Sequential by design.
+
+        Returns a list of snapshot IDs in the same order as ``sources``.
+        An empty string at index ``i`` means that source's snapshot failed
+        (the underlying exception is already logged); callers can scan the
+        list to map failures back to a kind/volume tag.
+
+        Plan 0028 Phase 3: Kopia has no native multi-path ``snapshot create``
+        yet — upstream issue kopia/kopia#1725 tracks it. When that lands,
+        swap the body for the multi-path call; all callers stay unchanged.
+        We deliberately stay sequential here even though a ThreadPool would
+        be possible — on VPS-class hardware against remote backends, log
+        determinism and predictable rclone behaviour beat raw throughput.
+        """
+        results: List[str] = []
+        for src in sources:
+            try:
+                snap_id = self.create_snapshot(src.path, tags=src.tags)
+            except Exception as e:
+                logger.error(
+                    "Snapshot create failed for source",
+                    extra={
+                        "path": src.path,
+                        "kind": getattr(src, "kind", ""),
+                        "error": str(e),
+                    },
+                )
+                results.append("")
+                continue
+            results.append(snap_id)
+        return results
 
     def create_snapshot_from_stdin(
         self,
