@@ -1,15 +1,9 @@
-"""Regression tests for the snapshot-path extraction bug in policy + doctor code.
+"""Tests for ``advanced policy prune`` and ``doctor`` policy alignment.
 
-Bug history: both ``cmd_prune`` (``advanced/policy_commands.py``) and
-``_check_policy_alignment`` (``doctor_commands.py``) used
-``snap.get("source", {}).get("path", "")`` to read snapshot source paths.
-
-But ``KopiaRepository.list_snapshots()`` already flattens the kopia JSON: the returned
-dicts have ``path`` at the top level (no ``source`` key). The old extraction therefore
-always produced an empty set, which made every per-path policy look orphaned — doctor
-warned on healthy repos, and ``policy prune`` would have deleted every per-path policy.
-
-These tests pin the correct shape (`snap["path"]`) so the bug cannot regress.
+Plan 0028 made ``policy prune`` a *legacy* cleanup: every per-path Kopia
+policy on this host/user under a kopi-docka-managed prefix is considered
+obsolete, regardless of whether a matching snapshot still exists. The
+``doctor`` command flags any leftover per-path entry as "Legacy".
 """
 
 from __future__ import annotations
@@ -23,9 +17,12 @@ import pytest
 # Fixtures
 # ---------------------------------------------------------------------------
 
+# Fixed host/user so the cmd_prune safety guards match the synthetic policies.
+_TEST_HOST = "test-host"
+_TEST_USER = "test-user"
+
 
 def _flat_snapshot(path: str, snap_id: str = "snap-x") -> dict:
-    """Return a snapshot dict in the shape ``KopiaRepository.list_snapshots()`` produces."""
     return {
         "id": snap_id,
         "path": path,
@@ -35,15 +32,8 @@ def _flat_snapshot(path: str, snap_id: str = "snap-x") -> dict:
     }
 
 
-def _policy(path: str, host: str = "host-a", user: str = "root") -> dict:
-    """Return a policy dict in the shape ``kopia policy list --json`` produces."""
-    return {
-        "target": {
-            "userName": user,
-            "host": host,
-            "path": path,
-        }
-    }
+def _policy(path: str, host: str = _TEST_HOST, user: str = _TEST_USER) -> dict:
+    return {"target": {"userName": user, "host": host, "path": path}}
 
 
 # ---------------------------------------------------------------------------
@@ -52,11 +42,12 @@ def _policy(path: str, host: str = "host-a", user: str = "root") -> dict:
 
 
 @pytest.mark.unit
-class TestPolicyPruneOrphanDetection:
-    """``cmd_prune`` must only flag policies without a matching snapshot path."""
+class TestPolicyPruneLegacyCleanup:
+    """Plan 0028: every per-path policy on this host is legacy, regardless of
+    whether a matching snapshot still exists. ``policy prune`` removes them
+    in one batch call. Cross-host / unknown-prefix policies stay untouched."""
 
-    def _run_prune(self, snapshots: list[dict], policies: list[dict], *, dry_run: bool = True):
-        """Drive ``cmd_prune`` against mocked repo + policy_mgr; return captured output."""
+    def _run_prune(self, policies, *, dry_run=True, monkeypatch=None):
         from kopi_docka.commands.advanced import policy_commands
 
         ctx = MagicMock()
@@ -64,50 +55,113 @@ class TestPolicyPruneOrphanDetection:
 
         mock_repo = MagicMock()
         mock_repo.is_connected.return_value = True
-        mock_repo.list_snapshots.return_value = snapshots
 
         mock_policy_mgr = MagicMock()
         mock_policy_mgr.list_policies.return_value = policies
         mock_policy_mgr.delete_policies_batch.return_value = True
 
+        # Pin host/user so the safety guards match _policy() defaults.
+        if monkeypatch is not None:
+            monkeypatch.setattr(policy_commands.socket, "gethostname",
+                                lambda: _TEST_HOST)
+            monkeypatch.setattr(policy_commands.getpass, "getuser",
+                                lambda: _TEST_USER)
+
         with (
-            patch.object(policy_commands, "KopiaRepository", return_value=mock_repo),
-            patch.object(policy_commands, "KopiaPolicyManager", return_value=mock_policy_mgr),
+            patch.object(policy_commands, "KopiaRepository",
+                         return_value=mock_repo),
+            patch.object(policy_commands, "KopiaPolicyManager",
+                         return_value=mock_policy_mgr),
         ):
             policy_commands.cmd_prune(ctx, dry_run=dry_run, force=True)
 
         return mock_policy_mgr
 
-    def test_policy_with_matching_snapshot_is_not_orphan(self):
-        """Bug regression: snapshot at /foo must mark policy at /foo as non-orphan."""
-        snapshots = [_flat_snapshot("/foo")]
-        policies = [_policy("/foo"), _policy("/bar")]
+    def test_policy_with_matching_snapshot_still_pruned(self, monkeypatch):
+        """Plan 0028 change: a per-path policy is obsolete even when its
+        path is still actively snapshotted — global covers it."""
+        policies = [
+            _policy("/var/lib/docker/volumes/alive_vol/_data"),
+            _policy("/var/lib/docker/volumes/dead_vol/_data"),
+        ]
 
-        mock_policy_mgr = self._run_prune(snapshots, policies, dry_run=False)
+        mock_policy_mgr = self._run_prune(
+            policies, dry_run=False, monkeypatch=monkeypatch
+        )
 
         mock_policy_mgr.delete_policies_batch.assert_called_once()
         deleted = mock_policy_mgr.delete_policies_batch.call_args.args[0]
-        deleted_paths = [t["path"] for t in deleted]
-        assert deleted_paths == ["/bar"], (
-            "Only /bar has no matching snapshot — /foo must not be pruned"
+        deleted_paths = sorted(t["path"] for t in deleted)
+        assert deleted_paths == [
+            "/var/lib/docker/volumes/alive_vol/_data",
+            "/var/lib/docker/volumes/dead_vol/_data",
+        ]
+
+    def test_no_per_path_policies_means_no_deletion(self, monkeypatch):
+        mock_policy_mgr = self._run_prune(
+            [{"target": {"path": "(global)"}}],
+            dry_run=False, monkeypatch=monkeypatch,
         )
 
-    def test_all_policies_have_snapshots_means_no_pruning(self):
-        snapshots = [_flat_snapshot("/foo"), _flat_snapshot("/baz")]
-        policies = [_policy("/foo"), _policy("/baz")]
+        mock_policy_mgr.delete_policies_batch.assert_not_called()
 
-        mock_policy_mgr = self._run_prune(snapshots, policies, dry_run=False)
+    def test_dry_run_does_not_delete(self, monkeypatch):
+        policies = [_policy("/var/lib/docker/volumes/x/_data")]
+
+        mock_policy_mgr = self._run_prune(
+            policies, dry_run=True, monkeypatch=monkeypatch
+        )
 
         mock_policy_mgr.delete_policies_batch.assert_not_called()
 
-    def test_empty_snapshot_list_does_not_silently_delete_everything(self):
-        """Defensive: even with zero snapshots, dry-run must not delete anything."""
-        snapshots: list[dict] = []
-        policies = [_policy("/foo"), _policy("/bar")]
+    def test_foreign_host_policy_never_touched(self, monkeypatch):
+        """Cross-host restore safety (Plan 0024): another host's policies
+        on a shared repo must NOT be pruned by this host's ``policy prune``."""
+        policies = [
+            _policy("/var/lib/docker/volumes/mine/_data"),
+            _policy("/var/lib/docker/volumes/other/_data", host="other-host"),
+        ]
 
-        mock_policy_mgr = self._run_prune(snapshots, policies, dry_run=True)
+        mock_policy_mgr = self._run_prune(
+            policies, dry_run=False, monkeypatch=monkeypatch
+        )
 
-        mock_policy_mgr.delete_policies_batch.assert_not_called()
+        mock_policy_mgr.delete_policies_batch.assert_called_once()
+        deleted_paths = [
+            t["path"] for t in mock_policy_mgr.delete_policies_batch.call_args.args[0]
+        ]
+        assert deleted_paths == ["/var/lib/docker/volumes/mine/_data"]
+
+    def test_unknown_prefix_not_touched(self, monkeypatch):
+        """Defense in depth: a custom path the user set themselves
+        (e.g. ``/home/me/manual``) is never touched even when host/user match."""
+        policies = [
+            _policy("/var/lib/docker/volumes/mine/_data"),
+            _policy("/home/me/manual"),
+        ]
+
+        mock_policy_mgr = self._run_prune(
+            policies, dry_run=False, monkeypatch=monkeypatch
+        )
+
+        mock_policy_mgr.delete_policies_batch.assert_called_once()
+        deleted_paths = [
+            t["path"] for t in mock_policy_mgr.delete_policies_batch.call_args.args[0]
+        ]
+        assert deleted_paths == ["/var/lib/docker/volumes/mine/_data"]
+
+    def test_staging_paths_are_owned_prefixes_too(self, monkeypatch):
+        """Staging-dir policies left by very old kopi-docka versions (pre-Plan
+        0026) are also under an owned prefix and must be cleaned up."""
+        policies = [
+            _policy("/var/cache/kopi-docka/staging/recipes/old-unit"),
+        ]
+
+        mock_policy_mgr = self._run_prune(
+            policies, dry_run=False, monkeypatch=monkeypatch
+        )
+
+        mock_policy_mgr.delete_policies_batch.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

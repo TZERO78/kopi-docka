@@ -39,6 +39,22 @@ orphans, no more divergent timing on rclone backends. Three atomic commits on
   these.
 - The `auto_prune_orphaned_policies()` call from `commands/backup_commands.py`.
 
+### 🐛 Fixed
+
+- **`advanced policy prune` is now a true legacy-cleanup.** Pre-Plan-0028
+  versions only deleted *orphaned* per-path policies — entries whose path
+  no longer matched any snapshot. With per-path policies obsolete under
+  Plan 0028, that left a confusing gap: doctor flagged any leftover
+  per-path entry as "Legacy" and pointed at `policy prune`, but prune
+  refused to touch it as long as a snapshot still lived at that path.
+  `cmd_prune` now removes every per-path entry on this host/user under
+  a kopi-docka-managed prefix (`/var/lib/docker/volumes/`,
+  `/var/cache/kopi-docka/staging/`), regardless of snapshot state.
+  Cross-host policies and unknown prefixes stay untouched as before
+  (Plan 0024 safety). Verified end-to-end on the rclone+GDrive testlab:
+  one leftover per-path policy detected by doctor, pruned in one batch
+  call, doctor reports clean global-only state.
+
 ### 🧱 Refactor
 
 - **Backup discovery decoupled from snapshot execution.** New
