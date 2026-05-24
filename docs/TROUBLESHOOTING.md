@@ -57,6 +57,68 @@ sudo kopi-docka new-config
 sudo kopi-docka setup
 ```
 
+### 🛠️ Existing config out of sync with a new release
+
+After a kopi-docka upgrade your `kopi-docka.json` may be missing keys
+that the new version's template added (e.g. `alerting.missed_backup`
+landed in v7.1.0, `notifications.preflight_check` followed). Existing
+values keep working — kopi-docka falls back to the schema default — but
+running with an outdated file can mask new features.
+
+There's a helper for that. It compares your file against the template
+shipped with the installed kopi-docka, prints a clean diff, and (by
+default) only **adds** missing keys; nothing existing is overwritten or
+removed.
+
+**One-shot from GitHub** (no clone needed; downloads + runs):
+
+```bash
+# Dry-run — show the diff, don't write anything
+curl -fsSL https://raw.githubusercontent.com/TZERO78/kopi-docka/main/scripts/migrate-config.sh \
+  | sudo bash -s -- --config /etc/kopi-docka.json --dry-run
+
+# Apply — adds missing keys, writes a timestamped backup
+curl -fsSL https://raw.githubusercontent.com/TZERO78/kopi-docka/main/scripts/migrate-config.sh \
+  | sudo bash -s -- --config /etc/kopi-docka.json
+```
+
+**Or download it once and keep it on disk** (useful if you'd rather
+review the script before running it):
+
+```bash
+sudo curl -fsSL -o /usr/local/bin/kopi-docka-migrate-config \
+  https://raw.githubusercontent.com/TZERO78/kopi-docka/main/scripts/migrate-config.sh
+sudo chmod +x /usr/local/bin/kopi-docka-migrate-config
+
+# Then:
+sudo kopi-docka-migrate-config --config /etc/kopi-docka.json --dry-run
+sudo kopi-docka-migrate-config --config /etc/kopi-docka.json
+```
+
+**From a source checkout** (if you cloned the repo):
+
+```bash
+scripts/migrate-config.sh --config /etc/kopi-docka.json --dry-run
+sudo scripts/migrate-config.sh --config /etc/kopi-docka.json
+```
+
+The script's output groups changes into three buckets:
+
+- **Missing** — added from template defaults.
+- **Unknown** — present in your config but no longer in the template
+  (`backup.parallel_workers`, `backup.task_timeout` after Plan 0028 /
+  v7.3.0 are the common ones). **Kept by default** to avoid deleting
+  your own custom keys. Add `--prune-unknown` to remove them.
+- **Type mismatch** — same path, different JSON type. Never touched
+  automatically; review and fix manually.
+
+The script does not modify the password, `kopia_params`, or any other
+value you already set — it only fills in defaults for keys you don't
+have yet. If anything looks wrong, restore the `.backup-YYYYMMDD-HHMMSS`
+file the script printed.
+
+See [CONFIGURATION.md → "Migrating an older config"](CONFIGURATION.md#migrating-an-older-config) for the full reference.
+
 ### ❌ "invalid repository password"
 
 **Cause:** Repository already exists with different password.

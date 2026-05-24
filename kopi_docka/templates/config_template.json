@@ -2,6 +2,7 @@
   "version": "3.0",
   "kopia": {
     "kopia_params": "filesystem --path /backup/kopia-repository",
+    "profile": "kopi-docka",
     "password": "CHANGE_ME_TO_A_SECURE_PASSWORD",
     "password_file": null,
     "compression": "zstd",

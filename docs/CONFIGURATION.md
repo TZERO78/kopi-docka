@@ -290,6 +290,86 @@ your-secure-generated-password-here
 }
 ```
 
+### Migrating an older config
+
+When a new kopi-docka release adds keys to the config schema, an existing
+`kopi-docka.json` keeps working — missing keys fall back to the schema's
+default, and removed keys (e.g. `backup.parallel_workers` after v7.3.0)
+are silently ignored. But if you want your file to match the current
+template, there's a helper script that ships in the source tree and is
+also published as a single file on GitHub:
+
+```bash
+# Download (one-time)
+sudo curl -fsSL -o /usr/local/bin/kopi-docka-migrate-config \
+  https://raw.githubusercontent.com/TZERO78/kopi-docka/main/scripts/migrate-config.sh
+sudo chmod +x /usr/local/bin/kopi-docka-migrate-config
+
+# Or run it directly from GitHub:
+curl -fsSL https://raw.githubusercontent.com/TZERO78/kopi-docka/main/scripts/migrate-config.sh \
+  | sudo bash -s -- --config /etc/kopi-docka.json [OPTIONS]
+
+# Or — if you've cloned the repo — from the source tree:
+scripts/migrate-config.sh --config /etc/kopi-docka.json [OPTIONS]
+```
+
+**What it does**
+
+It reads two files: your config and the `config_template.json` that
+ships with the installed kopi-docka. It compares the **key paths**
+present in each (it does not look at values, so your password and
+`kopia_params` are never touched), and reports three categories:
+
+| Category | Meaning | Default action |
+|---|---|---|
+| Missing | Path in the template, not in your file. | Added with the template default. |
+| Unknown | Path in your file, not in the template (deprecated keys *or* your own additions). | Kept. Add `--prune-unknown` to remove. |
+| Type mismatch | Same path, different JSON type. | Left alone, flagged in the report — review manually. |
+
+**Important properties**
+
+- **Nothing you wrote is overwritten.** The merge is `template * user`
+  in jq terms — user values always win.
+- **A timestamped backup is written.** Default location is the same
+  directory as the input (`kopi-docka.json.backup-YYYYMMDD-HHMMSS`).
+  Disable with `--no-backup` (not recommended).
+- **The template is read from the installed package**, not hard-coded.
+  Upgrade kopi-docka, then re-run the script and the new release's
+  keys show up automatically.
+
+**Common flags** (substitute `kopi-docka-migrate-config` /
+`scripts/migrate-config.sh` / `curl …| sudo bash -s --` for the
+invocation style you prefer):
+
+```bash
+# 1) Show the diff without writing anything
+kopi-docka-migrate-config --config /etc/kopi-docka.json --dry-run
+
+# 2) Apply (recommended first run)
+sudo kopi-docka-migrate-config --config /etc/kopi-docka.json
+
+# 3) Also drop keys the template no longer has
+sudo kopi-docka-migrate-config --config /etc/kopi-docka.json --prune-unknown
+
+# 4) Override template location (e.g. when running against a
+#    user-local install)
+kopi-docka-migrate-config \
+    --config /home/me/kopi-docka.json \
+    --template /opt/kopi-docka-venv/lib/python3.12/site-packages/kopi_docka/templates/config_template.json
+```
+
+**Pre-flight check**
+
+After the migration, run a sanity check:
+
+```bash
+sudo kopi-docka --config /etc/kopi-docka.json doctor
+```
+
+If anything looks off, the original file is one `cp` away.
+
+---
+
 ### Configuration Validation
 
 **Since v5.6.0:** Kopi-Docka uses **Pydantic** for automatic configuration validation.
