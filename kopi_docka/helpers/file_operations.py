@@ -32,6 +32,8 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from .sudo_helper import get_sudo_user_info
+
 logger = logging.getLogger(__name__)
 
 
@@ -146,11 +148,10 @@ def copy_with_rollback(
             logger.debug(f"Copied: {source.name} → {target}")
 
             # Fix permissions (CRITICAL: Use SUDO_UID!)
-            real_uid = int(os.environ.get("SUDO_UID", os.getuid()))
-            real_gid = int(os.environ.get("SUDO_GID", os.getgid()))
-            os.chown(target, real_uid, real_gid)
+            sudo_info = get_sudo_user_info()
+            os.chown(target, sudo_info.uid, sudo_info.gid)
             os.chmod(target, 0o644)
-            logger.debug(f"Set ownership: {real_uid}:{real_gid} for {target.name}")
+            logger.debug(f"Set ownership: {sudo_info.uid}:{sudo_info.gid} for {target.name}")
 
         logger.info(f"Successfully copied {len(copied_files)} files to {target_dir}")
         return True, copied_files
