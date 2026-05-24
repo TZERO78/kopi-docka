@@ -28,14 +28,31 @@ logger = get_logger(__name__)
 
 @dataclass
 class TailscalePeer:
-    """Tailscale peer information"""
+    """Tailscale peer information.
+
+    ``hostname`` is the bare device name shown in `tailscale status`
+    (e.g. ``TZERO-SERVER``). ``dns_name`` is the full tailnet-DNS FQDN
+    reported by `tailscale status --json` under ``DNSName``
+    (e.g. ``tzero-server.beetal-vega.ts.net``). The FQDN is what should
+    end up in SSH commands and Kopia ``--host`` parameters — the bare
+    hostname depends on a search-domain being active, which doesn't
+    hold under sudo / systemd-units / various distros. Pre-v7.3.12 the
+    code synthesised a fake ``<hostname>.tailnet`` suffix that no
+    Tailnet uses anymore.
+    """
 
     hostname: str
     ip: str
     online: bool
     os: str
+    dns_name: str = ""  # FQDN from `tailscale status --json` DNSName field
     disk_free_gb: Optional[float] = None
     ping_ms: Optional[int] = None
+
+    @property
+    def fqdn(self) -> str:
+        """Return the FQDN if available, otherwise fall back to the bare hostname."""
+        return self.dns_name or self.hostname
 
 
 class TailscaleBackend(BackendBase):
@@ -173,14 +190,16 @@ class TailscaleBackend(BackendBase):
         ssh_key_path = Path.home() / ".ssh" / "kopi-docka_ed25519"
         if not ssh_key_path.exists():
             if utils.prompt_confirm(t("tailscale.setup_ssh_key", lang)):
-                self._setup_ssh_key(selected_peer.hostname, ssh_key_path)
+                self._setup_ssh_key(selected_peer.fqdn, ssh_key_path)
 
         # Get SSH user
         ssh_user = utils.prompt_text(f"{t('tailscale.ssh_user', lang)} [root]", default="root")
 
-        # Build Kopia SFTP parameters
+        # Build Kopia SFTP parameters using the FQDN — bare hostname depends on
+        # search-domain resolution which doesn't always work under sudo / systemd.
+        peer_fqdn = selected_peer.fqdn
         kopia_params = (
-            f"sftp --path={selected_peer.hostname}:{remote_path} --host={selected_peer.hostname}"
+            f"sftp --path={peer_fqdn}:{remote_path} --host={peer_fqdn}"
         )
 
         utils.print_separator()
@@ -191,6 +210,7 @@ class TailscaleBackend(BackendBase):
             "kopia_params": kopia_params,
             "credentials": {
                 "peer_hostname": selected_peer.hostname,
+                "peer_fqdn": peer_fqdn,
                 "peer_ip": selected_peer.ip,
                 "ssh_user": ssh_user,
                 "ssh_key": str(ssh_key_path),
@@ -229,7 +249,9 @@ class TailscaleBackend(BackendBase):
         """Test connection to Tailscale peer"""
         try:
             creds = self.config["credentials"]
-            hostname = creds.get("peer_hostname")
+            # Prefer the FQDN written by setup_interactive (v7.3.12+); fall
+            # back to the bare hostname for configs created before that.
+            host = creds.get("peer_fqdn") or creds.get("peer_hostname")
             ssh_user = creds.get("ssh_user", "root")
             ssh_key = creds.get("ssh_key")
 
@@ -240,7 +262,7 @@ class TailscaleBackend(BackendBase):
                 ssh_key,
                 "-o",
                 "StrictHostKeyChecking=no",
-                f"{ssh_user}@{hostname}.tailnet",
+                f"{ssh_user}@{host}",
                 "echo",
                 "test",
             ]
@@ -431,12 +453,19 @@ class TailscaleBackend(BackendBase):
             peers = []
             for peer_id, peer_info in data.get("Peer", {}).items():
                 hostname = peer_info.get("HostName", "unknown")
+                # `tailscale status --json` returns DNSName with a trailing
+                # dot, e.g. "tzero-server.beetal-vega.ts.net." — strip it so
+                # downstream consumers can append paths cleanly.
+                dns_name = peer_info.get("DNSName", "").rstrip(".")
                 ips = peer_info.get("TailscaleIPs", [])
                 ip = ips[0] if ips else "unknown"
                 online = peer_info.get("Online", False)
                 os = peer_info.get("OS", "unknown")
 
-                peer = TailscalePeer(hostname=hostname, ip=ip, online=online, os=os)
+                peer = TailscalePeer(
+                    hostname=hostname, ip=ip, online=online, os=os,
+                    dns_name=dns_name,
+                )
 
                 # Get latency via Tailscale ping (no SSH required)
                 if online:
@@ -477,8 +506,14 @@ class TailscaleBackend(BackendBase):
             logger.debug(f"Ping latency check failed: {e}")
         return None
 
-    def _setup_ssh_key(self, hostname: str, key_path: Path) -> bool:
-        """Setup SSH key for passwordless access"""
+    def _setup_ssh_key(self, host: str, key_path: Path) -> bool:
+        """Setup SSH key for passwordless access.
+
+        ``host`` is the address ssh-copy-id will dial: a Tailscale FQDN
+        like ``tzero-server.beetal-vega.ts.net``. Pre-v7.3.12 the
+        caller passed a bare hostname and this function appended
+        ``.tailnet`` — a suffix no modern Tailnet uses.
+        """
         from kopi_docka.helpers import ui_utils as utils
         from kopi_docka.i18n import t, get_current_language
 
@@ -507,11 +542,11 @@ class TailscaleBackend(BackendBase):
             utils.print_success(t("tailscale.ssh_key_generated", lang))
 
             # Copy to remote
-            utils.print_info(f"{t('tailscale.copying_ssh_key', lang)} {hostname}...")
+            utils.print_info(f"{t('tailscale.copying_ssh_key', lang)} {host}...")
             utils.print_warning("You may need to enter the root password")
 
             run_command(
-                ["ssh-copy-id", "-i", str(key_path), f"root@{hostname}.tailnet"],
+                ["ssh-copy-id", "-i", str(key_path), f"root@{host}"],
                 "Copying SSH key to remote",
                 timeout=60,
                 show_output=True,  # User may need to enter password
@@ -528,13 +563,16 @@ class TailscaleBackend(BackendBase):
         """Get recovery instructions"""
         creds = self.config.get("credentials", {})
         hostname = creds.get("peer_hostname", "backup-server")
+        # v7.3.12: prefer the real FQDN written by setup_interactive;
+        # fall back to bare hostname for very old configs.
+        host = creds.get("peer_fqdn") or hostname
         ssh_user = creds.get("ssh_user", "root")
         remote_path = creds.get("remote_path", "/backup/kopi-docka")
 
         return f"""
 ## {self.display_name} Recovery
 
-**Peer:** `{hostname}.tailnet`
+**Peer:** `{host}`
 **Remote Path:** `{remote_path}`
 
 ### Recovery Steps:
@@ -555,7 +593,7 @@ class TailscaleBackend(BackendBase):
 3. **Test connection to peer**
    ```bash
    tailscale ping {hostname}
-   ssh -i ~/.ssh/kopi-docka_ed25519 {ssh_user}@{hostname}.tailnet
+   ssh -i ~/.ssh/kopi-docka_ed25519 {ssh_user}@{host}
    ```
 
 4. **Install Kopia**
@@ -566,7 +604,7 @@ class TailscaleBackend(BackendBase):
 5. **Connect to repository**
    ```bash
    kopia repository connect sftp \\
-     --path sftp://{ssh_user}@{hostname}.tailnet:{remote_path} \\
+     --path sftp://{ssh_user}@{host}:{remote_path} \\
      --sftp-key-file ~/.ssh/kopi-docka_ed25519
    ```
 
