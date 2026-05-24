@@ -90,8 +90,6 @@ class TestContainerStopTimeout:
         manager.repo = Mock()
         manager.repo.create_snapshot.return_value = "snap123"
         manager.policy_manager = Mock()
-        manager.policy_state = Mock()
-        manager.policy_state.is_current.return_value = False
         manager.hooks_manager = Mock()
         manager.hooks_manager.execute_pre_backup.return_value = True
         manager.hooks_manager.execute_post_backup.return_value = True
@@ -130,8 +128,6 @@ class TestContainerStopTimeout:
         manager.config = make_mock_config()
         manager.repo = Mock()
         manager.policy_manager = Mock()
-        manager.policy_state = Mock()
-        manager.policy_state.is_current.return_value = False
         manager.hooks_manager = Mock()
         manager.hooks_manager.execute_pre_backup.return_value = True
         manager.hooks_manager.execute_post_backup.return_value = True
@@ -172,8 +168,6 @@ class TestPartialVolumeFailure:
         manager.config = make_mock_config()
         manager.repo = Mock()
         manager.policy_manager = Mock()
-        manager.policy_state = Mock()
-        manager.policy_state.is_current.return_value = False
         manager.hooks_manager = Mock()
         manager.hooks_manager.execute_pre_backup.return_value = True
         manager.hooks_manager.execute_post_backup.return_value = True
@@ -398,8 +392,6 @@ class TestHookFailures:
         manager.config = make_mock_config()
         manager.repo = Mock()
         manager.policy_manager = Mock()
-        manager.policy_state = Mock()
-        manager.policy_state.is_current.return_value = False
         manager.hooks_manager = Mock()
         manager.hooks_manager.execute_pre_backup.return_value = False  # Hook fails
         manager.hooks_manager.execute_post_backup.return_value = True

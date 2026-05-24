@@ -155,6 +155,83 @@ class TestIsConnected:
 
 
 # =============================================================================
+# Connect Tests (Plan 0028: global policy must be applied on every connect)
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestConnect:
+    """Tests for the connect() method.
+
+    Plan 0028 contract: a successful connect() must call
+    KopiaPolicyManager.apply_global_defaults() so retention/compression
+    changes in kopi-docka.json reach Kopia without a manual step. This
+    replaces the per-path policy writes the backup hot path used to do.
+    """
+
+    @patch("kopi_docka.cores.kopia_policy_manager.KopiaPolicyManager")
+    def test_successful_connect_applies_global_defaults(self, policy_cls):
+        """A successful connect must trigger apply_global_defaults() exactly once."""
+        instance = Mock()
+        policy_cls.return_value = instance
+        repo = make_repository()
+        repo.is_connected = Mock(return_value=False)
+        repo._run = Mock(return_value=CompletedProcess([], 0, stdout="", stderr=""))
+        repo._get_cache_params = Mock(return_value=[])
+        repo._get_rclone_args = Mock(return_value=[])
+
+        repo.connect()
+
+        policy_cls.assert_called_once_with(repo)
+        instance.apply_global_defaults.assert_called_once_with()
+
+    @patch("kopi_docka.cores.kopia_policy_manager.KopiaPolicyManager")
+    def test_short_circuit_when_already_connected_does_not_reapply(self, policy_cls):
+        """Already-connected path returns early — no point reapplying defaults."""
+        repo = make_repository()
+        repo.is_connected = Mock(return_value=True)
+
+        repo.connect()
+
+        policy_cls.assert_not_called()
+
+    @patch("kopi_docka.cores.kopia_policy_manager.KopiaPolicyManager")
+    def test_apply_global_defaults_failure_does_not_abort_connect(self, policy_cls):
+        """Policy application is best-effort: if it raises, connect() still
+        completes successfully — otherwise a flaky write would lock the user
+        out of an otherwise reachable repo."""
+        instance = Mock()
+        instance.apply_global_defaults.side_effect = RuntimeError("backend hiccup")
+        policy_cls.return_value = instance
+        repo = make_repository()
+        repo.is_connected = Mock(return_value=False)
+        repo._run = Mock(return_value=CompletedProcess([], 0, stdout="", stderr=""))
+        repo._get_cache_params = Mock(return_value=[])
+        repo._get_rclone_args = Mock(return_value=[])
+
+        # Must not raise
+        repo.connect()
+
+        instance.apply_global_defaults.assert_called_once_with()
+
+    @patch("kopi_docka.cores.kopia_policy_manager.KopiaPolicyManager")
+    def test_failed_connect_does_not_apply_global_defaults(self, policy_cls):
+        """If kopia connect fails, we should NOT try to write policies."""
+        repo = make_repository()
+        repo.is_connected = Mock(return_value=False)
+        repo._run = Mock(
+            return_value=CompletedProcess([], 1, stdout="", stderr="wrong password")
+        )
+        repo._get_cache_params = Mock(return_value=[])
+        repo._get_rclone_args = Mock(return_value=[])
+
+        with pytest.raises(RuntimeError):
+            repo.connect()
+
+        policy_cls.assert_not_called()
+
+
+# =============================================================================
 # Status Tests
 # =============================================================================
 

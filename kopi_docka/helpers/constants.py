@@ -113,24 +113,10 @@ STAGING_BASE_DIR = Path("/var/cache/kopi-docka/staging")
 # - TAR: Legacy format, streams tar archive to Kopia (no deduplication)
 # - DIRECT: New format, direct Kopia snapshot of volume directory (block-level dedup)
 #
-# IMPORTANT: Retention Policy Path Behavior
-# =========================================
-# The backup format affects how Kopia retention policies are applied:
-#
-# TAR Mode (Legacy):
-#   - Snapshots created with virtual paths like "volumes/myproject"
-#   - Retention policies applied to same virtual path
-#   - Single policy covers all volumes in a backup unit
-#
-# Direct Mode (Default):
-#   - Snapshots created with actual volume mountpoints like
-#     "/var/lib/docker/volumes/myproject_data/_data"
-#   - Retention policies MUST be applied to each volume's mountpoint
-#   - Each volume gets its own retention policy
-#   - Path mismatch was a critical bug fixed in v5.3.0
-#     (policies on virtual paths never triggered for actual mountpoint snapshots)
-#
-# See: backup_manager.py::_ensure_policies() for implementation details
+# Plan 0028 (v7.3.0) made retention global-only — per-path policies are no
+# longer written, so the historical TAR/Direct policy-path divergence is moot.
+# The global policy at `kopia repository connect` time covers all snapshots
+# regardless of their source path.
 BACKUP_FORMAT_TAR = "tar"  # Legacy: tar stream → Kopia stdin
 BACKUP_FORMAT_DIRECT = "direct"  # New: direct Kopia snapshot of volume path
 BACKUP_FORMAT_DEFAULT = BACKUP_FORMAT_DIRECT  # Default for new backups

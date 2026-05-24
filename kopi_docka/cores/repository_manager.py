@@ -367,6 +367,16 @@ class KopiaRepository:
         if proc.returncode == 0:
             logger.info("Connected to repository")
             self._connected_cache = (True, time.monotonic())
+            # Apply global retention/compression defaults (idempotent).
+            # Plan 0028: Global-Only — same defaults are also applied in
+            # initialize(); reapplying at connect() ensures config changes
+            # from kopi-docka.json reach Kopia without a manual step.
+            try:
+                from .kopia_policy_manager import KopiaPolicyManager
+
+                KopiaPolicyManager(self).apply_global_defaults()
+            except Exception as e:
+                logger.debug("Skipping policy defaults (optional): %s", e)
             return
 
         # Failed - check why

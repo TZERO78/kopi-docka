@@ -275,10 +275,6 @@ def _run_backup(
             return
 
         bm = BackupManager(cfg)
-        # Remove stale per-path policies for paths kopi-docka no longer manages
-        # (Plan 0026 Section 3). Safe by construction: scoped to this host's
-        # user@host only, never touches foreign-host policies.
-        bm.auto_prune_orphaned_policies()
         overall_ok = True
 
         for u in selected:

@@ -97,8 +97,7 @@ class TestBackupWorkflow:
             with patch.object(manager, "_start_containers", side_effect=track_start):
                 with patch.object(manager.volume_handler, "backup_volume", side_effect=track_backup):
                     with patch.object(manager, "_save_metadata"):
-                        with patch.object(manager, "_ensure_policies"):
-                            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+                        metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # Verify execution order
         assert call_order == [
@@ -129,8 +128,7 @@ class TestBackupWorkflow:
         with patch.object(manager, "_stop_containers") as mock_stop:
             with patch.object(manager.volume_handler, "backup_volume") as mock_backup:
                 with patch.object(manager, "_start_containers") as mock_start:
-                    with patch.object(manager, "_ensure_policies"):
-                        metadata = manager.backup_unit(unit)
+                    metadata = manager.backup_unit(unit)
 
         # Verify backup was aborted (stop and backup not called)
         mock_stop.assert_not_called()
@@ -163,8 +161,7 @@ class TestBackupWorkflow:
         with patch.object(manager, "_start_containers", side_effect=track_start):
             with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
                 with patch.object(manager, "_save_metadata"):
-                    with patch.object(manager, "_ensure_policies"):
-                        metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+                    metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # Containers should still be started even if stop failed
         assert start_called is True
@@ -192,8 +189,7 @@ class TestBackupWorkflow:
             with patch.object(manager, "_start_containers"):
                 with patch.object(manager.volume_handler, "backup_volume", side_effect=partial_failure):
                     with patch.object(manager, "_save_metadata"):
-                        with patch.object(manager, "_ensure_policies"):
-                            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+                        metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # 2 volumes succeeded, 1 failed
         assert metadata.volumes_backed_up == 2
@@ -221,9 +217,8 @@ class TestBackupWorkflow:
         with patch.object(manager, "_stop_containers"):
             with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
                 with patch.object(manager, "_save_metadata"):
-                    with patch.object(manager, "_ensure_policies"):
-                        # Should not raise, error is caught in _start_containers
-                        metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+                    # Should not raise, error is caught in _start_containers
+                    metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # Backup itself succeeded
         assert metadata.volumes_backed_up == 1
@@ -240,8 +235,7 @@ class TestBackupWorkflow:
         with patch.object(manager, "_stop_containers"):
             with patch.object(manager, "_start_containers"):
                 with patch.object(manager, "_save_metadata"):
-                    with patch.object(manager, "_ensure_policies"):
-                        metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+                    metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # Extract backup_id from all snapshot calls
         backup_ids = set()
@@ -275,8 +269,7 @@ class TestBackupWorkflow:
         )
 
         with patch.object(manager, "_save_metadata"):
-            with patch.object(manager, "_ensure_policies"):
-                metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # Should complete successfully
         assert metadata.success is True
@@ -296,10 +289,9 @@ class TestBackupWorkflow:
                     with patch.object(manager, "_start_containers"):
                         with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
                             with patch.object(manager, "_save_metadata"):
-                                with patch.object(manager, "_ensure_policies"):
-                                    metadata = manager.backup_unit(
-                                        unit, backup_scope=BACKUP_SCOPE_MINIMAL
-                                    )
+                                metadata = manager.backup_unit(
+                                    unit, backup_scope=BACKUP_SCOPE_MINIMAL
+                                )
 
         # Recipes and networks should not be backed up
         mock_recipes.assert_not_called()
@@ -321,10 +313,9 @@ class TestBackupWorkflow:
                     with patch.object(manager, "_start_containers"):
                         with patch.object(manager.volume_handler, "backup_volume", return_value="vol_snap"):
                             with patch.object(manager, "_save_metadata"):
-                                with patch.object(manager, "_ensure_policies"):
-                                    metadata = manager.backup_unit(
-                                        unit, backup_scope=BACKUP_SCOPE_FULL
-                                    )
+                                metadata = manager.backup_unit(
+                                    unit, backup_scope=BACKUP_SCOPE_FULL
+                                )
 
         # All backup types should be called
         mock_recipes.assert_called_once()
@@ -343,8 +334,7 @@ class TestBackupWorkflow:
             with patch.object(manager, "_start_containers"):
                 with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
                     with patch.object(manager, "_save_metadata"):
-                        with patch.object(manager, "_ensure_policies"):
-                            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+                        metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # Backup completed but with error
         assert metadata.volumes_backed_up == 1
@@ -370,8 +360,7 @@ class TestBackupWorkflow:
             with patch.object(manager.volume_handler, "backup_volume", side_effect=Exception("Catastrophic")):
                 with patch.object(manager, "_start_containers", side_effect=track_start):
                     with patch.object(manager, "_save_metadata"):
-                        with patch.object(manager, "_ensure_policies"):
-                            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+                        metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # Containers must be restarted (finally block)
         assert start_called is True
@@ -389,8 +378,7 @@ class TestBackupWorkflow:
             with patch.object(manager, "_start_containers"):
                 with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
                     with patch.object(manager, "_save_metadata") as mock_save:
-                        with patch.object(manager, "_ensure_policies"):
-                            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+                        metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # _save_metadata should be called with the metadata object
         mock_save.assert_called_once()
@@ -413,8 +401,7 @@ class TestBackupWorkflow:
             with patch.object(manager, "_start_containers"):
                 with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
                     with patch.object(manager, "_save_metadata"):
-                        with patch.object(manager, "_ensure_policies"):
-                            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+                        metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         assert metadata.hooks_executed == [
             "pre-backup: /scripts/pre.sh",
@@ -439,8 +426,7 @@ class TestBackupWorkflow:
             with patch.object(manager, "_start_containers"):
                 with patch.object(manager.volume_handler, "backup_volume", side_effect=track_backup):
                     with patch.object(manager, "_save_metadata"):
-                        with patch.object(manager, "_ensure_policies"):
-                            metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
+                        metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
         # All 4 volumes should be backed up
         assert len(backup_calls) == 4
@@ -461,16 +447,15 @@ class TestBackupWorkflow:
             with patch.object(manager, "_start_containers"):
                 with patch.object(manager.volume_handler, "backup_volume", return_value="snap123"):
                     with patch.object(manager, "_save_metadata"):
-                        with patch.object(manager, "_ensure_policies"):
-                            with patch(
-                                "kopi_docka.cores.disaster_recovery_manager.DisasterRecoveryManager",
-                                return_value=mock_dr_manager,
-                            ):
-                                metadata = manager.backup_unit(
-                                    unit,
-                                    backup_scope=BACKUP_SCOPE_MINIMAL,
-                                    update_recovery_bundle=True,
-                                )
+                        with patch(
+                            "kopi_docka.cores.disaster_recovery_manager.DisasterRecoveryManager",
+                            return_value=mock_dr_manager,
+                        ):
+                            metadata = manager.backup_unit(
+                                unit,
+                                backup_scope=BACKUP_SCOPE_MINIMAL,
+                                update_recovery_bundle=True,
+                            )
 
         # DR bundle should be created
         mock_dr_manager.create_recovery_bundle.assert_called_once()
@@ -489,17 +474,16 @@ class TestBackupWorkflow:
 
         mock_dr_manager = Mock()
 
-        with patch.object(manager, "_ensure_policies"):
-            with patch.object(manager, "_start_containers"):
-                with patch(
-                    "kopi_docka.cores.disaster_recovery_manager.DisasterRecoveryManager",
-                    return_value=mock_dr_manager,
-                ):
-                    metadata = manager.backup_unit(
-                        unit,
-                        backup_scope=BACKUP_SCOPE_MINIMAL,
-                        update_recovery_bundle=True,
-                    )
+        with patch.object(manager, "_start_containers"):
+            with patch(
+                "kopi_docka.cores.disaster_recovery_manager.DisasterRecoveryManager",
+                return_value=mock_dr_manager,
+            ):
+                metadata = manager.backup_unit(
+                    unit,
+                    backup_scope=BACKUP_SCOPE_MINIMAL,
+                    update_recovery_bundle=True,
+                )
 
         # DR bundle should NOT be created (backup failed)
         mock_dr_manager.create_recovery_bundle.assert_not_called()

@@ -52,8 +52,6 @@ def make_backup_manager() -> BackupManager:
     manager.start_timeout = 60
     manager.exclude_patterns = []
     manager.volume_handler = BackupVolumeHandler(manager.repo, manager.exclude_patterns)
-    manager.policy_state = Mock()
-    manager.policy_state.is_current.return_value = False  # Force apply by default
     return manager
 
 
@@ -2046,161 +2044,12 @@ class TestBackupNetworks:
 
 
 # =============================================================================
-# Retention Policy Tests (Direct vs TAR Mode)
+# Retention Policy Tests removed in Plan 0028
 # =============================================================================
-#
-# Plan 0026 removed per-path policies for staging dirs (recipes/networks/
-# docker-config) — global policy covers them via inheritance. The remaining
-# per-target logic (volume mountpoints in Direct mode, virtual paths in TAR mode)
-# plus hash-based smart-skip and auto-prune are covered by
-# tests/unit/test_cores/test_backup_manager_policies.py — those tests use
-# a real PolicyStateManager backed by tmp_path, which is cleaner than mocking
-# every interaction.
-
-
-@pytest.mark.unit
-class TestEnsurePoliciesVolumes:
-    """Volume-targeted policy behavior remaining after Plan 0026 Phase A."""
-
-    def test_direct_mode_applies_policies_to_volume_mountpoints(self):
-        """In Direct Mode, policies are applied to actual volume mountpoints — one per volume."""
-        from kopi_docka.helpers.constants import BACKUP_FORMAT_DIRECT
-
-        manager = make_backup_manager()
-        unit = make_backup_unit(name="mystack", volumes=2)
-
-        manager.config.getint.return_value = 5
-
-        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_DIRECT):
-            manager._ensure_policies(unit)
-
-        # Phase A: staging dirs no longer get per-path policies. Only the 2 volumes do.
-        assert manager.policy_manager.set_retention_for_target.call_count == 2
-
-        calls = manager.policy_manager.set_retention_for_target.call_args_list
-        assert any("/var/lib/docker/volumes/mystack_data0/_data" in str(call) for call in calls)
-        assert any("/var/lib/docker/volumes/mystack_data1/_data" in str(call) for call in calls)
-
-    def test_tar_mode_applies_policy_to_virtual_path(self):
-        """In TAR Mode, one virtual-path policy is set for the unit's volumes."""
-        from kopi_docka.helpers.constants import BACKUP_FORMAT_TAR
-
-        manager = make_backup_manager()
-        unit = make_backup_unit(name="mystack", volumes=2)
-        manager.config.getint.return_value = 5
-
-        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_TAR):
-            manager._ensure_policies(unit)
-
-        # Phase A: only the virtual volume path, no static staging targets.
-        assert manager.policy_manager.set_retention_for_target.call_count == 1
-        calls = manager.policy_manager.set_retention_for_target.call_args_list
-        assert "volumes/mystack" in calls[0][0][0]
-
-    def test_retention_config_values_passed_correctly(self):
-        """Retention values from config flow through into the kopia policy call."""
-        from kopi_docka.helpers.constants import BACKUP_FORMAT_DIRECT
-
-        manager = make_backup_manager()
-        unit = make_backup_unit(name="mystack", volumes=1)
-
-        def mock_getint(section, key, default):
-            return {
-                "latest": 10, "hourly": 24, "daily": 7,
-                "weekly": 4, "monthly": 12, "annual": 3,
-            }.get(key, default)
-
-        manager.config.getint = Mock(side_effect=mock_getint)
-
-        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_DIRECT):
-            manager._ensure_policies(unit)
-
-        calls = manager.policy_manager.set_retention_for_target.call_args_list
-        assert len(calls) == 1
-        kwargs = calls[0][1]
-        assert kwargs["keep_latest"] == 10
-        assert kwargs["keep_hourly"] == 24
-        assert kwargs["keep_daily"] == 7
-        assert kwargs["keep_weekly"] == 4
-        assert kwargs["keep_monthly"] == 12
-        assert kwargs["keep_annual"] == 3
-
-    def test_multiple_volumes_each_get_policy_direct_mode(self):
-        """In Direct Mode, each volume gets its own retention policy."""
-        from kopi_docka.helpers.constants import BACKUP_FORMAT_DIRECT
-
-        manager = make_backup_manager()
-        unit = make_backup_unit(name="mystack", volumes=5)
-        manager.config.getint.return_value = 5
-
-        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_DIRECT):
-            manager._ensure_policies(unit)
-
-        assert manager.policy_manager.set_retention_for_target.call_count == 5
-        calls = manager.policy_manager.set_retention_for_target.call_args_list
-        mountpoints = [c[0][0] for c in calls]
-        assert len(set(mountpoints)) == 5  # All unique
-
-    def test_handles_policy_application_errors_gracefully(self):
-        """A failed `kopia policy set` should not abort other volumes' policy applies."""
-        from kopi_docka.helpers.constants import BACKUP_FORMAT_DIRECT
-
-        manager = make_backup_manager()
-        unit = make_backup_unit(name="mystack", volumes=2)
-        manager.config.getint.return_value = 5
-
-        call_count = [0]
-
-        def mock_set_retention(*args, **kwargs):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                raise Exception("Kopia policy error")
-
-        manager.policy_manager.set_retention_for_target.side_effect = mock_set_retention
-
-        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_DIRECT):
-            manager._ensure_policies(unit)  # Must not raise
-
-        # Both volumes attempted; first failed but second still ran.
-        assert manager.policy_manager.set_retention_for_target.call_count == 2
-
-    def test_unit_with_no_volumes_direct_mode_makes_no_calls(self):
-        """No volumes + Direct Mode = nothing to do (no staging policies after Plan 0026)."""
-        from kopi_docka.helpers.constants import BACKUP_FORMAT_DIRECT
-
-        manager = make_backup_manager()
-        unit = make_backup_unit(name="mystack", volumes=0)
-        manager.config.getint.return_value = 5
-
-        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_DIRECT):
-            manager._ensure_policies(unit)
-
-        assert manager.policy_manager.set_retention_for_target.call_count == 0
-
-    def test_direct_mode_uses_actual_mountpoint_paths(self):
-        """Custom mountpoints flow through to kopia policy set verbatim."""
-        from kopi_docka.helpers.constants import BACKUP_FORMAT_DIRECT
-
-        manager = make_backup_manager()
-        custom_unit = BackupUnit(
-            name="custom",
-            type="stack",
-            containers=[],
-            volumes=[
-                VolumeInfo(name="vol1", driver="local", mountpoint="/custom/path/vol1", size_bytes=1024),
-                VolumeInfo(name="vol2", driver="overlay2", mountpoint="/another/path/vol2", size_bytes=2048),
-            ],
-            compose_files=[],
-        )
-        manager.config.getint.return_value = 5
-
-        with patch("kopi_docka.cores.backup_manager.BACKUP_FORMAT_DEFAULT", BACKUP_FORMAT_DIRECT):
-            manager._ensure_policies(custom_unit)
-
-        calls = manager.policy_manager.set_retention_for_target.call_args_list
-        targets = [c[0][0] for c in calls]
-        assert "/custom/path/vol1" in targets
-        assert "/another/path/vol2" in targets
+# The previous TestEnsurePoliciesVolumes class exercised _ensure_policies and
+# set_retention_for_target — both gone in Plan 0028 (global-only retention).
+# The replacement contract ("backup_unit must NEVER call per-path setters")
+# lives in tests/unit/test_cores/test_backup_manager_policies.py.
 
 
 class TestPrepareStagingDir:

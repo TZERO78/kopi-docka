@@ -5,6 +5,58 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — Plan 0028: Global-Policy-Only
+
+Eliminates the entire per-path policy apparatus that v7.2.0 still relied on
+for volume retention. With Plan 0028 there is exactly one place where Kopia
+retention is written: the global policy at repository `connect()` /
+`initialize()` time. No more hash-based smart-skip, no more auto-prune of
+orphans, no more divergent timing on rclone backends. Three atomic commits on
+`refactor/global-policy-only`.
+
+### 🚀 Performance & Reliability
+
+- **Backup hot path no longer writes per-path Kopia policies.** Plan 0026
+  trimmed staging-path policies; Plan 0028 removes the remaining volume
+  mountpoint writes too. On the rclone/Google-Drive backend that surfaced this
+  bottleneck, a 5-unit backup run that previously paid 5+ `kopia policy set`
+  round-trips now pays zero — global policy already covers every snapshot via
+  Kopia's policy inheritance tree.
+- **Global policy is applied on every `connect()`** (in addition to
+  `initialize()`). Idempotent (Kopia treats identical `--global` writes as a
+  no-op), so retention changes in `kopi-docka.json` reach Kopia on the next
+  run without a manual step.
+
+### 🗑️ Removed
+
+- `BackupManager._ensure_policies`, `BackupManager._apply_target_policy`,
+  `BackupManager.auto_prune_orphaned_policies` — the entire smart-skip +
+  auto-prune apparatus introduced in Plan 0026.
+- `BackupManager.policy_state` attribute and the `helpers/policy_state.py`
+  module (PolicyStateManager + `compute_policy_hash`).
+- `KopiaPolicyManager.set_retention_for_target` and
+  `set_compression_for_target` — global-only retention has no consumer for
+  these.
+- The `auto_prune_orphaned_policies()` call from `commands/backup_commands.py`.
+
+### 🧱 Refactor
+
+*(empty for Phase 1 — populated by Phase 2/3 commits)*
+
+### Upgrade Notes
+
+- Existing repositories that still carry per-path policies from older
+  kopi-docka versions are not actively cleaned up by the backup run anymore
+  (auto-prune is gone). They're harmless — Kopia merges per-path on top of
+  global so they'd still apply if anything, just not in a way you'd notice —
+  but they slow rclone backends down on every `kopia policy list` call.
+  Run **`kopi-docka advanced policy prune`** once after upgrading to flush
+  them out. The doctor now flags them as "Legacy Per-Path Policies" with the
+  same hint.
+- The systemd templates still carve out write access to
+  `/root/.config/kopi-docka`, but only for compatibility with leftover state
+  files from older versions — Plan 0028 itself writes nothing there.
+
 ## [7.2.1] - 2026-05-23
 
 ### 🐛 Fixed

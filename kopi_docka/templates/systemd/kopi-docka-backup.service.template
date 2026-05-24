@@ -83,7 +83,7 @@ ProtectHome=read-only
 # socket access). Without these, ProtectHome=read-only blocks:
 #   - Kopia rewriting the repo config on `kopia repository connect`
 #   - Kopia's password sidecar file
-#   - kopi-docka's policy_state.json smart-skip cache (since v7.2.0)
+#   - kopi-docka legacy state files under /root/.config/kopi-docka
 # The `-` prefix makes each path optional, so a fresh install where the
 # directory doesn't exist yet doesn't crash systemd's NAMESPACE setup.
 ReadWritePaths=-/root/.config/kopia -/root/.config/kopi-docka -/root/.cache/kopia

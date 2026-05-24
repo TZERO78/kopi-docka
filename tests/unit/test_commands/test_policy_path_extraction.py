@@ -117,7 +117,13 @@ class TestPolicyPruneOrphanDetection:
 
 @pytest.mark.unit
 class TestDoctorPolicyAlignment:
-    """``_check_policy_alignment`` must read paths from the flat snapshot dict."""
+    """``_check_policy_alignment`` reports legacy per-path policies after Plan 0028.
+
+    Plan 0028 made global the single source of retention truth, so any per-path
+    policy still in the repo is a leftover from older kopi-docka versions. The
+    doctor now flags those as "legacy" (with a hint to run ``policy prune``)
+    rather than as "orphaned vs uncovered".
+    """
 
     def _run_alignment(self, snapshots: list[dict], policies: list[dict]):
         """Drive ``_check_policy_alignment`` and return collected warnings."""
@@ -129,9 +135,10 @@ class TestDoctorPolicyAlignment:
 
         mock_policy_mgr = MagicMock()
         mock_policy_mgr.list_policies.return_value = policies
+        mock_policy_mgr.get_global_policy.return_value = {
+            "retention": {"keepLatest": 10}
+        }
 
-        # KopiaPolicyManager is imported lazily inside _check_policy_alignment,
-        # so patch its source module.
         warnings: list[str] = []
         with patch(
             "kopi_docka.cores.kopia_policy_manager.KopiaPolicyManager",
@@ -141,24 +148,28 @@ class TestDoctorPolicyAlignment:
 
         return warnings
 
-    def test_aligned_policies_produce_no_warning(self):
-        """Bug regression: snapshot at /foo aligns with policy at /foo → no warning."""
+    def test_global_only_repo_produces_no_warning(self):
+        """Clean state — only the global policy is present, no per-path leftovers."""
+        snapshots = [_flat_snapshot("/foo")]
+        policies: list[dict] = []  # global-only repo
+
+        warnings = self._run_alignment(snapshots, policies)
+
+        assert warnings == [], (
+            f"Expected no warning for a global-only repo; got {warnings!r}"
+        )
+
+    def test_any_per_path_policy_is_flagged_as_legacy(self):
+        """Per-path policy left over from older versions must surface as a warning
+        even when a matching snapshot exists — Plan 0028 made them obsolete."""
         snapshots = [_flat_snapshot("/foo")]
         policies = [_policy("/foo")]
 
         warnings = self._run_alignment(snapshots, policies)
 
-        assert warnings == [], (
-            f"Expected no orphan warning when paths align; got {warnings!r}"
+        assert any("legacy" in w.lower() for w in warnings), (
+            f"Expected a legacy-policy warning; got {warnings!r}"
         )
-
-    def test_truly_orphaned_policy_still_warns(self):
-        """Sanity: when a policy has no matching snapshot, doctor still warns."""
-        snapshots = [_flat_snapshot("/foo")]
-        policies = [_policy("/foo"), _policy("/bar")]
-
-        warnings = self._run_alignment(snapshots, policies)
-
-        assert any("orphan" in w.lower() for w in warnings), (
-            f"Expected at least one orphan warning; got {warnings!r}"
+        assert any("policy prune" in w.lower() for w in warnings), (
+            "Warning must point users at 'kopi-docka advanced policy prune'"
         )
