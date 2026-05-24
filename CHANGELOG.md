@@ -5,6 +5,46 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.3.12] - 2026-05-24
+
+### 🐛 Fixed — Tailscale backend now uses the real Tailnet FQDN
+
+The Tailscale backend hard-coded a fake `.tailnet` suffix when building
+SSH and Kopia commands — a suffix that **no modern Tailnet uses**.
+Tailscale moved to per-tailnet DNS names like `tailXXXXX.ts.net` or
+custom names (e.g. `beetal-vega.ts.net`) years ago.
+
+On the first live setup against a real Tailnet this surfaced as:
+
+```
+ssh-copy-id: ERROR: ssh: Could not resolve hostname tzero-server.tailnet:
+                          Name or service not known
+✗ Error setting up SSH key
+```
+
+…and the wizard then happily wrote `--host=TZERO-SERVER` (bare
+hostname) into `kopia_params`, which also wouldn't resolve under sudo
+because of search-domain quirks.
+
+The fix is two-line conceptually:
+
+- `TailscalePeer` now carries a `dns_name` field populated from
+  `tailscale status --json`'s `DNSName` field (the trailing dot is
+  stripped). A `peer.fqdn` property falls back to the bare hostname
+  if no DNS name is exposed.
+- All four places that used to write `<hostname>.tailnet` —
+  `ssh-copy-id` target, the SFTP `--path` / `--host` in
+  `kopia_params`, the SSH command in `test_connection`, and the
+  disaster-recovery markdown — now use that real FQDN.
+
+The wizard writes both `peer_hostname` (display-only) and
+`peer_fqdn` (the actual address) into `credentials`. Existing configs
+written before v7.3.12 keep working: code that reads credentials does
+`creds.get("peer_fqdn") or creds.get("peer_hostname")` and just uses
+the bare hostname for the old ones.
+
+---
+
 ## [7.3.11] - 2026-05-24
 
 ### 📝 Documentation + doctor warning — rclone known-slow-path
