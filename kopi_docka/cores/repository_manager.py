@@ -625,6 +625,39 @@ class KopiaRepository:
             raise RuntimeError(f"Could not determine snapshot ID from output: {proc.stdout[:200]}")
         return snap_id
 
+    def create_snapshots(self, sources: list) -> List[str]:
+        """Create one Kopia snapshot per BackupSource. Sequential by design.
+
+        Returns a list of snapshot IDs in the same order as ``sources``.
+        An empty string at index ``i`` means that source's snapshot failed
+        (the underlying exception is already logged); callers can scan the
+        list to map failures back to a kind/volume tag.
+
+        Plan 0028 Phase 3: Kopia has no native multi-path ``snapshot create``
+        yet — upstream issue kopia/kopia#1725 tracks it. When that lands,
+        swap the body for the multi-path call; all callers stay unchanged.
+        We deliberately stay sequential here even though a ThreadPool would
+        be possible — on VPS-class hardware against remote backends, log
+        determinism and predictable rclone behaviour beat raw throughput.
+        """
+        results: List[str] = []
+        for src in sources:
+            try:
+                snap_id = self.create_snapshot(src.path, tags=src.tags)
+            except Exception as e:
+                logger.error(
+                    "Snapshot create failed for source",
+                    extra={
+                        "path": src.path,
+                        "kind": getattr(src, "kind", ""),
+                        "error": str(e),
+                    },
+                )
+                results.append("")
+                continue
+            results.append(snap_id)
+        return results
+
     def create_snapshot_from_stdin(
         self,
         stdin: IO[bytes],

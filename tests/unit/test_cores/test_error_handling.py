@@ -159,8 +159,11 @@ class TestPartialVolumeFailure:
 
     @patch("kopi_docka.cores.backup_manager.run_command")
     def test_continues_after_single_volume_failure(self, mock_run):
-        """Should continue backing up other volumes after one fails."""
+        """Plan 0028: a per-source failure in repo.create_snapshots is signaled
+        by an empty string in the result list at that index. backup_unit must
+        still process the remaining sources and count them in metadata."""
         from kopi_docka.cores.backup_manager import BackupManager
+        from kopi_docka.types import BackupSource
 
         mock_run.return_value = CompletedProcess([], 0, stdout="", stderr="")
 
@@ -172,7 +175,6 @@ class TestPartialVolumeFailure:
         manager.hooks_manager.execute_pre_backup.return_value = True
         manager.hooks_manager.execute_post_backup.return_value = True
         manager.hooks_manager.get_executed_hooks.return_value = []
-        manager.max_workers = 1
         manager.stop_timeout = 30
         manager.start_timeout = 60
         manager.exclude_patterns = []
@@ -180,23 +182,32 @@ class TestPartialVolumeFailure:
 
         unit = make_unit(containers=1, volumes=3)
 
-        call_count = [0]
+        def fake_collect(u, bid, scope):
+            return [
+                BackupSource(
+                    path=v.mountpoint,
+                    kind="volume",
+                    tags={"type": "volume", "unit": u.name, "volume": v.name,
+                          "backup_id": bid, "backup_format": "direct"},
+                )
+                for v in u.volumes
+            ]
 
-        def volume_backup(*args):
-            call_count[0] += 1
-            if call_count[0] == 2:
-                raise Exception("Volume 2 backup failed")
-            return f"snap{call_count[0]}"
+        manager._collect_backup_sources = Mock(side_effect=fake_collect)
+        manager.repo.create_snapshots = Mock(return_value=["snap1", "", "snap3"])
 
-        with patch.object(manager.volume_handler, "backup_volume", side_effect=volume_backup):
+        with patch.object(manager, "_stop_containers"), patch.object(
+            manager, "_start_containers"
+        ), patch.object(manager, "_save_metadata"):
             metadata = manager.backup_unit(unit, backup_scope=BACKUP_SCOPE_MINIMAL)
 
-        # Should have tried all 3 volumes
-        assert call_count[0] == 3
-        # 2 should have succeeded
+        # Two sources produced an ID, one failed
         assert metadata.volumes_backed_up == 2
-        # 1 error should be recorded
-        assert len(metadata.errors) >= 1
+        assert len(metadata.errors) == 1
+        # create_snapshots got the whole batch in one call
+        assert manager.repo.create_snapshots.call_count == 1
+        sources_passed = manager.repo.create_snapshots.call_args[0][0]
+        assert len(sources_passed) == 3
 
 
 # =============================================================================

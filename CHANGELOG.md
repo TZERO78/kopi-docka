@@ -47,10 +47,25 @@ orphans, no more divergent timing on rclone backends. Three atomic commits on
   helpers on ``BackupManager`` produce these — one per kind for
   recipes / networks / docker_config, one per volume for direct-mode
   volumes. The aggregate ``_collect_backup_sources()`` returns the full
-  ordered list ``backup_unit()`` would snapshot. No behaviour change in
-  this phase: ``backup_unit()`` still calls the legacy ``_backup_*``
-  wrappers, which now delegate to the collectors internally. Phase 3 will
-  wire the snapshot loop directly to ``_collect_backup_sources()``.
+  ordered list ``backup_unit()`` would snapshot.
+- **Single sequential snapshot entry point.** New
+  ``KopiaRepository.create_snapshots(sources)`` is the only call
+  ``backup_unit()`` makes to produce snapshots. It iterates ``sources`` in
+  order, returns one ID per source (empty string for failures so callers
+  can map failures back to a kind/volume), and is intentionally sequential
+  — see the docstring for the rationale and the Kopia upstream issue
+  (``kopia/kopia#1725``) that would let the body be swapped for a
+  multi-path call.
+- **ThreadPoolExecutor removed from the volume loop.** Per-volume
+  parallelism is gone (user preference: log determinism and predictable
+  rclone behaviour beat throughput on VPS-class hardware). If a future
+  user needs parallelism, ``kopia policy set --global --max-parallel-snapshots=N``
+  is the right knob at the Kopia layer.
+- **Discovery now runs before container stop.** Compose-file copy, docker
+  inspect, network export and config staging happen with containers
+  alive (docker inspect needs them); the snapshot loop runs after stop.
+  This is also a friendlier failure mode — a discovery error aborts
+  before anything is stopped.
 
 ### Upgrade Notes
 

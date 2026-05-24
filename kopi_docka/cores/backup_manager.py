@@ -31,7 +31,6 @@ Cold backup strategy:
 import json
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -114,6 +113,8 @@ class BackupManager:
         _preflight_error: Optional[BackendUnreachableError] = None
         _containers_stopped = False
 
+        metadata.docker_config_backed_up = False
+
         try:
             # 0) Pre-backup hook
             logger.info("Executing pre-backup hook...", extra={"unit_name": unit.name})
@@ -126,11 +127,15 @@ class BackupManager:
                 return metadata
 
             # Pre-flight is done once per backup run (in _run_backup), not per unit (Plan 0026).
-            # If we get here, the backend was reachable when the run started; transient
-            # failures mid-run will surface as KopiaCommandError from the first failing
-            # kopia call below and unwind via the existing error path.
 
-            # 1) Stop containers
+            # 1) Discovery — collect every BackupSource BEFORE stopping containers.
+            #    Plan 0028 Phase 3: staging dirs + docker inspect happen while
+            #    containers are running (Inspect needs them alive); the snapshot
+            #    loop below runs after the stop and only touches static paths.
+            logger.info("Collecting backup sources...", extra={"unit_name": unit.name})
+            sources = self._collect_backup_sources(unit, backup_id, backup_scope)
+
+            # 2) Stop containers
             logger.info(
                 f"Stopping {len(unit.containers)} containers...",
                 extra={"unit_name": unit.name},
@@ -138,76 +143,50 @@ class BackupManager:
             self._stop_containers(unit.containers, service_handler)
             _containers_stopped = True
 
-            # 2) Recipes (skip for minimal scope)
-            if backup_scope != BACKUP_SCOPE_MINIMAL:
-                logger.info("Backing up recipes...", extra={"unit_name": unit.name})
-                recipe_snapshot = self._backup_recipes(unit, backup_id, backup_scope)
-                if recipe_snapshot:
-                    metadata.kopia_snapshot_ids.append(recipe_snapshot)
-            else:
-                logger.info(
-                    "Skipping recipes backup (minimal scope)", extra={"unit_name": unit.name}
-                )
+            # 3) Snapshot loop — sequential per Plan 0028.
+            #    repo.create_snapshots() returns one ID per source in order;
+            #    empty string marks per-source failure (already logged).
+            from ..helpers.constants import BACKUP_FORMAT_DEFAULT, BACKUP_FORMAT_DIRECT
 
-            # 2.5) Networks (standard and full scopes)
-            if backup_scope in [BACKUP_SCOPE_STANDARD, BACKUP_SCOPE_FULL]:
-                logger.info("Backing up networks...", extra={"unit_name": unit.name})
-                network_snapshot, network_count = self._backup_networks(unit, backup_id, backup_scope)
-                if network_snapshot:
-                    metadata.kopia_snapshot_ids.append(network_snapshot)
-                    metadata.networks_backed_up = network_count
-            else:
-                logger.debug(
-                    f"Skipping networks backup (scope: {backup_scope})",
-                    extra={"unit_name": unit.name},
-                )
-
-            # 2.6) Docker daemon config (full scope only)
-            if backup_scope == BACKUP_SCOPE_FULL:
-                logger.info("Backing up Docker daemon configuration...", extra={"unit_name": unit.name})
-                docker_config_snapshot = self._backup_docker_config(unit, backup_id, backup_scope)
-                if docker_config_snapshot:
-                    metadata.kopia_snapshot_ids.append(docker_config_snapshot)
+            snapshot_ids = self.repo.create_snapshots(sources)
+            for src, snap_id in zip(sources, snapshot_ids):
+                if not snap_id:
+                    label = src.tags.get("volume") or src.kind
+                    metadata.errors.append(f"Failed to snapshot {src.kind}: {label}")
+                    continue
+                metadata.kopia_snapshot_ids.append(snap_id)
+                if src.kind == "volume":
+                    metadata.volumes_backed_up += 1
+                elif src.kind == "network":
+                    metadata.networks_backed_up = int(src.tags.get("network_count", "0"))
+                elif src.kind == "docker_config":
                     metadata.docker_config_backed_up = True
-                else:
-                    metadata.docker_config_backed_up = False
-            else:
-                metadata.docker_config_backed_up = False
 
-            # 3) Volumes (parallel)
-            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                futures = []
+            # 4) TAR-mode volume fallback (legacy).
+            #    Direct mode's volumes are already covered by _collect_volume_sources
+            #    above. TAR mode pipes through stdin and can't be expressed as a
+            #    BackupSource, so it stays on the legacy per-volume call. No
+            #    parallelism — sequential by Plan 0028 design.
+            if BACKUP_FORMAT_DEFAULT != BACKUP_FORMAT_DIRECT:
                 for volume in unit.volumes:
-                    futures.append(
-                        (
-                            volume.name,
-                            executor.submit(self.volume_handler.backup_volume, volume, unit, backup_id, backup_scope),
-                        )
-                    )
-
-                task_timeout = max(0, self.config.getint("backup", "task_timeout", 0))
-                for vol_name, fut in futures:
                     try:
-                        snap_id = fut.result(timeout=task_timeout or None)
-                        if snap_id:
-                            metadata.kopia_snapshot_ids.append(snap_id)
-                            metadata.volumes_backed_up += 1
-                            logger.debug(
-                                f"Completed volume backup: {vol_name}",
-                                extra={"unit_name": unit.name, "volume": vol_name},
-                            )
-                        else:
-                            metadata.errors.append(f"Failed to backup volume: {vol_name}")
-                            logger.warning(
-                                f"No snapshot created for volume: {vol_name}",
-                                extra={"unit_name": unit.name},
-                            )
+                        snap_id = self.volume_handler.backup_volume(
+                            volume, unit, backup_id, backup_scope
+                        )
                     except Exception as e:
-                        metadata.errors.append(f"Error backing up volume {vol_name}: {str(e)}")
+                        metadata.errors.append(
+                            f"Error backing up volume {volume.name}: {e}"
+                        )
                         logger.error(
-                            f"Exception during volume backup {vol_name}: {e}",
+                            f"Exception during TAR-mode volume backup {volume.name}: {e}",
                             extra={"unit_name": unit.name},
                         )
+                        continue
+                    if snap_id:
+                        metadata.kopia_snapshot_ids.append(snap_id)
+                        metadata.volumes_backed_up += 1
+                    else:
+                        metadata.errors.append(f"Failed to backup volume: {volume.name}")
 
         except BackendUnreachableError as e:
             _preflight_error = e
