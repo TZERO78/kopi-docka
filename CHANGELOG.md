@@ -5,6 +5,28 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.3.6] - 2026-05-24
+
+### 📝 Convention
+
+- **Config template `version` field now tracks the kopi-docka release.**
+  The shipped `kopi_docka/templates/config_template.json` carried
+  `"version": "3.0"` since the v3.0 schema reshuffle and nobody had
+  bumped it since. From v7.3.6 on, this field mirrors the kopi-docka
+  release that wrote it (so a fresh `advanced config new` against
+  v7.3.6 produces a file marked `"version": "7.3.6"`). This is purely
+  a marker — Pydantic accepts any string — but it makes "which release
+  generated this config file?" answerable by opening the file. Existing
+  user configs are untouched; the migration helper does not rewrite the
+  field (it's a user value, by the rule "don't overwrite what's already
+  there").
+
+- **Release checklist in CLAUDE.md** updated: the config template now
+  joins `pyproject.toml`, `helpers/constants.py`, `CLAUDE.md` and
+  `CHANGELOG.md` as a file to bump on every release.
+
+---
+
 ## [7.3.5] - 2026-05-24
 
 ### 📝 Documentation / UX
