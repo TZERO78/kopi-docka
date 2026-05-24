@@ -885,16 +885,43 @@ class Config:
             DEFAULT_CONFIG_PATHS["root"],  # /etc/... als Fallback
         ]
 
+        # Two-pass discovery so we can distinguish "no config exists yet"
+        # from "config exists but we can't read it" (almost always a
+        # missing-sudo error on /etc/kopi-docka.json). The old single
+        # pass would log a warning, fall through, and silently create
+        # a second config in $HOME with default password and default
+        # repo path — a real data-loss footgun for users who already
+        # had a working /etc-scoped install.
+        unreadable: list[Path] = []
         for location in search_order:
             expanded_location = Path(location).expanduser()
-            if expanded_location.exists():
-                if os.access(expanded_location, os.R_OK):
-                    logger.debug(f"Using config file: {expanded_location}")
-                    return expanded_location
-                else:
-                    logger.warning(f"Config file exists but not readable: {expanded_location}")
+            if not expanded_location.exists():
+                continue
+            if os.access(expanded_location, os.R_OK):
+                logger.debug(f"Using config file: {expanded_location}")
+                return expanded_location
+            unreadable.append(expanded_location)
 
-        # Nichts gefunden - nutze Standard basierend auf Benutzer
+        if unreadable:
+            paths_str = ", ".join(str(p) for p in unreadable)
+            hint = ""
+            if any(str(p).startswith("/etc/") for p in unreadable):
+                hint = (
+                    "\n\nIt's almost certainly a missing sudo: an /etc-scoped "
+                    "config is normally root-owned. Re-run the command with "
+                    "`sudo`."
+                )
+            raise PermissionError(
+                f"Configuration file exists but is not readable: {paths_str}."
+                f"{hint}\n\n"
+                "If you really want to start with a fresh user-scoped config "
+                "instead of using the existing one, point --config at a new "
+                "path explicitly (e.g. ~/.config/kopi-docka/config.json) — "
+                "kopi-docka will not silently create a second config when "
+                "an unreadable one already exists."
+            )
+
+        # Wirklich nichts gefunden - nutze Standard basierend auf Benutzer
         if os.geteuid() == 0:  # Running as root
             path = Path(DEFAULT_CONFIG_PATHS["root"])
         else:
