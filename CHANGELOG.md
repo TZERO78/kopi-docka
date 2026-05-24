@@ -5,6 +5,83 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.5.1] - 2026-05-24
+
+### 🔐 Disaster recovery — SSH-key hygiene + `recover.sh` exit-fix
+
+Plan 0030. While E2E-testing the v7.5.0 DR bundle two issues surfaced:
+
+1. **`recover.sh` exited with status 1 for every SFTP/Tailscale bundle.**
+   The generic `else` branch did `exit 1` after the unsupported-backend
+   message — even though the file-restore steps that ran before it had
+   succeeded. From the user's perspective recovery looked failed.
+2. **The bundle did not contain the SSH private key**, but the docs and
+   the script didn't make that clear. `RECOVERY-INSTRUCTIONS.txt`
+   didn't mention it, the export panel didn't either, and the doctor
+   command had no way to surface that the externally-held key was
+   actually still there. (The key is left out of the bundle on
+   purpose — defense in depth, NIST SP 800-57 key separation — but
+   that intent was invisible to the user.)
+
+#### Fixes & visibility
+
+- **`recover.sh` now has a proper SFTP branch.** It builds a
+  non-interactive `kopia repository connect sftp --path=… --host=…
+  --username=… --keyfile=… --known-hosts=…` from the bundle's
+  `recovery-info.json`. If the SSH key isn't present at the expected
+  path, the script prints a clear warning ("install the key with mode
+  600 and re-run") and exits 0 (no false failure).
+- **Unknown backends are also a clean exit 0** with a manual-connect
+  hint instead of the legacy hard-fail.
+- **`RECOVERY-INSTRUCTIONS.txt` has a new section "EXTERNAL SECRETS —
+  NOT IN THIS BUNDLE (BY DESIGN)"** for SFTP backends. It lists the
+  SSH key path + SHA256 fingerprint and gives concrete storage
+  suggestions (password manager attachment, separate USB stick, GPG-
+  symmetric, air-gapped paper printout). Cloud backends get an
+  analogous note pointing at the credential variables.
+- **The export command's success output now prints a second panel**
+  after "Bundle Created" — "⚠ Additional Secrets Required" — with
+  the same path + SHA256. So the reminder happens at the moment of
+  bundle creation, not just deep inside the ZIP.
+- **`kopi-docka doctor` Section 9 "Disaster Recovery Readiness"**
+  surfaces the SSH-key status on every health check: ✓ Found vs.
+  ✗ MISSING, and prints the SHA256 so the user has a fingerprint
+  to record for verification. Silent for non-SFTP backends.
+
+#### New opt-in: `--include-ssh-key`
+
+For users who explicitly want everything in one bundle (e.g. when the
+bundle is stored at a higher trust level than the SSH key itself —
+air-gapped offline storage, hardware vault), `disaster-recovery
+export` now accepts `--include-ssh-key`. Default OFF. The flag
+triggers a red warning panel and an explicit confirmation prompt
+(`--yes` to skip for automation). When enabled, the key is placed in
+the bundle under `ssh-key/<basename>` and `recover.sh` installs it at
+the expected path with mode 600 before connecting.
+
+The opt-in path is consistent across all three user-visible surfaces:
+- Export panel shows a red "Bundle INCLUDES your SSH private key" box
+- `RECOVERY-INSTRUCTIONS.txt` says "EXTERNAL SECRETS — INCLUDED IN THIS BUNDLE"
+- `recover.sh` has an "Installed embedded SSH key" install block
+
+#### Tests
+
+- `tests/unit/test_cores/test_disaster_recovery_manager.py`: +11 cases
+  covering the SFTP connect-shape, missing-key-graceful-exit, unknown-
+  backend exit-0 path, instructions external-secrets section for all
+  backend types, embedded-key install block, and the `sha256_file`
+  helper.
+- 1218 tests passing total (+11 vs. v7.5.0).
+
+#### Documentation
+
+- `docs/DISASTER_RECOVERY.md` has a new section "What's NOT in the
+  bundle (and why)" that documents the key-separation rationale, lists
+  exactly which credentials live outside the bundle per backend, and
+  describes the `--include-ssh-key` opt-in with its trade-offs.
+
+---
+
 ## [7.5.0] - 2026-05-24
 
 ### ✨ One-command migration for the v7.0–v7.3.13 Tailscale `kopia_params` bug
