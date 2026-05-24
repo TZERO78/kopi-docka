@@ -10,6 +10,7 @@ and sets up passwordless SSH access.
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -199,15 +200,28 @@ class TailscaleBackend(BackendBase):
             # offer manual / auto deployment.
             self._ensure_key_on_remote(selected_peer.fqdn, ssh_key_path)
 
-        # Get SSH user
+        # Get SSH user — required for the Kopia --username flag below.
         ssh_user = utils.prompt_text(f"{t('tailscale.ssh_user', lang)} [root]", default="root")
 
         # Build Kopia SFTP parameters using the FQDN — bare hostname depends on
         # search-domain resolution which doesn't always work under sudo / systemd.
         peer_fqdn = selected_peer.fqdn
-        kopia_params = (
-            f"sftp --path={peer_fqdn}:{remote_path} --host={peer_fqdn}"
-        )
+
+        # Kopia's SFTP backend rejects unattended connects without
+        # --known-hosts; populate it now so the wizard's first
+        # `repository init`/`status` doesn't hang on a host-key prompt.
+        known_hosts_path = self._ensure_known_hosts(peer_fqdn)
+
+        params = [
+            "sftp",
+            f"--path={shlex.quote(remote_path)}",
+            f"--host={peer_fqdn}",
+            f"--username={ssh_user}",
+            f"--keyfile={shlex.quote(str(ssh_key_path))}",
+        ]
+        if known_hosts_path is not None:
+            params.append(f"--known-hosts={shlex.quote(str(known_hosts_path))}")
+        kopia_params = " ".join(params)
 
         utils.print_separator()
         utils.print_success(f"Kopia params: {escape(kopia_params)}")
@@ -222,6 +236,7 @@ class TailscaleBackend(BackendBase):
                 "ssh_user": ssh_user,
                 "ssh_key": str(ssh_key_path),
                 "remote_path": remote_path,
+                "known_hosts": str(known_hosts_path) if known_hosts_path else "",
             },
         }
 
@@ -513,6 +528,71 @@ class TailscaleBackend(BackendBase):
             logger.debug(f"Ping latency check failed: {e}")
         return None
 
+    def _ensure_known_hosts(self, host: str) -> Optional[Path]:
+        """Make sure ``~/.ssh/known_hosts`` carries a host key for ``host``.
+
+        Kopia's SFTP backend can't answer interactive host-key prompts —
+        when launched under systemd/cron it just hangs forever. We populate
+        ``known_hosts`` with ``ssh-keyscan`` up front so the very first
+        ``repository init`` connects unattended.
+
+        Returns the known_hosts path on success, or ``None`` if we can't
+        guarantee a usable entry (caller drops the ``--known-hosts`` flag
+        in that case; Kopia will then fall through to its prompt path,
+        which at least surfaces the failure rather than hanging).
+        """
+        from kopi_docka.helpers import ui_utils as utils
+
+        known_hosts = Path.home() / ".ssh" / "known_hosts"
+        known_hosts.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+        # Already trusted? Skip the scan.
+        if known_hosts.exists():
+            try:
+                content = known_hosts.read_text()
+                if host in content:
+                    logger.debug("known_hosts already trusts %s", host)
+                    return known_hosts
+            except OSError as e:
+                logger.debug("known_hosts read failed: %s", e)
+
+        try:
+            scan = run_command(
+                ["ssh-keyscan", "-t", "ed25519,rsa,ecdsa", host],
+                f"Fetching host key for {host}",
+                timeout=15,
+                check=False,
+            )
+        except SubprocessError as e:
+            utils.print_warning(
+                f"ssh-keyscan failed for {host}: {e}. "
+                f"Continuing without --known-hosts; Kopia may prompt on "
+                f"first connect, which won't work under systemd/cron."
+            )
+            return None
+
+        if scan.returncode != 0 or not (scan.stdout or "").strip():
+            utils.print_warning(
+                f"ssh-keyscan returned no host key for {host}. "
+                f"Continuing without --known-hosts; you may need to add "
+                f"the key manually if backups stall on connect."
+            )
+            return None
+
+        try:
+            with open(known_hosts, "a", encoding="utf-8") as fh:
+                fh.write(scan.stdout)
+            known_hosts.chmod(0o600)
+        except OSError as e:
+            utils.print_warning(
+                f"Could not update {known_hosts}: {e}. Continuing without "
+                f"--known-hosts."
+            )
+            return None
+
+        utils.print_info(f"Added host key for {host} to {known_hosts}")
+        return known_hosts
+
     def _setup_ssh_key(self, host: str, key_path: Path) -> bool:
         """Setup SSH key for passwordless access.
 
@@ -647,8 +727,12 @@ class TailscaleBackend(BackendBase):
             "(or /root/.ssh/authorized_keys when connecting as root)[/dim]"
         )
         utils.console.print(
-            "[dim]  • Unraid: /boot/config/ssh/root  (persistent — survives "
-            "reboots; Unraid copies it to /root/.ssh/ on boot)[/dim]"
+            "[dim]  • Unraid 6.12+: /root/.ssh/authorized_keys is already "
+            "persistent (symlinked to /boot/config/ssh/root/) — paste there.[/dim]"
+        )
+        utils.console.print(
+            "[dim]  • Legacy Unraid (< 6.12): /boot/config/ssh/root  "
+            "(file — copied to /root/.ssh/ on boot)[/dim]"
         )
         utils.console.print(
             "[dim]  • Synology DSM: Control Panel → Terminal & SNMP → "
@@ -664,15 +748,26 @@ class TailscaleBackend(BackendBase):
             default="",
         )
 
-    def _mirror_key_to_persistent_path(self, host: str, key_path: Path) -> None:
-        """If the remote's /root/ is tmpfs (NAS-style boot, Unraid etc.),
-        copy authorized_keys into the conventional persistent location
-        (/boot/config/ssh/root). No-op on standard Linux servers where
-        /root/.ssh/authorized_keys is already persistent.
-        """
-        from kopi_docka.helpers import ui_utils as utils
+    # Probe tokens emitted by _classify_remote_ssh_layout below.
+    _LAYOUT_UNRAID_SYMLINKED = "unraid-modern-symlinked"
+    _LAYOUT_UNRAID_SEPARATE = "unraid-modern-separate"
+    _LAYOUT_UNRAID_LEGACY = "unraid-legacy"
+    _LAYOUT_STANDARD_LINUX = "standard-linux"
+    _LAYOUT_UNKNOWN = "unknown"
 
-        # 1) Probe: does the remote have an Unraid-style persistent SSH dir?
+    def _classify_remote_ssh_layout(self, host: str, key_path: Path) -> str:
+        """Figure out where the remote actually stores ``authorized_keys``.
+
+        Modern Unraid 6.12+ symlinks (or bind-mounts) ``/root/.ssh`` onto
+        ``/boot/config/ssh/root/``, so writing to ``/root/.ssh/authorized_keys``
+        is *already* persistent — the legacy "also append to
+        /boot/config/ssh/root" step (treating the persistent path as a
+        single file) actively destroys the directory's contents on those
+        systems. The pre-v7.4 code couldn't tell the cases apart.
+
+        We compare inodes of ``/root/.ssh`` and ``/boot/config/ssh/root``:
+        same inode → symlinked, no mirror needed.
+        """
         try:
             probe = run_command(
                 [
@@ -681,32 +776,112 @@ class TailscaleBackend(BackendBase):
                     "-o", "BatchMode=yes",
                     "-o", "ConnectTimeout=10",
                     f"root@{host}",
-                    "test -d /boot/config/ssh && echo yes || echo no",
+                    # GNU coreutils `stat -c '%d:%i'` for device+inode. We fall
+                    # back to BusyBox stat-less detection only if both
+                    # directories exist but we can't read inodes.
+                    "set -e; "
+                    "if [ -d /root/.ssh ] && [ -d /boot/config/ssh/root ]; then "
+                    "  INODE_LIVE=$(stat -c '%d:%i' /root/.ssh 2>/dev/null || echo live); "
+                    "  INODE_PERS=$(stat -c '%d:%i' /boot/config/ssh/root 2>/dev/null || echo pers); "
+                    "  if [ \"$INODE_LIVE\" = \"$INODE_PERS\" ]; then "
+                    f"    echo {self._LAYOUT_UNRAID_SYMLINKED}; "
+                    "  else "
+                    f"    echo {self._LAYOUT_UNRAID_SEPARATE}; "
+                    "  fi; "
+                    "elif [ -d /boot/config/ssh ]; then "
+                    f"  echo {self._LAYOUT_UNRAID_LEGACY}; "
+                    "else "
+                    f"  echo {self._LAYOUT_STANDARD_LINUX}; "
+                    "fi",
                 ],
-                "Probing for persistent SSH config path",
+                "Probing remote SSH-key layout",
                 timeout=15,
                 check=False,
             )
         except SubprocessError as e:
-            logger.debug("Persistent-path probe failed (skipping mirror): %s", e)
+            logger.debug("Layout probe failed: %s", e)
+            return self._LAYOUT_UNKNOWN
+
+        if probe.returncode != 0:
+            logger.debug(
+                "Layout probe non-zero exit (%s): %s",
+                probe.returncode,
+                (probe.stderr or "").strip()[:200],
+            )
+            return self._LAYOUT_UNKNOWN
+
+        output = (probe.stdout or "").strip().splitlines()
+        if not output:
+            return self._LAYOUT_UNKNOWN
+
+        # The probe ends with the layout token on the last line.
+        token = output[-1].strip()
+        if token in {
+            self._LAYOUT_UNRAID_SYMLINKED,
+            self._LAYOUT_UNRAID_SEPARATE,
+            self._LAYOUT_UNRAID_LEGACY,
+            self._LAYOUT_STANDARD_LINUX,
+        }:
+            return token
+        return self._LAYOUT_UNKNOWN
+
+    def _mirror_key_to_persistent_path(self, host: str, key_path: Path) -> None:
+        """If the remote's ``/root/.ssh`` is *not* on persistent storage
+        (NAS-style boot, older Unraid, etc.), copy authorized_keys into
+        the conventional persistent location.
+
+        Cases:
+
+        - ``unraid-modern-symlinked``: ``/root/.ssh`` is symlinked/bind-
+          mounted to ``/boot/config/ssh/root`` (Unraid 6.12+). The
+          ssh-copy-id write *is* persistent already; mirror is no-op.
+        - ``unraid-modern-separate``: both directories exist but live on
+          different filesystems — mirror to
+          ``/boot/config/ssh/root/authorized_keys`` (file *inside* the
+          directory).
+        - ``unraid-legacy``: pre-6.12 Unraid where
+          ``/boot/config/ssh/root`` is itself a file. Append there.
+        - ``standard-linux``: nothing to do.
+        - ``unknown``: probe failed — log debug and skip rather than
+          guess.
+        """
+        from kopi_docka.helpers import ui_utils as utils
+
+        layout = self._classify_remote_ssh_layout(host, key_path)
+
+        if layout == self._LAYOUT_UNRAID_SYMLINKED:
+            utils.print_info(
+                "Remote /root/.ssh is already persistent via symlink to "
+                "/boot/config/ssh/root (Unraid 6.12+) — skipping mirror."
+            )
             return
 
-        if "yes" not in (probe.stdout or ""):
-            # Standard Linux — /root/.ssh/authorized_keys is already on
-            # persistent storage, nothing more to do.
+        if layout == self._LAYOUT_STANDARD_LINUX:
             logger.debug(
-                "Remote %s: no /boot/config/ssh detected — treating /root as "
-                "persistent (standard Linux server).",
+                "Remote %s: standard Linux, /root/.ssh is persistent.", host
+            )
+            return
+
+        if layout == self._LAYOUT_UNKNOWN:
+            logger.debug(
+                "Remote %s: layout probe inconclusive — skipping persistent mirror.",
                 host,
             )
             return
 
-        # 2) Mirror the key
+        # Pick the right destination + write mode.
+        if layout == self._LAYOUT_UNRAID_SEPARATE:
+            dest = "/boot/config/ssh/root/authorized_keys"
+            mkdir_cmd = "mkdir -p /boot/config/ssh/root && "
+        else:  # _LAYOUT_UNRAID_LEGACY
+            dest = "/boot/config/ssh/root"
+            mkdir_cmd = "mkdir -p /boot/config/ssh && "
+
         utils.print_info(
             f"Detected USB-boot/tmpfs-style remote (e.g. Unraid). "
-            f"Also writing authorized_keys to /boot/config/ssh/root for "
-            f"reboot-persistence…"
+            f"Also writing authorized_keys to {dest} for reboot-persistence…"
         )
+
         try:
             run_command(
                 [
@@ -714,17 +889,17 @@ class TailscaleBackend(BackendBase):
                     "-o", "StrictHostKeyChecking=no",
                     "-o", "BatchMode=yes",
                     f"root@{host}",
-                    # Append to /boot/config/ssh/root (don't overwrite — other
-                    # keys may already live there for the user's other tools).
+                    # Append to dest (don't overwrite — other keys may
+                    # already live there for the user's other tools).
                     # touch+chmod first so the file exists with safe perms.
-                    "mkdir -p /boot/config/ssh && "
-                    "touch /boot/config/ssh/root && "
-                    "chmod 600 /boot/config/ssh/root && "
+                    f"{mkdir_cmd}"
+                    f"touch {dest} && "
+                    f"chmod 600 {dest} && "
                     # Only append if our key isn't already present
-                    "(grep -qFx \"$(cat /root/.ssh/authorized_keys | tail -n1)\" "
-                    "/boot/config/ssh/root || "
-                    "cat /root/.ssh/authorized_keys | tail -n1 "
-                    ">> /boot/config/ssh/root) && "
+                    f"(grep -qFx \"$(cat /root/.ssh/authorized_keys | tail -n1)\" "
+                    f"{dest} || "
+                    f"cat /root/.ssh/authorized_keys | tail -n1 "
+                    f">> {dest}) && "
                     "echo persistent-write-ok",
                 ],
                 "Writing persistent SSH key",
@@ -732,15 +907,14 @@ class TailscaleBackend(BackendBase):
                 check=True,
             )
             utils.print_success(
-                "SSH key also stored at /boot/config/ssh/root — "
-                "survives remote reboots."
+                f"SSH key also stored at {dest} — survives remote reboots."
             )
         except SubprocessError as e:
             utils.print_warning(
                 f"Could not write persistent SSH key path on remote: {e}. "
                 f"The key works for now but may be lost on remote reboot. "
-                f"Manually copy /root/.ssh/authorized_keys → "
-                f"/boot/config/ssh/root on the remote to fix this."
+                f"Manually copy /root/.ssh/authorized_keys → {dest} "
+                f"on the remote to fix this."
             )
 
     def _verify_passwordless(self, host: str, key_path: Path) -> bool:

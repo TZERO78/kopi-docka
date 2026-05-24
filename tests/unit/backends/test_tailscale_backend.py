@@ -4,6 +4,7 @@ Unit tests for Tailscale backend dependency checking.
 Tests REQUIRED_TOOLS enforcement for Tailscale SSH-based backup backend.
 """
 
+from pathlib import Path
 from unittest.mock import patch, Mock
 import pytest
 
@@ -218,3 +219,288 @@ class TestSetupInteractiveDependencyCheck:
             # Other errors are OK for this test - we just care that DependencyError wasn't raised
             if isinstance(e, DependencyError):
                 pytest.fail("DependencyError should not be raised when dependencies are present")
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 (Plan 0029): wizard must emit kopia_params with separate
+# --path/--host/--username/--keyfile/--known-hosts flags — Kopia's SFTP
+# backend rejects --path=HOST:PATH and refuses to connect without
+# --username, which silently broke every v7.0.0–v7.3.13 wizard run.
+# ---------------------------------------------------------------------------
+
+
+def _run_setup_interactive(backend, *, known_hosts_return, ssh_user="root", remote_path="/mnt/backup"):
+    """Drive setup_interactive() to completion with all SSH/peer work mocked.
+
+    Returns the dict produced by the wizard.
+    """
+    from pathlib import Path as _Path
+
+    peer = Mock()
+    peer.hostname = "TZERO-SERVER"
+    peer.fqdn = "tzero-server.beetal-vega.ts.net"
+    peer.ip = "100.64.0.2"
+    peer.online = True
+    peer.os = "linux"
+
+    with patch.object(TailscaleBackend, '_is_running', return_value=True), \
+         patch.object(TailscaleBackend, '_list_peers', return_value=[peer]), \
+         patch.object(TailscaleBackend, '_setup_ssh_key', return_value=True), \
+         patch.object(TailscaleBackend, '_ensure_key_on_remote', return_value=None), \
+         patch.object(TailscaleBackend, '_ensure_known_hosts', return_value=known_hosts_return), \
+         patch.object(_Path, 'exists', return_value=True), \
+         patch('kopi_docka.helpers.ui_utils.prompt_select', return_value=peer), \
+         patch('kopi_docka.helpers.ui_utils.prompt_text', side_effect=[remote_path, ssh_user]), \
+         patch('kopi_docka.helpers.ui_utils.prompt_confirm', return_value=True), \
+         patch('kopi_docka.helpers.dependency_helper.DependencyHelper.missing', return_value=[]):
+        return backend.setup_interactive()
+
+
+class TestSetupInteractiveKopiaParams:
+    """Plan 0029 / Phase 1 — kopia_params shape correctness."""
+
+    def test_kopia_params_contains_all_required_flags(self, tailscale_backend):
+        result = _run_setup_interactive(
+            tailscale_backend,
+            known_hosts_return=Path("/root/.ssh/known_hosts"),
+        )
+        params = result["kopia_params"]
+        assert params.startswith("sftp ")
+        assert "--path=" in params
+        assert "--host=tzero-server.beetal-vega.ts.net" in params
+        assert "--username=root" in params
+        assert "--keyfile=" in params
+
+    def test_kopia_params_path_has_no_host_prefix(self, tailscale_backend):
+        """Regression: the v7.0–v7.3.13 bug shipped --path=HOST:PATH."""
+        result = _run_setup_interactive(
+            tailscale_backend,
+            known_hosts_return=Path("/root/.ssh/known_hosts"),
+            remote_path="/mnt/user/backups/kopi-docka",
+        )
+        params = result["kopia_params"]
+
+        # Find the --path= value via the same shlex split production uses
+        import shlex as _shlex
+        for tok in _shlex.split(params):
+            if tok.startswith("--path="):
+                path_value = tok.split("=", 1)[1]
+                break
+        else:
+            pytest.fail(f"No --path= flag in {params!r}")
+
+        assert ":" not in path_value, (
+            f"--path={path_value!r} still contains a host prefix — that is the "
+            f"exact wizard bug Plan 0029 fixes."
+        )
+        assert path_value == "/mnt/user/backups/kopi-docka"
+
+    def test_known_hosts_flag_added_when_present(self, tailscale_backend):
+        result = _run_setup_interactive(
+            tailscale_backend,
+            known_hosts_return=Path("/root/.ssh/known_hosts"),
+        )
+        assert "--known-hosts=" in result["kopia_params"]
+        assert result["credentials"]["known_hosts"] == "/root/.ssh/known_hosts"
+
+    def test_known_hosts_flag_missing_when_keyscan_fails(self, tailscale_backend):
+        """If ssh-keyscan fails, the wizard must drop --known-hosts entirely
+        (rather than emitting --known-hosts= with an empty value, which
+        Kopia would reject)."""
+        result = _run_setup_interactive(
+            tailscale_backend,
+            known_hosts_return=None,
+        )
+        assert "--known-hosts" not in result["kopia_params"]
+        assert result["credentials"]["known_hosts"] == ""
+
+    def test_credentials_record_ssh_user(self, tailscale_backend):
+        result = _run_setup_interactive(
+            tailscale_backend,
+            known_hosts_return=Path("/root/.ssh/known_hosts"),
+            ssh_user="backupuser",
+        )
+        assert result["credentials"]["ssh_user"] == "backupuser"
+        assert "--username=backupuser" in result["kopia_params"]
+
+
+class TestEnsureKnownHosts:
+    """Plan 0029 / Phase 1 — _ensure_known_hosts() behaviour."""
+
+    def test_returns_existing_path_when_host_already_trusted(self, tailscale_backend, tmp_path):
+        kh = tmp_path / ".ssh" / "known_hosts"
+        kh.parent.mkdir(parents=True)
+        kh.write_text("peer.example.com ssh-ed25519 AAAA...\n")
+
+        with patch.object(Path, 'home', return_value=tmp_path):
+            result = tailscale_backend._ensure_known_hosts("peer.example.com")
+
+        assert result == kh
+
+    def test_runs_keyscan_and_appends_when_not_trusted(self, tailscale_backend, tmp_path):
+        kh = tmp_path / ".ssh" / "known_hosts"
+
+        fake_scan = Mock()
+        fake_scan.returncode = 0
+        fake_scan.stdout = "peer.example.com ssh-ed25519 AAAAFAKE\n"
+
+        with patch.object(Path, 'home', return_value=tmp_path), \
+             patch('kopi_docka.backends.tailscale.run_command', return_value=fake_scan):
+            result = tailscale_backend._ensure_known_hosts("peer.example.com")
+
+        assert result == kh
+        assert "AAAAFAKE" in kh.read_text()
+
+    def test_returns_none_when_keyscan_returns_empty(self, tailscale_backend, tmp_path):
+        fake_scan = Mock()
+        fake_scan.returncode = 1
+        fake_scan.stdout = ""
+
+        with patch.object(Path, 'home', return_value=tmp_path), \
+             patch('kopi_docka.backends.tailscale.run_command', return_value=fake_scan):
+            result = tailscale_backend._ensure_known_hosts("peer.example.com")
+
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 (Plan 0029): _mirror_key_to_persistent_path must classify the
+# remote's SSH layout via inode comparison and skip the redundant mirror
+# on modern Unraid where /root/.ssh is already symlinked to
+# /boot/config/ssh/root/.
+# ---------------------------------------------------------------------------
+
+
+def _fake_probe(token: str, *, returncode: int = 0):
+    """Return a Mock that mimics run_command()'s CompletedProcess-ish shape."""
+    p = Mock()
+    p.returncode = returncode
+    p.stdout = token + "\n"
+    p.stderr = ""
+    return p
+
+
+class TestClassifyRemoteSshLayout:
+    """_classify_remote_ssh_layout reads the trailing token from the probe."""
+
+    def test_modern_symlinked(self, tailscale_backend):
+        with patch(
+            'kopi_docka.backends.tailscale.run_command',
+            return_value=_fake_probe(TailscaleBackend._LAYOUT_UNRAID_SYMLINKED),
+        ):
+            result = tailscale_backend._classify_remote_ssh_layout(
+                "peer", Path("/tmp/key")
+            )
+        assert result == TailscaleBackend._LAYOUT_UNRAID_SYMLINKED
+
+    def test_modern_separate(self, tailscale_backend):
+        with patch(
+            'kopi_docka.backends.tailscale.run_command',
+            return_value=_fake_probe(TailscaleBackend._LAYOUT_UNRAID_SEPARATE),
+        ):
+            assert tailscale_backend._classify_remote_ssh_layout(
+                "peer", Path("/tmp/key")
+            ) == TailscaleBackend._LAYOUT_UNRAID_SEPARATE
+
+    def test_legacy(self, tailscale_backend):
+        with patch(
+            'kopi_docka.backends.tailscale.run_command',
+            return_value=_fake_probe(TailscaleBackend._LAYOUT_UNRAID_LEGACY),
+        ):
+            assert tailscale_backend._classify_remote_ssh_layout(
+                "peer", Path("/tmp/key")
+            ) == TailscaleBackend._LAYOUT_UNRAID_LEGACY
+
+    def test_standard_linux(self, tailscale_backend):
+        with patch(
+            'kopi_docka.backends.tailscale.run_command',
+            return_value=_fake_probe(TailscaleBackend._LAYOUT_STANDARD_LINUX),
+        ):
+            assert tailscale_backend._classify_remote_ssh_layout(
+                "peer", Path("/tmp/key")
+            ) == TailscaleBackend._LAYOUT_STANDARD_LINUX
+
+    def test_returns_unknown_on_failure(self, tailscale_backend):
+        with patch(
+            'kopi_docka.backends.tailscale.run_command',
+            return_value=_fake_probe("", returncode=255),
+        ):
+            assert tailscale_backend._classify_remote_ssh_layout(
+                "peer", Path("/tmp/key")
+            ) == TailscaleBackend._LAYOUT_UNKNOWN
+
+    def test_returns_unknown_on_subprocess_error(self, tailscale_backend):
+        from kopi_docka.helpers.ui_utils import SubprocessError
+        with patch(
+            'kopi_docka.backends.tailscale.run_command',
+            side_effect=SubprocessError("ssh exploded", 255),
+        ):
+            assert tailscale_backend._classify_remote_ssh_layout(
+                "peer", Path("/tmp/key")
+            ) == TailscaleBackend._LAYOUT_UNKNOWN
+
+
+class TestMirrorPersistentPath:
+    """_mirror_key_to_persistent_path dispatches on the classified layout."""
+
+    def test_unraid_modern_symlinked_skips_mirror(self, tailscale_backend):
+        with patch.object(
+            TailscaleBackend,
+            '_classify_remote_ssh_layout',
+            return_value=TailscaleBackend._LAYOUT_UNRAID_SYMLINKED,
+        ), patch('kopi_docka.backends.tailscale.run_command') as mock_run:
+            tailscale_backend._mirror_key_to_persistent_path("peer", Path("/tmp/key"))
+
+        # No ssh-write call should fire for the symlinked case.
+        assert mock_run.call_count == 0
+
+    def test_standard_linux_skips_mirror(self, tailscale_backend):
+        with patch.object(
+            TailscaleBackend,
+            '_classify_remote_ssh_layout',
+            return_value=TailscaleBackend._LAYOUT_STANDARD_LINUX,
+        ), patch('kopi_docka.backends.tailscale.run_command') as mock_run:
+            tailscale_backend._mirror_key_to_persistent_path("peer", Path("/tmp/key"))
+        assert mock_run.call_count == 0
+
+    def test_unknown_layout_skips_mirror(self, tailscale_backend):
+        with patch.object(
+            TailscaleBackend,
+            '_classify_remote_ssh_layout',
+            return_value=TailscaleBackend._LAYOUT_UNKNOWN,
+        ), patch('kopi_docka.backends.tailscale.run_command') as mock_run:
+            tailscale_backend._mirror_key_to_persistent_path("peer", Path("/tmp/key"))
+        assert mock_run.call_count == 0
+
+    def test_unraid_modern_separate_writes_into_root_directory(self, tailscale_backend):
+        with patch.object(
+            TailscaleBackend,
+            '_classify_remote_ssh_layout',
+            return_value=TailscaleBackend._LAYOUT_UNRAID_SEPARATE,
+        ), patch('kopi_docka.backends.tailscale.run_command') as mock_run:
+            mock_run.return_value = Mock(returncode=0, stdout="persistent-write-ok\n", stderr="")
+            tailscale_backend._mirror_key_to_persistent_path("peer", Path("/tmp/key"))
+
+        assert mock_run.call_count == 1
+        # The remote command (positional arg 0 → ssh argv list, last element
+        # is the shell command) must target the file inside the dir.
+        ssh_argv = mock_run.call_args[0][0]
+        remote_cmd = ssh_argv[-1]
+        assert "/boot/config/ssh/root/authorized_keys" in remote_cmd
+        # And not the legacy file-on-the-directory-path form
+        assert "touch /boot/config/ssh/root\n" not in remote_cmd
+
+    def test_unraid_legacy_writes_to_root_file(self, tailscale_backend):
+        with patch.object(
+            TailscaleBackend,
+            '_classify_remote_ssh_layout',
+            return_value=TailscaleBackend._LAYOUT_UNRAID_LEGACY,
+        ), patch('kopi_docka.backends.tailscale.run_command') as mock_run:
+            mock_run.return_value = Mock(returncode=0, stdout="persistent-write-ok\n", stderr="")
+            tailscale_backend._mirror_key_to_persistent_path("peer", Path("/tmp/key"))
+
+        assert mock_run.call_count == 1
+        ssh_argv = mock_run.call_args[0][0]
+        remote_cmd = ssh_argv[-1]
+        assert "touch /boot/config/ssh/root " in remote_cmd  # space after = file
+        assert "/boot/config/ssh/root/authorized_keys" not in remote_cmd
