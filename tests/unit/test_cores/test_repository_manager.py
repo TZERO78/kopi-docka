@@ -1050,3 +1050,114 @@ class TestMaybePatchRepoConfigForRclone:
         repo = self._setup_repo_with_home(tmp_path, monkeypatch, "rclone --remote-path=g:")
         # Must not raise — best-effort migration
         repo._maybe_patch_repo_config_for_rclone()
+
+
+# =============================================================================
+# Backend Mismatch Detection (v7.5.2)
+# =============================================================================
+
+
+def _write_kopia_config(tmp_path: Path, storage_type: str) -> None:
+    cfg_dir = tmp_path / ".config" / "kopia"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / "repository-kopi-docka.config").write_text(
+        json.dumps({"storage": {"type": storage_type, "config": {}}})
+    )
+
+
+def _setup_repo(tmp_path, monkeypatch, kopia_params: str) -> KopiaRepository:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = KopiaRepository.__new__(KopiaRepository)
+    repo.config = make_mock_config(kopia_params=kopia_params)
+    repo.kopia_params = kopia_params
+    repo.profile_name = "kopi-docka"
+    repo._rclone_timeout_patched = True
+    repo._connected_cache = None
+    return repo
+
+
+@pytest.mark.unit
+class TestStorageTypeHelpers:
+    """Tests for _current_storage_type and _expected_storage_type (v7.5.2)."""
+
+    def test_current_reads_storage_type(self, tmp_path, monkeypatch):
+        _write_kopia_config(tmp_path, "sftp")
+        repo = _setup_repo(tmp_path, monkeypatch, "sftp --path /x --host h")
+        assert repo._current_storage_type() == "sftp"
+
+    def test_current_returns_none_when_file_missing(self, tmp_path, monkeypatch):
+        repo = _setup_repo(tmp_path, monkeypatch, "sftp --path /x")
+        assert repo._current_storage_type() is None
+
+    def test_current_returns_none_on_broken_json(self, tmp_path, monkeypatch):
+        cfg_dir = tmp_path / ".config" / "kopia"
+        cfg_dir.mkdir(parents=True)
+        (cfg_dir / "repository-kopi-docka.config").write_text("{not json")
+        repo = _setup_repo(tmp_path, monkeypatch, "sftp --path /x")
+        assert repo._current_storage_type() is None
+
+    def test_expected_from_kopia_params(self, tmp_path, monkeypatch):
+        repo = _setup_repo(tmp_path, monkeypatch, "sftp --path /x --host h")
+        assert repo._expected_storage_type() == "sftp"
+
+    def test_expected_none_when_kopia_params_empty(self, tmp_path, monkeypatch):
+        repo = _setup_repo(tmp_path, monkeypatch, "")
+        assert repo._expected_storage_type() is None
+
+
+@pytest.mark.unit
+class TestInitializeBackendMismatch:
+    """Tests for the v7.5.2 backend-mismatch detection inside initialize().
+
+    Scenario from the field: user edits kopia_params from rclone -> sftp
+    in /etc/kopi-docka.json, but Kopia's own connect-config still points to
+    rclone. Pre-v7.5.2: initialize() saw is_connected()=True and exited as
+    a no-op. Post-v7.5.2: it must disconnect first so the subsequent
+    create/connect actually retargets to the new backend.
+    """
+
+    def test_disconnects_on_backend_mismatch(self, tmp_path, monkeypatch):
+        _write_kopia_config(tmp_path, "rclone")
+        repo = _setup_repo(tmp_path, monkeypatch, "sftp --path /x --host h")
+
+        # After disconnect, is_connected() should report False so the rest
+        # of initialize() proceeds with create+connect; we short-circuit
+        # there by stubbing _run to avoid the full kopia call chain.
+        repo.disconnect = Mock()
+        repo.is_connected = Mock(return_value=False)
+        repo._run = Mock(return_value=CompletedProcess([], 0, stdout="", stderr=""))
+        repo._get_rclone_args = Mock(return_value=[])
+        repo._get_cache_params = Mock(return_value=[])
+        repo._apply_global_defaults = Mock()
+
+        repo.initialize()
+
+        repo.disconnect.assert_called_once()
+
+    def test_does_not_disconnect_when_backend_matches(self, tmp_path, monkeypatch):
+        _write_kopia_config(tmp_path, "sftp")
+        repo = _setup_repo(tmp_path, monkeypatch, "sftp --path /x --host h")
+
+        repo.disconnect = Mock()
+        # is_connected()=True -> initialize() takes the existing short-circuit
+        repo.is_connected = Mock(return_value=True)
+
+        repo.initialize()
+
+        repo.disconnect.assert_not_called()
+
+    def test_does_not_disconnect_when_no_kopia_config_yet(self, tmp_path, monkeypatch):
+        # Fresh install: no Kopia connect-config on disk -> _current_storage_type()
+        # is None -> mismatch check must NOT trigger a disconnect.
+        repo = _setup_repo(tmp_path, monkeypatch, "sftp --path /x --host h")
+
+        repo.disconnect = Mock()
+        repo.is_connected = Mock(return_value=False)
+        repo._run = Mock(return_value=CompletedProcess([], 0, stdout="", stderr=""))
+        repo._get_rclone_args = Mock(return_value=[])
+        repo._get_cache_params = Mock(return_value=[])
+        repo._apply_global_defaults = Mock()
+
+        repo.initialize()
+
+        repo.disconnect.assert_not_called()
