@@ -73,21 +73,39 @@ def get_repository(ctx: typer.Context) -> Optional[KopiaRepository]:
 
 
 def ensure_repository(ctx: typer.Context) -> KopiaRepository:
-    """Ensure repository is connected."""
+    """Ensure repository is connected.
+
+    v7.3.10: a Rich spinner runs during the underlying
+    ``kopia repository status`` call. On rclone backends a cold start
+    (spawning the rclone-serve subprocess, OAuth refresh, first GDrive
+    API hit) routinely takes 60-120 s, and the previous version sat on
+    a dark terminal the whole time — looked indistinguishable from a
+    hang. The is_connected() result is cached for 60 s inside
+    KopiaRepository, so repeat calls within the same backup run are
+    instant.
+    """
     repo = get_repository(ctx)
     if not repo:
         print_error_panel("Repository not available")
         raise typer.Exit(code=1)
 
+    spinner_text = (
+        "[cyan]Connecting to repository…[/cyan] "
+        "[dim](rclone cold-start can take 60-120 s on Google Drive — "
+        "Kopia gives no progress output during this wait)[/dim]"
+    )
+
     try:
-        if repo.is_connected():
-            return repo
+        with console.status(spinner_text, spinner="dots"):
+            if repo.is_connected():
+                return repo
     except Exception:
         pass
 
     console.print("[cyan]Connecting to Kopia repository...[/cyan]")
     try:
-        repo.connect()
+        with console.status(spinner_text, spinner="dots"):
+            repo.connect()
     except Exception as e:
         print_error(f"Connect failed: {e}")
         raise typer.Exit(code=1)
@@ -221,7 +239,17 @@ def _run_backup(
     dep_manager = DependencyManager()
     dep_manager.check_hard_gate()
 
-    repo = ensure_repository(ctx)
+    # Dry-run is a pure simulation — it never writes a byte to the repo.
+    # Skipping the connectivity check here saves users on slow remote
+    # backends (rclone+GDrive: ~100 s cold-start) from waiting on
+    # `kopia repository status` just to see what *would* happen.
+    # v7.3.10: previously a `kopi-docka backup --dry-run` against a
+    # rclone backend always paid the ~100 s `kopia repository status`
+    # cold-start before showing the report.
+    if dry_run:
+        repo = None
+    else:
+        repo = ensure_repository(ctx)
 
     # Pre-flight backend connectivity check — once per backup run (Plan 0026).
     # Kopia connections are persistent via ~/.config/kopia/repository-<profile>.config;
@@ -229,8 +257,17 @@ def _run_backup(
     # If we instead checked per-unit (the old behavior), an N-unit run paid N × 35s
     # on slow backends, and a transient backend failure would stop containers in
     # each unit one-by-one before failing — pure downtime for no backup.
-    if cfg.getboolean("notifications", "preflight_check", fallback=True):
-        if not repo.is_connected(force_refresh=True):
+    #
+    # v7.3.10: we used to pass `force_refresh=True` here even though
+    # `ensure_repository` had just run a cached `is_connected()` ~4 s
+    # earlier — that bypassed the cache and forced a second
+    # `kopia repository status` round-trip (~4 s on warm rclone, up to a
+    # full cold-start if the cache had timed out). The cache TTL is
+    # 60 s and the call sequence here is tight, so a cached read is
+    # exactly what we want: still verifies connectivity within this
+    # backup run, but doesn't pay double on slow backends.
+    if not dry_run and cfg.getboolean("notifications", "preflight_check", fallback=True):
+        if not repo.is_connected():
             kopia_params = cfg.get("kopia", "kopia_params", fallback="")
             backend_type = kopia_params.strip().split()[0] if kopia_params.strip() else "unknown"
             print_error_panel(

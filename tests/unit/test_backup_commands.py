@@ -171,13 +171,22 @@ class TestBackupCommand:
         tmp_config,
         mock_backup_unit,
     ):
-        """backup --dry-run simulates without actual backup."""
+        """backup --dry-run simulates without actual backup.
+
+        v7.3.10: --dry-run must NOT touch the Kopia repository at all.
+        A dry-run is a pure simulation — calling `kopia repository status`
+        just to print the dry-run report would cost 90+ seconds on a cold
+        rclone start for zero value. The mock here intentionally lets
+        `is_connected` blow up if anyone calls it.
+        """
         mock_dep_manager_class.return_value.check_hard_gate.return_value = None
         mock_discovery = mock_discovery_class.return_value
         mock_discovery.discover_backup_units.return_value = [mock_backup_unit]
 
         mock_repo = mock_repo_class.return_value
-        mock_repo.is_connected.return_value = True
+        mock_repo.is_connected.side_effect = AssertionError(
+            "dry-run must not consult the Kopia repository"
+        )
 
         mock_report = mock_report_class.return_value
 
@@ -185,6 +194,12 @@ class TestBackupCommand:
 
         assert result.exit_code == 0
         mock_report.generate.assert_called_once()
+        mock_repo.is_connected.assert_not_called()
+        # KopiaRepository may or may not be instantiated upstream by
+        # `ensure_config`, but no kopia round-trip should fire.
+        assert not any(
+            "status" in str(c) for c in mock_repo.method_calls
+        )
 
     @patch("kopi_docka.cores.dependency_manager.DependencyManager")
     @patch("kopi_docka.commands.backup_commands.DockerDiscovery")

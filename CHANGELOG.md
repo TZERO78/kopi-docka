@@ -5,6 +5,44 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.3.10] - 2026-05-24
+
+### 🚀 Performance & UX — `kopi-docka backup`
+
+Live `--log-level debug` output on a real rclone+GDrive system showed
+that a `kopi-docka backup --dry-run` paid 98 seconds for a cold
+`kopia repository status` round-trip just to render a simulation report,
+and the subsequent real-backup pre-flight check paid another 4 s on a
+redundant `force_refresh=True` status call. Plus: those 98-102 s of
+black terminal had no progress indicator — looked indistinguishable
+from a hang.
+
+- **Dry-run skips the repository status check entirely.** A `--dry-run`
+  never writes a byte to the repo; consulting `kopia repository status`
+  served no purpose beyond paying the rclone cold-start tax. On the
+  testlab a dry-run dropped from ~98 s to **0.4 s**. The
+  `ensure_repository` step is only run for non-dry-run invocations now.
+- **Pre-flight check uses the cached `is_connected()` result.**
+  `ensure_repository` had just called `is_connected()` ~4 s earlier;
+  the pre-flight then passed `force_refresh=True` to bypass the 60 s
+  cache TTL and force a second `kopia repository status` round-trip
+  (~4 s warm, up to a full cold-start if the cache had expired). The
+  cache TTL is generous enough that the cached read is exactly what we
+  want — verifies connectivity within this backup run without doubling
+  the slow-backend cost.
+- **Rich spinner during the initial connect check** with an explicit
+  `"rclone cold-start can take 60-120 s on Google Drive"` hint. The
+  wait is physically unavoidable (Kopia spawns rclone-serve, OAuth
+  refresh, first GDrive API hit), but the user now sees that *something*
+  is happening instead of staring at a black terminal.
+
+Test: `test_backup_commands.py::test_backup_dry_run` now sets
+`mock_repo.is_connected.side_effect = AssertionError("dry-run must not
+consult the Kopia repository")` so any future regression that tries to
+re-introduce the dry-run status call fails loudly.
+
+---
+
 ## [7.3.9] - 2026-05-24
 
 ### 🚀 Performance — `apply_global_defaults` / `update_global_retention` are now read-before-write
