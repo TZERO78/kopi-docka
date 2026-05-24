@@ -50,37 +50,114 @@ class TestGetGlobalPolicy:
 
 
 class TestUpdateGlobalRetention:
-    def test_success_returns_true(self, policy):
-        policy.repo._run = Mock(return_value=make_proc(returncode=0))
+    """v7.3.9: read-before-write. The first ``_run`` call is always
+    ``kopia policy show --global --json`` (cheap read); the ``policy
+    set`` call only happens when the current policy doesn't already
+    match the requested values. Tests below feed two-element
+    ``side_effect`` arrays so both calls are stubbed.
+    """
+
+    def _show_response(self, **retention):
+        """Build a fake `policy show --global --json` response with the
+        given retention values. Empty retention dict by default."""
+        return make_proc(
+            stdout=json.dumps({"retention": retention}),
+            returncode=0,
+        )
+
+    def test_skips_write_when_kopia_already_matches(self, policy):
+        """The whole point of this fix: a redundant call must NOT issue
+        the multi-minute `policy set` round-trip on rclone backends."""
+        policy.repo._run = Mock(side_effect=[
+            self._show_response(
+                keepLatest=10, keepHourly=0, keepDaily=7,
+                keepWeekly=4, keepMonthly=12, keepAnnual=3,
+            ),
+        ])
+
         result = policy.update_global_retention(10, 0, 7, 4, 12, 3)
+
         assert result is True
+        # Only the read happened; no second call.
+        assert policy.repo._run.call_count == 1
+        assert "show" in policy.repo._run.call_args_list[0].args[0]
 
-    def test_failure_returns_false(self, policy):
-        policy.repo._run = Mock(return_value=make_proc(returncode=1))
+    def test_writes_when_kopia_does_not_match(self, policy):
+        policy.repo._run = Mock(side_effect=[
+            self._show_response(keepLatest=999),  # drifted
+            make_proc(returncode=0),              # the write
+        ])
+
         result = policy.update_global_retention(10, 0, 7, 4, 12, 3)
+
+        assert result is True
+        assert policy.repo._run.call_count == 2
+        write_args = policy.repo._run.call_args_list[1].args[0]
+        assert "set" in write_args
+        assert "--keep-latest" in write_args
+
+    def test_writes_when_show_returns_nothing(self, policy):
+        """If the show fails for any reason we fall back to writing —
+        better safe than skipping when we can't be sure."""
+        policy.repo._run = Mock(side_effect=[
+            make_proc(returncode=1, stdout=""),   # show fails
+            make_proc(returncode=0),              # write
+        ])
+
+        result = policy.update_global_retention(10, 0, 7, 4, 12, 3)
+
+        assert result is True
+        assert policy.repo._run.call_count == 2
+
+    def test_write_failure_returns_false(self, policy):
+        policy.repo._run = Mock(side_effect=[
+            self._show_response(keepLatest=999),   # drifted
+            make_proc(returncode=1),               # write fails
+        ])
+
+        result = policy.update_global_retention(10, 0, 7, 4, 12, 3)
+
         assert result is False
 
-    def test_none_result_returns_false(self, policy):
-        policy.repo._run = Mock(return_value=None)
+    def test_writes_when_only_one_value_differs(self, policy):
+        """All six values must match — a single mismatch triggers the
+        write (otherwise drift in one knob would never be corrected)."""
+        policy.repo._run = Mock(side_effect=[
+            self._show_response(
+                keepLatest=10, keepHourly=0, keepDaily=7,
+                keepWeekly=4, keepMonthly=999, keepAnnual=3,  # monthly drifted
+            ),
+            make_proc(returncode=0),
+        ])
+
         result = policy.update_global_retention(10, 0, 7, 4, 12, 3)
-        assert result is False
+
+        assert result is True
+        assert policy.repo._run.call_count == 2
 
     def test_passes_correct_args(self, policy):
-        policy.repo._run = Mock(return_value=make_proc(returncode=0))
+        policy.repo._run = Mock(side_effect=[
+            self._show_response(),       # empty — forces write
+            make_proc(returncode=0),
+        ])
         policy.update_global_retention(5, 2, 14, 8, 24, 6)
-        call_args = policy.repo._run.call_args[0][0]
-        assert "--keep-latest" in call_args
-        assert "5" in call_args
-        assert "--keep-daily" in call_args
-        assert "14" in call_args
-        assert "--global" in call_args
+
+        write_args = policy.repo._run.call_args_list[1].args[0]
+        assert "--keep-latest" in write_args
+        assert "5" in write_args
+        assert "--keep-daily" in write_args
+        assert "14" in write_args
+        assert "--global" in write_args
 
     def test_passes_annual_arg(self, policy):
-        policy.repo._run = Mock(return_value=make_proc(returncode=0))
+        policy.repo._run = Mock(side_effect=[
+            self._show_response(),
+            make_proc(returncode=0),
+        ])
         policy.update_global_retention(10, 0, 7, 4, 12, 3)
-        call_args = policy.repo._run.call_args[0][0]
-        assert "--keep-annual" in call_args
-        assert "3" in call_args
+        write_args = policy.repo._run.call_args_list[1].args[0]
+        assert "--keep-annual" in write_args
+        assert "3" in write_args
 
 
 class TestRunPassthrough:

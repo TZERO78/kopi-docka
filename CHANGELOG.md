@@ -5,6 +5,45 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.3.9] - 2026-05-24
+
+### 🚀 Performance — `apply_global_defaults` / `update_global_retention` are now read-before-write
+
+Plan 0028 (v7.3.0) made the global Kopia policy "idempotent on every
+connect". That was true at the Kopia layer — `kopia policy set --global`
+with identical values is a no-op for Kopia itself — but **not** at the
+network layer. On rclone backends `policy set` is a full repository
+metadata round-trip every time. A live system reported **296 seconds**
+(!) for a single retention re-write where every value already matched.
+
+`apply_global_defaults()` (called on every `connect()`) and
+`update_global_retention()` (called by `advanced snapshot retention set`)
+now both:
+
+1. Call `kopia policy show --global --json` first — that's a read, ~1-2 s.
+2. Compare every retention/compression value against what we'd write.
+3. **Skip the multi-minute write entirely if everything already matches.**
+
+Measured on the rclone+GDrive testlab:
+
+```
+Before (v7.3.8):  retention set with already-matching values → 286 s
+After  (v7.3.9):  retention set with already-matching values →   4 s
+                  (and a clear `Global retention already matches — no Kopia
+                   write needed` INFO log line)
+```
+
+The long write still happens — and only happens — when retention or
+compression actually drift between `kopi-docka.json` and the Kopia
+repo. That's the one case where the round-trip is worth it.
+
+Eight new tests in `tests/unit/test_cores/test_kopia_policy_manager.py`
+covering skip-when-matches, write-when-drifted, write-when-show-fails,
+write-failure-still-false, single-value-drift triggers write, and arg
+passthrough still correct.
+
+---
+
 ## [7.3.0 – 7.3.8] - 2026-05-24 — Plan 0028 + post-release stabilization
 
 Nine related releases over a single day. **Plan 0028 (v7.3.0)** was the
