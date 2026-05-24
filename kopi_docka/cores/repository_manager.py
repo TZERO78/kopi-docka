@@ -105,6 +105,36 @@ class KopiaRepository:
         cfg_dir.mkdir(parents=True, exist_ok=True)
         return str(cfg_dir / f"repository-{self.profile_name}.config")
 
+    def _current_storage_type(self) -> Optional[str]:
+        """Return the storage.type currently recorded in Kopia's connect-config,
+        or None if the file is missing/unparseable. Used by initialize() to
+        detect a backend mismatch (kopia_params says SFTP but Kopia is still
+        connected to the previous rclone backend, etc.).
+        """
+        try:
+            with open(self._get_config_file(), "r") as f:
+                data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return None
+        storage = data.get("storage") if isinstance(data, dict) else None
+        if not isinstance(storage, dict):
+            return None
+        st = storage.get("type")
+        return st if isinstance(st, str) else None
+
+    def _expected_storage_type(self) -> Optional[str]:
+        """First token of kopia_params is the storage subcommand ('sftp',
+        'filesystem', 's3', 'rclone', ...). Returns None when kopia_params is
+        empty/unset.
+        """
+        if not self.kopia_params:
+            return None
+        try:
+            tokens = shlex.split(self.kopia_params)
+        except ValueError:
+            return None
+        return tokens[0] if tokens else None
+
     def _get_env(self) -> Dict[str, str]:
         """Build environment for Kopia CLI (password, cache dir)."""
         env = os.environ.copy()
@@ -446,6 +476,22 @@ class KopiaRepository:
         If repository already exists, just connects to it.
         Verifies connection with 'repository status' and applies default policies.
         """
+        # Detect stale connection to a *different* backend before the
+        # "already connected" shortcut. Without this, editing kopia_params in
+        # the Kopi-Docka config (e.g. rclone -> sftp) silently does nothing
+        # because Kopia is still happily talking to the previous backend.
+        expected = self._expected_storage_type()
+        actual = self._current_storage_type()
+        if expected and actual and expected != actual:
+            logger.warning(
+                "Backend mismatch: kopia_params storage type is %r but Kopia "
+                "is currently connected to %r. Disconnecting before init.",
+                expected,
+                actual,
+            )
+            self.disconnect()
+            self.is_connected(force_refresh=True)
+
         # Check if already connected to this repo
         if self.is_connected():
             logger.info("Already connected to repository")

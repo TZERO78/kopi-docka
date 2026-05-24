@@ -6,7 +6,7 @@ Kopi-Docka is a Python CLI tool that wraps **Kopia** for encrypted, deduplicated
 
 **Important**: This project will always be a Kopia wrapper. No second backup engine planned.
 
-- **Version**: 7.5.1
+- **Version**: 7.5.2
 - **Python**: 3.10, 3.11, 3.12
 - **License**: MIT
 - **Author**: Markus F. (TZERO78)
@@ -172,12 +172,14 @@ The tag triggers the GitHub Actions workflow that publishes to PyPI.
 - **Plan 0026**: Policy Overhaul — Staging cleanup, Smart-Skip, Auto-prune, Single Pre-flight, plus configurable rclone startup timeout with self-healing migration — done (v7.2.0)
 
 ### Known Technical Debt
-- Bypass points: 2 intentional exceptions remain (see KopiaRepository section above)
 - Test coverage at ~52 % (target: higher)
 - `tests/README.md` is outdated (copy of v2.0 project README)
 - Commands and backends have very low test coverage (~18 % and ~20 %)
 - `engine/` directory exists but is empty (reserved, may not be needed)
 - TAR-mode volume backup keeps its own per-volume path through `volume_handler.backup_volume_tar` instead of going through `create_snapshots()` — stdin streams don't fit the BackupSource shape. Low priority; TAR mode is legacy and not the default.
+
+### Intentional Exceptions (not debt)
+The two bypass points listed in the **KopiaRepository** section above (pre-init `kopia repository connect/disconnect` in `repo_helper.py`, and stdin-piping `create_snapshot_from_stdin()`) are documented architectural exceptions, not items for cleanup. Each has a structural reason (chicken-and-egg before `__init__`; no stdin-stream mode in `_run()`), each has an inline comment, both have been stable since v6.2.3. Only refactor if a new feature actively requires it.
 
 ## Documentation
 

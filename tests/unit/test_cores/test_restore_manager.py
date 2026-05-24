@@ -283,6 +283,74 @@ class TestFindRestorePoints:
 
         assert points == []
 
+    def test_sort_handles_mixed_legacy_and_new_timestamps(self):
+        """Regression for v7.5.2: mixing naive (pre-v7.5.2 backup_manager)
+        and aware (v7.5.2+) snapshot tags must not crash the sort."""
+        rm = make_manager()
+        rm.repo.list_snapshots.return_value = [
+            {
+                "id": "legacy",
+                "tags": {
+                    "unit": "old",
+                    "backup_id": "uuid-old",
+                    "type": "volume",
+                    # naive (pre-v7.5.2 backup_manager output)
+                    "timestamp": "2025-01-10T10:00:00",
+                },
+            },
+            {
+                "id": "modern",
+                "tags": {
+                    "unit": "new",
+                    "backup_id": "uuid-new",
+                    "type": "volume",
+                    # aware (v7.5.2+)
+                    "timestamp": "2026-05-24T15:46:55.984897+00:00",
+                },
+            },
+        ]
+
+        points = rm._find_restore_points()
+
+        assert len(points) == 2
+        # Newest first; both timestamps end up tz-aware
+        assert points[0].unit_name == "new"
+        assert points[0].timestamp.tzinfo is not None
+        assert points[1].timestamp.tzinfo is not None
+
+
+# =============================================================================
+# Parse Snapshot Timestamp Tests (v7.5.2 regression)
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestParseSnapshotTimestamp:
+    """Tests for the _parse_snapshot_timestamp helper (v7.5.2)."""
+
+    def test_parses_z_suffix_as_utc(self):
+        ts = restore_manager._parse_snapshot_timestamp("2025-01-15T10:00:00Z")
+        assert ts.tzinfo is not None
+        assert ts == datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
+
+    def test_parses_naive_legacy_tag_as_utc(self):
+        # Exact form observed in user logs that triggered the crash.
+        ts = restore_manager._parse_snapshot_timestamp("2026-05-24T15:46:55.984897")
+        assert ts.tzinfo == timezone.utc
+
+    def test_parses_offset_suffix(self):
+        ts = restore_manager._parse_snapshot_timestamp("2025-01-15T10:00:00+02:00")
+        assert ts.tzinfo is not None
+        assert ts.utcoffset() == timedelta(hours=2)
+
+    def test_handles_none(self):
+        ts = restore_manager._parse_snapshot_timestamp(None)
+        assert ts.tzinfo == timezone.utc
+
+    def test_handles_garbage(self):
+        ts = restore_manager._parse_snapshot_timestamp("not-a-timestamp")
+        assert ts.tzinfo == timezone.utc
+
 
 # =============================================================================
 # Find Restore Points for Machine Tests

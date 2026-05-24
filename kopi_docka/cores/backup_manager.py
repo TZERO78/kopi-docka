@@ -31,7 +31,7 @@ Cold backup strategy:
 import json
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -536,7 +536,7 @@ class BackupManager:
                         "unit": unit.name,
                         "backup_id": backup_id,
                         "backup_scope": backup_scope,
-                        "timestamp": datetime.now().isoformat(),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                     },
                 )
             ]
@@ -634,7 +634,7 @@ class BackupManager:
 
             metadata = {
                 "unit_name": unit.name,
-                "backup_timestamp": datetime.now().isoformat(),
+                "backup_timestamp": datetime.now(timezone.utc).isoformat(),
                 "network_count": len(network_configs),
                 "network_names": [nc.get("Name") for nc in network_configs],
             }
@@ -649,7 +649,7 @@ class BackupManager:
                         "unit": unit.name,
                         "backup_id": backup_id,
                         "backup_scope": backup_scope,
-                        "timestamp": datetime.now().isoformat(),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                         "network_count": str(len(network_configs)),
                     },
                 )
@@ -739,7 +739,7 @@ class BackupManager:
                         "unit": unit.name,
                         "backup_id": backup_id,
                         "backup_scope": backup_scope,
-                        "timestamp": datetime.now().isoformat(),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                         "files": ",".join(files_backed_up),
                     },
                 )
