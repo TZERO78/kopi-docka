@@ -41,7 +41,16 @@ orphans, no more divergent timing on rclone backends. Three atomic commits on
 
 ### 🧱 Refactor
 
-*(empty for Phase 1 — populated by Phase 2/3 commits)*
+- **Backup discovery decoupled from snapshot execution.** New
+  ``BackupSource`` dataclass in ``kopi_docka/types.py`` carries the
+  ``(path, kind, tags)`` triple a snapshot needs. New ``_collect_*_sources``
+  helpers on ``BackupManager`` produce these — one per kind for
+  recipes / networks / docker_config, one per volume for direct-mode
+  volumes. The aggregate ``_collect_backup_sources()`` returns the full
+  ordered list ``backup_unit()`` would snapshot. No behaviour change in
+  this phase: ``backup_unit()`` still calls the legacy ``_backup_*``
+  wrappers, which now delegate to the collectors internally. Phase 3 will
+  wire the snapshot loop directly to ``_collect_backup_sources()``.
 
 ### Upgrade Notes
 
