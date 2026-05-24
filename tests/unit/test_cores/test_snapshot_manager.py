@@ -91,16 +91,45 @@ class TestCmdUnpin:
 
 
 class TestCmdRetentionSet:
-    def test_updates_policy_and_config_on_success(self, manager):
+    def test_explicit_args_update_policy_and_config(self, manager):
         manager.policy.update_global_retention.return_value = True
-        manager.cmd_retention_set(10, 0, 7, 4, 12, 3)
+        manager.cmd_retention_set(
+            latest=10, hourly=0, daily=7, weekly=4, monthly=12, annual=3,
+        )
         manager.policy.update_global_retention.assert_called_once_with(10, 0, 7, 4, 12, 3)
         manager.config.update_retention.assert_called_once_with(10, 0, 7, 4, 12, 3)
 
-    def test_does_not_update_config_on_failure(self, manager):
+    def test_does_not_update_config_on_kopia_failure(self, manager):
         manager.policy.update_global_retention.return_value = False
-        manager.cmd_retention_set(10, 0, 7, 4, 12, 3)
+        manager.cmd_retention_set(
+            latest=10, hourly=0, daily=7, weekly=4, monthly=12, annual=3,
+        )
         manager.config.update_retention.assert_not_called()
+
+    def test_partial_args_keep_other_values_from_config(self, manager):
+        """v7.3.7: passing --daily 14 alone must NOT clobber the other five
+        values with arbitrary defaults — they come from the current config."""
+        manager.policy.update_global_retention.return_value = True
+        manager.cmd_retention_set(daily=14)
+        # The other 5 values should mirror what manager.config.getint returns
+        # (latest=10, hourly=0, weekly=4, monthly=12, annual=3 in the fixture).
+        manager.policy.update_global_retention.assert_called_once_with(10, 0, 14, 4, 12, 3)
+        manager.config.update_retention.assert_called_once_with(10, 0, 14, 4, 12, 3)
+
+    def test_no_args_no_force_aborts_without_calling_kopia(self, manager):
+        """An empty `retention set` invocation is almost certainly user error
+        — the call would be a 30-90 s no-op on rclone. Prompt instead."""
+        manager.cmd_retention_set()
+        manager.policy.update_global_retention.assert_not_called()
+        manager.config.update_retention.assert_not_called()
+
+    def test_no_args_with_force_applies_current_config_values(self, manager):
+        """--force on an otherwise empty invocation is the documented way to
+        explicitly re-write current values back to Kopia."""
+        manager.policy.update_global_retention.return_value = True
+        manager.cmd_retention_set(force=True)
+        manager.policy.update_global_retention.assert_called_once_with(10, 0, 7, 4, 12, 3)
+        manager.config.update_retention.assert_called_once_with(10, 0, 7, 4, 12, 3)
 
 
 class TestCmdPruneEmpty:

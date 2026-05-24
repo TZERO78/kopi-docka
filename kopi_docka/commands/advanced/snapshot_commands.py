@@ -388,17 +388,34 @@ def cmd_retention_show(ctx: typer.Context) -> None:
 
 def cmd_retention_set(
     ctx: typer.Context,
-    latest: int = typer.Option(10, "--latest", help="Keep N latest snapshots"),
-    hourly: int = typer.Option(0, "--hourly", help="Keep N hourly snapshots"),
-    daily: int = typer.Option(7, "--daily", help="Keep N daily snapshots"),
-    weekly: int = typer.Option(4, "--weekly", help="Keep N weekly snapshots"),
-    monthly: int = typer.Option(12, "--monthly", help="Keep N monthly snapshots"),
-    annual: int = typer.Option(3, "--annual", help="Keep N annual snapshots"),
+    latest: Optional[int] = typer.Option(None, "--latest", help="Keep N latest snapshots"),
+    hourly: Optional[int] = typer.Option(None, "--hourly", help="Keep N hourly snapshots"),
+    daily: Optional[int] = typer.Option(None, "--daily", help="Keep N daily snapshots"),
+    weekly: Optional[int] = typer.Option(None, "--weekly", help="Keep N weekly snapshots"),
+    monthly: Optional[int] = typer.Option(None, "--monthly", help="Keep N monthly snapshots"),
+    annual: Optional[int] = typer.Option(None, "--annual", help="Keep N annual snapshots"),
+    force: bool = typer.Option(
+        False, "--force", "-f",
+        help="Skip the confirmation prompt when no --latest/--hourly/etc. flag is given",
+    ),
 ) -> None:
-    """Update retention policy in Kopia and config file."""
+    """Update retention policy in Kopia and config file.
+
+    Any flag you don't pass is taken from the current config — so
+    ``retention set --daily 14`` changes only the daily count and
+    leaves the other five values exactly where they were. With no
+    flags at all the command asks for confirmation, because otherwise
+    a typo could overwrite the whole policy with the configured
+    values for no benefit (the Kopia round-trip alone takes 30-90 s
+    on rclone backends).
+    """
     cfg = ensure_config(ctx)
     mgr = SnapshotManager(cfg)
-    mgr.cmd_retention_set(latest, hourly, daily, weekly, monthly, annual)
+    mgr.cmd_retention_set(
+        latest=latest, hourly=hourly, daily=daily,
+        weekly=weekly, monthly=monthly, annual=annual,
+        force=force,
+    )
 
 
 # -------------------------
@@ -478,15 +495,31 @@ def register(app: typer.Typer):
     @retention_app.command("set")
     def _retention_set_cmd(
         ctx: typer.Context,
-        latest: int = typer.Option(10, "--latest", help="Keep N latest snapshots"),
-        hourly: int = typer.Option(0, "--hourly", help="Keep N hourly snapshots"),
-        daily: int = typer.Option(7, "--daily", help="Keep N daily snapshots"),
-        weekly: int = typer.Option(4, "--weekly", help="Keep N weekly snapshots"),
-        monthly: int = typer.Option(12, "--monthly", help="Keep N monthly snapshots"),
-        annual: int = typer.Option(3, "--annual", help="Keep N annual snapshots"),
+        latest: Optional[int] = typer.Option(None, "--latest", help="Keep N latest snapshots"),
+        hourly: Optional[int] = typer.Option(None, "--hourly", help="Keep N hourly snapshots"),
+        daily: Optional[int] = typer.Option(None, "--daily", help="Keep N daily snapshots"),
+        weekly: Optional[int] = typer.Option(None, "--weekly", help="Keep N weekly snapshots"),
+        monthly: Optional[int] = typer.Option(None, "--monthly", help="Keep N monthly snapshots"),
+        annual: Optional[int] = typer.Option(None, "--annual", help="Keep N annual snapshots"),
+        force: bool = typer.Option(
+            False, "--force", "-f",
+            help="Skip the confirmation prompt when no retention flag is given",
+        ),
     ):
-        """Update retention policy in Kopia and config file."""
-        cmd_retention_set(ctx, latest, hourly, daily, weekly, monthly, annual)
+        """Update retention policy in Kopia and config file.
+
+        Pass only the flags you want to change — unflagged values keep
+        their current config value. With no flags at all you'll be
+        asked to confirm (otherwise an empty invocation would write the
+        config back to Kopia for no benefit; the Kopia round-trip alone
+        takes 30-90 s on rclone backends).
+        """
+        cmd_retention_set(
+            ctx,
+            latest=latest, hourly=hourly, daily=daily,
+            weekly=weekly, monthly=monthly, annual=annual,
+            force=force,
+        )
 
     snapshot_app.add_typer(retention_app, name="retention", help="View or update retention policy")
 
