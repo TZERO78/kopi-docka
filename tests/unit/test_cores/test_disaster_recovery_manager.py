@@ -440,21 +440,48 @@ class TestRepositoryExtraction:
         assert connection == {"bucket": "my-gcs-bucket"}
 
     def test_extract_sftp_backend(self):
-        """Extracts SFTP repository info correctly."""
+        """Extracts SFTP repository info correctly.
+
+        Plan 0030 (v7.5.1): the SFTP connection dict now also carries
+        port/username/keyfile/knownHostsFile so recover.sh can rebuild a
+        non-interactive `kopia repository connect` call.
+        """
         config = make_mock_config()
         manager = DisasterRecoveryManager(config)
 
         repo_status = {
             "storage": {
                 "type": "sftp",
-                "config": {"host": "backup.example.com", "path": "/backups/kopia"},
+                "config": {
+                    "host": "backup.example.com",
+                    "path": "/backups/kopia",
+                    "port": 22,
+                    "username": "root",
+                    "keyfile": "/root/.ssh/id_ed25519",
+                    "knownHostsFile": "/root/.ssh/known_hosts",
+                },
             }
         }
 
         repo_type, connection = manager._extract_repo_from_status(repo_status)
 
         assert repo_type == "sftp"
-        assert connection == {"host": "backup.example.com", "path": "/backups/kopia"}
+        assert connection["host"] == "backup.example.com"
+        assert connection["path"] == "/backups/kopia"
+        assert connection["username"] == "root"
+        assert connection["keyfile"] == "/root/.ssh/id_ed25519"
+        assert connection["knownHostsFile"] == "/root/.ssh/known_hosts"
+        assert connection["port"] == 22
+
+    def test_extract_sftp_backend_uses_defaults(self):
+        """Missing port/username default to 22/root."""
+        config = make_mock_config()
+        manager = DisasterRecoveryManager(config)
+        _rt, conn = manager._extract_repo_from_status({
+            "storage": {"type": "sftp", "config": {"host": "h", "path": "/p"}}
+        })
+        assert conn["port"] == 22
+        assert conn["username"] == "root"
 
     def test_extract_rclone_backend(self):
         """Extracts rclone repository info correctly."""
@@ -684,7 +711,10 @@ class TestRecoveryScriptGeneration:
         )
 
     def test_create_recovery_script_unknown_backend(self, tmp_path):
-        """Recovery script for unknown backend shows manual connect message."""
+        """Recovery script for unknown backend explains the situation and
+        exits cleanly. Plan 0030: no more legacy ``exit 1`` after the
+        file-restore steps already succeeded — that was a false negative.
+        """
         config = make_mock_config()
         manager = DisasterRecoveryManager(config)
 
@@ -701,9 +731,15 @@ class TestRecoveryScriptGeneration:
         script_file = tmp_path / "recover.sh"
         script_content = script_file.read_text()
 
-        assert "Unsupported auto-connect" in script_content
+        # The legacy bug emitted "Unsupported auto-connect for this
+        # repository scheme" followed by `exit 1`. v7.5.1 replaces that
+        # with a clear explanation + `exit 0`.
+        assert "Unsupported auto-connect for this repository scheme" not in script_content
+        assert "doesn't know how to auto-connect to that" in script_content
         assert "custom-backend" in script_content
-        assert "exit 1" in script_content
+        # The unknown-backend branch must end with exit 0, never exit 1
+        unknown_idx = script_content.find("doesn't know how to auto-connect")
+        assert "exit 0" in script_content[unknown_idx:]
 
 
 # =============================================================================
@@ -1144,3 +1180,150 @@ class TestHelperMethods:
         parts = version.split(".")
         assert len(parts) == 3
         assert all(part.isdigit() for part in parts)
+
+
+# ---------------------------------------------------------------------------
+# Plan 0030 (v7.5.1) — DR bundle SSH-key hygiene + recover.sh exit-fix
+# ---------------------------------------------------------------------------
+
+
+def _sftp_info(keyfile: str = "/root/.ssh/id_ed25519") -> dict:
+    return {
+        "created_at": "2026-05-24T15:00:00",
+        "hostname": "tzerodev",
+        "repository": {
+            "type": "sftp",
+            "connection": {
+                "host": "peer.ts.net",
+                "path": "/backup",
+                "port": 22,
+                "username": "root",
+                "keyfile": keyfile,
+                "knownHostsFile": "/root/.ssh/known_hosts",
+            },
+            "encryption": "AES256-GCM-HMAC-SHA256",
+            "compression": "zstd",
+        },
+    }
+
+
+class TestRecoveryScriptSftp:
+    """recover.sh must connect SFTP correctly and degrade gracefully."""
+
+    def test_sftp_connect_uses_separate_flags(self):
+        from kopi_docka.cores.disaster_recovery_manager import DisasterRecoveryManager
+        mgr = DisasterRecoveryManager.__new__(DisasterRecoveryManager)
+        sh = mgr._generate_recovery_script_content(_sftp_info())
+
+        # Path-only, no host prefix
+        assert '--path="/backup"' in sh
+        assert '--path="peer.ts.net' not in sh
+        # All 4 mandatory flags
+        assert '--host="peer.ts.net"' in sh
+        assert '--username="root"' in sh
+        assert '--keyfile="$KEYFILE"' in sh
+        assert '--known-hosts="/root/.ssh/known_hosts"' in sh
+
+    def test_sftp_handles_missing_key_with_exit_zero(self):
+        from kopi_docka.cores.disaster_recovery_manager import DisasterRecoveryManager
+        mgr = DisasterRecoveryManager.__new__(DisasterRecoveryManager)
+        sh = mgr._generate_recovery_script_content(_sftp_info())
+
+        # The legacy bug emitted `exit 1` after "Unsupported auto-connect"
+        assert "Unsupported auto-connect for this repository scheme" not in sh
+        # Missing-key path exits cleanly so user can drop key + re-run
+        assert 'if [ -z "$KEYFILE" ] || [ ! -r "$KEYFILE" ]; then' in sh
+        # Inside the missing-key branch, exit 0 (not 1)
+        # Find the block bounded by `then` and the matching `fi`
+        idx = sh.find('if [ -z "$KEYFILE" ] || [ ! -r "$KEYFILE" ]; then')
+        # The branch contains a graceful exit 0 line before its closing fi
+        assert "    exit 0" in sh[idx:idx + 1500]
+
+    def test_unknown_backend_does_not_exit_1(self):
+        from kopi_docka.cores.disaster_recovery_manager import DisasterRecoveryManager
+        mgr = DisasterRecoveryManager.__new__(DisasterRecoveryManager)
+        info = _sftp_info()
+        info["repository"]["type"] = "exotic-storage"
+        info["repository"]["connection"] = {"foo": "bar"}
+        sh = mgr._generate_recovery_script_content(info)
+
+        # Unknown backend block must end with exit 0, never exit 1 mid-flow
+        # (the file-restore part already succeeded)
+        assert "doesn't know how to auto-connect to that" in sh
+        assert "exit 0" in sh
+        # And the trailing repo-status check must not run (no `Verifying`
+        # block after the unknown-backend branch)
+        unknown_idx = sh.find("doesn't know how to auto-connect")
+        assert "Verifying repository connection" not in sh[unknown_idx:]
+
+    def test_embedded_key_install_block_added_when_included(self):
+        from kopi_docka.cores.disaster_recovery_manager import DisasterRecoveryManager
+        mgr = DisasterRecoveryManager.__new__(DisasterRecoveryManager)
+        sh_without = mgr._generate_recovery_script_content(_sftp_info())
+        sh_with = mgr._generate_recovery_script_content(
+            _sftp_info(), embedded_key_basename="id_ed25519",
+        )
+        assert "Installed embedded SSH key" not in sh_without
+        assert "Installed embedded SSH key" in sh_with
+        assert "ssh-key/id_ed25519" in sh_with
+        assert "chmod 600" in sh_with
+
+
+class TestInstructionsExternalSecrets:
+    """RECOVERY-INSTRUCTIONS.txt must list external secrets per backend."""
+
+    def test_sftp_default_lists_ssh_key_path(self):
+        from kopi_docka.cores.disaster_recovery_manager import DisasterRecoveryManager
+        mgr = DisasterRecoveryManager.__new__(DisasterRecoveryManager)
+        txt = mgr._generate_instructions_content(_sftp_info())
+        assert "EXTERNAL SECRETS — NOT IN THIS BUNDLE (BY DESIGN)" in txt
+        assert "/root/.ssh/id_ed25519" in txt
+        assert "SHA256:" in txt
+        # Password manager suggestion is present
+        assert "Password-manager attachment" in txt
+
+    def test_sftp_with_embedded_key_reflects_opt_in(self):
+        from kopi_docka.cores.disaster_recovery_manager import DisasterRecoveryManager
+        mgr = DisasterRecoveryManager.__new__(DisasterRecoveryManager)
+        txt = mgr._generate_instructions_content(_sftp_info(), ssh_key_included=True)
+        # Normalize for line-wrap-tolerant matching
+        joined = " ".join(txt.split())
+        assert "EXTERNAL SECRETS — INCLUDED IN THIS BUNDLE" in txt
+        assert "single compromise" in joined
+        assert "air-gapped" in joined.lower()
+
+    def test_filesystem_has_no_external_secrets_section(self):
+        from kopi_docka.cores.disaster_recovery_manager import DisasterRecoveryManager
+        mgr = DisasterRecoveryManager.__new__(DisasterRecoveryManager)
+        info = _sftp_info()
+        info["repository"]["type"] = "filesystem"
+        info["repository"]["connection"] = {"path": "/mnt/backups"}
+        txt = mgr._generate_instructions_content(info)
+        assert "EXTERNAL SECRETS" not in txt
+
+    def test_s3_section_mentions_aws_keys(self):
+        from kopi_docka.cores.disaster_recovery_manager import DisasterRecoveryManager
+        mgr = DisasterRecoveryManager.__new__(DisasterRecoveryManager)
+        info = _sftp_info()
+        info["repository"]["type"] = "s3"
+        info["repository"]["connection"] = {"bucket": "my-bucket"}
+        txt = mgr._generate_instructions_content(info)
+        assert "EXTERNAL SECRETS" in txt
+        assert "AWS_ACCESS_KEY_ID" in txt
+
+
+class TestSha256Helper:
+    """sha256_file() returns hex digest or None."""
+
+    def test_returns_hex_for_readable_file(self, tmp_path):
+        from kopi_docka.cores.disaster_recovery_manager import sha256_file
+        p = tmp_path / "k"
+        p.write_bytes(b"hello kopi-docka")
+        result = sha256_file(p)
+        assert result is not None
+        assert len(result) == 64
+        assert all(c in "0123456789abcdef" for c in result)
+
+    def test_returns_none_for_missing(self, tmp_path):
+        from kopi_docka.cores.disaster_recovery_manager import sha256_file
+        assert sha256_file(tmp_path / "does-not-exist") is None

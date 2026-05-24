@@ -119,6 +119,23 @@ def generate_passphrase(word_count: int = 5, style: str = "words") -> str:
 logger = get_logger(__name__)
 
 
+def sha256_file(path: Path) -> Optional[str]:
+    """Return hex SHA256 of ``path`` content, or ``None`` if unreadable.
+
+    Used in the DR bundle's RECOVERY-INSTRUCTIONS.txt and in the export
+    end-of-run panel so the user can verify the external SSH key copy
+    matches what the bundle expects.
+    """
+    try:
+        h = hashlib.sha256()
+        with open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(64 * 1024), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except OSError:
+        return None
+
+
 class DisasterRecoveryManager:
     """
     Creates and manages disaster recovery bundles.
@@ -131,6 +148,13 @@ class DisasterRecoveryManager:
       - RECOVERY-INSTRUCTIONS.txt (human steps)
       - backup-status.json (recent snapshot info)
     The bundle is packed as tar.gz and encrypted with AES-256 (openssl -pbkdf2).
+
+    For SFTP/Tailscale backends the SSH private key is intentionally NOT
+    included by default — defense in depth (NIST SP 800-57 key separation).
+    The user is given the key's path and SHA256 fingerprint so they can
+    sanity-check their externally-held copy when restoring. An opt-in
+    ``--include-ssh-key`` flag exists for users who explicitly want the
+    all-in-one convenience and accept the trust trade-off.
     """
 
     def __init__(self, config: Config):
@@ -261,6 +285,7 @@ class DisasterRecoveryManager:
         self,
         passphrase: str,
         output: Optional[BinaryIO] = None,
+        include_ssh_key: bool = False,
     ) -> Optional[bytes]:
         """
         Create an AES-256 encrypted ZIP archive containing the DR bundle.
@@ -273,6 +298,11 @@ class DisasterRecoveryManager:
             passphrase: Encryption passphrase for the ZIP archive.
             output: Optional file-like object to write to.
                     If None, returns the ZIP content as bytes.
+            include_ssh_key: If True and the backend is SFTP, embed the
+                referenced SSH private key as ``ssh-key/<basename>`` inside
+                the bundle. Defaults to False (Plan 0030 / NIST SP 800-57
+                key separation) — the user must opt in explicitly via the
+                ``--include-ssh-key`` CLI flag.
 
         Returns:
             ZIP content as bytes when *output* is None, otherwise None.
@@ -289,6 +319,7 @@ class DisasterRecoveryManager:
 
             # 1) recovery-info.json
             recovery_info = self._create_recovery_info()
+            recovery_info["ssh_key_embedded"] = bool(include_ssh_key)
             zf.writestr("recovery-info.json", json.dumps(recovery_info, indent=2))
 
             # 2) kopia-repository.json + kopia-password.txt
@@ -306,12 +337,40 @@ class DisasterRecoveryManager:
             if rclone_conf and rclone_conf.exists():
                 zf.write(str(rclone_conf), "rclone.conf")
 
+            # 4a) ssh-key/ (opt-in for SFTP — recover.sh consumes it if present)
+            embedded_key_basename: Optional[str] = None
+            if include_ssh_key:
+                conn = recovery_info.get("repository", {}).get("connection", {})
+                keyfile = conn.get("keyfile") or ""
+                kf = Path(keyfile) if keyfile else None
+                if kf and kf.exists() and kf.is_file():
+                    embedded_key_basename = kf.name
+                    zf.write(str(kf), f"ssh-key/{embedded_key_basename}")
+                    pub = kf.with_suffix(kf.suffix + ".pub") if kf.suffix else Path(str(kf) + ".pub")
+                    if pub.exists():
+                        zf.write(str(pub), f"ssh-key/{pub.name}")
+                    logger.warning(
+                        "DR bundle includes SSH private key (%s) — opt-in. "
+                        "Bundle is now a single point of compromise; store accordingly.",
+                        keyfile,
+                    )
+                else:
+                    logger.warning(
+                        "include_ssh_key=True but no readable keyfile at %s — "
+                        "bundle exported without embedded key.",
+                        keyfile,
+                    )
+
             # 5) recover.sh (generated in memory)
-            recover_script = self._generate_recovery_script_content(recovery_info)
+            recover_script = self._generate_recovery_script_content(
+                recovery_info, embedded_key_basename=embedded_key_basename,
+            )
             zf.writestr("recover.sh", recover_script)
 
             # 6) RECOVERY-INSTRUCTIONS.txt
-            instructions = self._generate_instructions_content(recovery_info)
+            instructions = self._generate_instructions_content(
+                recovery_info, ssh_key_included=bool(embedded_key_basename),
+            )
             zf.writestr("RECOVERY-INSTRUCTIONS.txt", instructions)
 
             # 7) backup-status.json
@@ -326,7 +385,12 @@ class DisasterRecoveryManager:
 
         return content
 
-    def export_to_file(self, output_path: Path, passphrase: str) -> Path:
+    def export_to_file(
+        self,
+        output_path: Path,
+        passphrase: str,
+        include_ssh_key: bool = False,
+    ) -> Path:
         """
         Export DR bundle as a single encrypted ZIP file.
 
@@ -335,6 +399,7 @@ class DisasterRecoveryManager:
         Args:
             output_path: Target file path for the ZIP archive.
             passphrase: Encryption passphrase.
+            include_ssh_key: see :meth:`create_encrypted_zip`.
 
         Returns:
             Path to the created ZIP file.
@@ -342,7 +407,7 @@ class DisasterRecoveryManager:
         logger.info("Creating encrypted ZIP recovery bundle...",
                      extra={"output": str(output_path)})
 
-        content = self.create_encrypted_zip(passphrase)
+        content = self.create_encrypted_zip(passphrase, include_ssh_key=include_ssh_key)
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(content)
@@ -363,7 +428,7 @@ class DisasterRecoveryManager:
 
         return output_path
 
-    def export_to_stream(self, passphrase: str) -> None:
+    def export_to_stream(self, passphrase: str, include_ssh_key: bool = False) -> None:
         """
         Stream DR bundle directly to stdout as an encrypted ZIP.
 
@@ -372,9 +437,12 @@ class DisasterRecoveryManager:
 
         Args:
             passphrase: Encryption passphrase.
+            include_ssh_key: see :meth:`create_encrypted_zip`.
         """
         logger.info("Streaming encrypted ZIP recovery bundle to stdout...")
-        self.create_encrypted_zip(passphrase, output=sys.stdout.buffer)
+        self.create_encrypted_zip(
+            passphrase, output=sys.stdout.buffer, include_ssh_key=include_ssh_key,
+        )
         logger.info("ZIP stream completed")
 
     # -------------------- internal helpers for ZIP export --------------------
@@ -390,16 +458,128 @@ class DisasterRecoveryManager:
             logger.warning(f"Could not get Kopia status JSON: {e}")
         return None
 
-    def _generate_recovery_script_content(self, info: Dict[str, Any]) -> str:
-        """Generate recover.sh content as a string (for in-memory ZIP)."""
-        # Reuse the same logic but return content instead of writing to file
+    def _generate_recovery_script_content(
+        self, info: Dict[str, Any], embedded_key_basename: Optional[str] = None,
+    ) -> str:
+        """Generate recover.sh content as a string (for in-memory ZIP).
+
+        ``embedded_key_basename`` is set when the user opted into
+        ``--include-ssh-key`` — in that case the recover.sh emits a block
+        that installs ``ssh-key/<name>`` from the extracted bundle into
+        the expected target path before the SFTP connect.
+        """
         import tempfile
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            self._create_recovery_script(tmp_path, info)
+            self._create_recovery_script(
+                tmp_path, info, embedded_key_basename=embedded_key_basename,
+            )
             return (tmp_path / "recover.sh").read_text()
 
-    def _generate_instructions_content(self, info: Dict[str, Any]) -> str:
+    def _build_external_secrets_block(
+        self,
+        info: Dict[str, Any],
+        ssh_key_included: bool = False,
+    ) -> list:
+        """Return text lines listing what the bundle does **not** carry.
+
+        For SFTP/Tailscale backends the SSH private key is intentionally
+        held outside the bundle (Plan 0030 / NIST SP 800-57 key
+        separation). This block tells the user where the key is expected
+        to live and gives a SHA256 so they can verify the externally-
+        held copy. For cloud backends it lists which env-vars/credentials
+        the recover.sh will prompt for.
+        """
+        rpt = info["repository"]
+        rt = rpt["type"]
+        conn = rpt["connection"]
+
+        if rt == "sftp":
+            keyfile = conn.get("keyfile", "")
+            if ssh_key_included:
+                # Opt-in --include-ssh-key was used: the key IS in the
+                # bundle. Tell the user that and warn that this bundle
+                # is now a single-point-of-compromise.
+                return [
+                    "EXTERNAL SECRETS — INCLUDED IN THIS BUNDLE",
+                    "------------------------------------------",
+                    f"You enabled --include-ssh-key, so the SSH private key",
+                    f"({keyfile}) IS embedded in this bundle.",
+                    "",
+                    "This makes recovery one-step but means a single",
+                    "compromise (bundle + passphrase) gives full backup-",
+                    "server access. Store this bundle at the highest trust",
+                    "level you have available (e.g. air-gapped).",
+                    "",
+                ]
+            # Default path: key is *not* in the bundle. Document where it
+            # lives and how to recognize the right one when restoring.
+            sha = sha256_file(Path(keyfile)) if keyfile else None
+            return [
+                "EXTERNAL SECRETS — NOT IN THIS BUNDLE (BY DESIGN)",
+                "-------------------------------------------------",
+                "For SFTP / Tailscale backends, this bundle does NOT contain",
+                "the SSH private key that authenticates to your backup server.",
+                "That is intentional — keeping the key separate from the bundle",
+                "means a single compromise (bundle + passphrase) does not",
+                "give an attacker access to your backup server.",
+                "",
+                "You need to also have available:",
+                f"  • SSH private key:  {keyfile or '(not configured)'}",
+                f"    SHA256:           {sha or '(could not read)'}",
+                "",
+                "Store this key at a location SEPARATE from the bundle. E.g.:",
+                "  • Password-manager attachment (1Password / Bitwarden / KeePassXC)",
+                "  • Separate encrypted USB stick kept at a different site",
+                "  • GPG-encrypted in a different cloud storage",
+                "  • Air-gapped paper printout (`ssh-keygen` private keys are",
+                "    short enough to fit on one page)",
+                "",
+                "When restoring on a fresh system, place the key at the path",
+                "above with mode 600, then re-run `sudo ./recover.sh`. The",
+                "script verifies the SHA256 matches before connecting.",
+                "",
+            ]
+        if rt == "s3":
+            return [
+                "EXTERNAL SECRETS — NOT IN THIS BUNDLE",
+                "--------------------------------------",
+                "AWS S3 access keys are not included. recover.sh will prompt",
+                "for AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY interactively.",
+                "Keep them in a password manager.",
+                "",
+            ]
+        if rt == "b2":
+            return [
+                "EXTERNAL SECRETS — NOT IN THIS BUNDLE",
+                "--------------------------------------",
+                "Backblaze B2 account ID + application key are not included.",
+                "recover.sh will prompt for them interactively.",
+                "",
+            ]
+        if rt == "azure":
+            return [
+                "EXTERNAL SECRETS — NOT IN THIS BUNDLE",
+                "--------------------------------------",
+                "Azure storage account name + storage key are not included.",
+                "recover.sh will prompt for them interactively.",
+                "",
+            ]
+        if rt == "gcs":
+            return [
+                "EXTERNAL SECRETS — NOT IN THIS BUNDLE",
+                "--------------------------------------",
+                "Your GCP service-account JSON file is not included.",
+                "Place it at /root/gcp-sa.json before running recover.sh,",
+                "or set GOOGLE_APPLICATION_CREDENTIALS to its location.",
+                "",
+            ]
+        # filesystem / rclone / unknown: nothing to flag.
+        return []
+
+    def _generate_instructions_content(
+        self, info: Dict[str, Any], ssh_key_included: bool = False
+    ) -> str:
         """Generate RECOVERY-INSTRUCTIONS.txt content as a string."""
         rpt = info["repository"]
         lines = [
@@ -422,6 +602,9 @@ class DisasterRecoveryManager:
             f"Enc:    {rpt['encryption']}",
             f"Comp:   {rpt['compression']}",
             "",
+        ]
+        lines.extend(self._build_external_secrets_block(info, ssh_key_included))
+        lines.extend([
             "STEPS",
             "-----",
             "1) Extract this ZIP with your passphrase.",
@@ -438,7 +621,7 @@ class DisasterRecoveryManager:
             "",
             f"Generated by Kopi-Docka v{VERSION}",
             "",
-        ]
+        ])
         return "\n".join(lines)
 
     # ---------------- internal helpers ----------------
@@ -559,9 +742,18 @@ class DisasterRecoveryManager:
             return "gcs", {"bucket": bucket}
 
         elif storage_type == "sftp":
-            host = storage_config.get("host", "")
-            path = storage_config.get("path", "")
-            return "sftp", {"host": host, "path": path}
+            # Capture everything recover.sh needs to rebuild a non-interactive
+            # `kopia repository connect sftp ...` call. The SSH private key
+            # itself stays on the original filesystem — see Plan 0030 / v7.5.1
+            # for the security rationale (defense in depth, key separation).
+            return "sftp", {
+                "host": storage_config.get("host", ""),
+                "path": storage_config.get("path", ""),
+                "port": storage_config.get("port", 22),
+                "username": storage_config.get("username", "root"),
+                "keyfile": storage_config.get("keyfile", ""),
+                "knownHostsFile": storage_config.get("knownHostsFile", ""),
+            }
 
         elif storage_type == "rclone":
             remote_path = storage_config.get("remotePath", "")
@@ -582,7 +774,12 @@ class DisasterRecoveryManager:
         except Exception as e:
             logger.error(f"Could not export Kopia config: {e}")
 
-    def _create_recovery_script(self, out_dir: Path, info: Dict[str, Any]) -> None:
+    def _create_recovery_script(
+        self,
+        out_dir: Path,
+        info: Dict[str, Any],
+        embedded_key_basename: Optional[str] = None,
+    ) -> None:
         repo_type = info["repository"]["type"]
         conn = info["repository"]["connection"]
         created = info["created_at"]
@@ -685,6 +882,13 @@ class DisasterRecoveryManager:
             'echo "Connecting to Kopia repository..."',
         ]
 
+        # `connect_emitted` tracks whether the connect-block actually issues
+        # a `kopia repository connect`. The trailing status-check + success
+        # banner runs only if it does — branches that bail out gracefully
+        # (e.g. SFTP without key, unknown backend) set this to False so the
+        # script ends cleanly instead of falsely declaring success.
+        connect_emitted = True
+
         # repo connect section
         if repo_type == "filesystem":
             lines += [
@@ -728,41 +932,125 @@ class DisasterRecoveryManager:
                 'echo "Ensure rclone.conf is restored above and rclone remote is configured."',
                 f'kopia repository connect rclone --remote-path="{remote_path}"',
             ]
-        else:
-            # generic / custom schemes: let user connect manually
-            lines += [
-                f'echo "Repository type: {repo_type}"',
-                'echo "Unsupported auto-connect for this repository scheme. Connect manually, e.g.:"',
-                'echo "  kopia repository connect <provider> <options>"',
-                f'echo "Connection info: {json.dumps(conn)}"',
-                "exit 1",
-            ]
+            connect_emitted = True
+        elif repo_type == "sftp":
+            # Plan 0030: SSH private key is intentionally NOT in the bundle
+            # by default. If the user opted into --include-ssh-key, the
+            # bundle has it under ssh-key/<basename> — we install it to the
+            # target path with mode 600 before attempting the connect.
+            # Either way we then check whether it's actually readable, and
+            # connect only when it is. Missing key → warning + clean
+            # exit 0 so the user can drop the key in place and re-run.
+            keyfile = conn.get("keyfile", "")
+            knownhosts = conn.get("knownHostsFile", "")
+            host = conn.get("host", "")
+            path = conn.get("path", "")
+            username = conn.get("username", "root")
+            port = conn.get("port", 22)
 
-        lines += [
-            "",
-            'echo "Verifying repository connection..."',
-            "kopia repository status || { echo ERROR; exit 1; }",
-            "",
-            'echo ""',
-            'echo "========================================"',
-            'echo "✅ Recovery Complete!"',
-            'echo "========================================"',
-            "",
-            'echo "⚠️  IMPORTANT: Automation is NOT active yet."',
-            'echo ""',
-            'echo "To restore automated backups, run:"',
-            'echo "  sudo kopi-docka advanced service write-units"',
-            'echo "  sudo systemctl enable --now kopi-docka.timer"',
-            'echo ""',
-            'echo "To verify the schedule:"',
-            'echo "  systemctl list-timers | grep kopi-docka"',
-            'echo ""',
-            'echo "Next steps:"',
-            'echo "  * Verify repository: kopi-docka advanced repo status"',
-            'echo "  * List snapshots:    kopi-docka advanced snapshot list --snapshots"',
-            'echo "  * Start restore:     kopi-docka restore"',
-            'echo ""',
-        ]
+            kh_flag = f' --known-hosts="{knownhosts}"' if knownhosts else ""
+            port_flag = f" --port={port}" if port and port != 22 else ""
+
+            if embedded_key_basename:
+                lines += [
+                    "# --include-ssh-key was used at export time: install the embedded key",
+                    f'EMBEDDED_KEY="$(dirname "$0")/ssh-key/{embedded_key_basename}"',
+                    f'TARGET_KEY="{keyfile}"',
+                    'if [ -f "$EMBEDDED_KEY" ] && [ ! -f "$TARGET_KEY" ]; then',
+                    '    mkdir -p "$(dirname "$TARGET_KEY")"',
+                    '    cp "$EMBEDDED_KEY" "$TARGET_KEY"',
+                    '    chmod 600 "$TARGET_KEY"',
+                    '    echo "Installed embedded SSH key → $TARGET_KEY (mode 600)"',
+                    f'    EMBEDDED_PUB="$(dirname "$0")/ssh-key/{embedded_key_basename}.pub"',
+                    '    if [ -f "$EMBEDDED_PUB" ]; then',
+                    '        cp "$EMBEDDED_PUB" "${TARGET_KEY}.pub"',
+                    '        chmod 644 "${TARGET_KEY}.pub"',
+                    '    fi',
+                    "fi",
+                    "",
+                ]
+
+            lines += [
+                f'KEYFILE="{keyfile}"',
+                'if [ -z "$KEYFILE" ] || [ ! -r "$KEYFILE" ]; then',
+                '    echo ""',
+                '    echo "──────────────────────────────────────────────────────────────"',
+                '    echo "⚠  SSH key not available — repository connect skipped."',
+                '    echo "──────────────────────────────────────────────────────────────"',
+                '    echo ""',
+                f'    echo "Expected key: {keyfile}"',
+                '    echo ""',
+                '    echo "This bundle does NOT contain your SSH private key (by design —"',
+                '    echo "see RECOVERY-INSTRUCTIONS.txt, section EXTERNAL SECRETS, for"',
+                '    echo "the security rationale)."',
+                '    echo ""',
+                '    echo "To finish recovery:"',
+                '    echo "  1. Restore the SSH key file to the path above (mode 600)."',
+                f'    echo "  2. Verify SHA256 matches the one in RECOVERY-INSTRUCTIONS.txt."',
+                '    echo "  3. Re-run: sudo ./recover.sh"',
+                '    echo ""',
+                '    echo "Files that have already been restored:"',
+                '    echo "  • kopi-docka config"',
+                '    echo "  • Kopia password file"',
+                '    [ -f "$(dirname "$0")/rclone.conf" ] && echo "  • rclone.conf"',
+                '    echo ""',
+                "    exit 0",
+                "fi",
+                'echo "SSH key found at $KEYFILE — connecting…"',
+                f'kopia repository connect sftp --path="{path}" --host="{host}"{port_flag}'
+                f' --username="{username}" --keyfile="$KEYFILE"{kh_flag}',
+            ]
+            connect_emitted = True
+        else:
+            # Unknown / custom backend: explain instead of erroring out. The
+            # file-restore steps above succeeded; failing the whole script
+            # at this point would obscure that. The user just has a manual
+            # `kopia repository connect` to run.
+            lines += [
+                '',
+                '──────────────────────────────────────────────────────────────',
+                f'echo "Repository type: {repo_type}"',
+                'echo "──────────────────────────────────────────────────────────────"',
+                'echo ""',
+                'echo "This recovery script doesn\'t know how to auto-connect to that"',
+                'echo "backend yet. The file-restore portion of recovery completed."',
+                'echo "Connect manually with the parameters below, then run"',
+                'echo "    kopia repository status"',
+                'echo "to confirm."',
+                'echo ""',
+                f'echo "Connection info: {json.dumps(conn)}"',
+                "",
+                "# Skip the repository-verification block below — we have nothing to verify yet.",
+                "exit 0",
+            ]
+            connect_emitted = False
+
+        if connect_emitted:
+            lines += [
+                "",
+                'echo "Verifying repository connection..."',
+                'kopia repository status || { echo "ERROR: repository status check failed"; exit 1; }',
+                "",
+                'echo ""',
+                'echo "========================================"',
+                'echo "✅ Recovery Complete!"',
+                'echo "========================================"',
+                "",
+                'echo "⚠️  IMPORTANT: Automation is NOT active yet."',
+                'echo ""',
+                'echo "To restore automated backups, run:"',
+                'echo "  sudo kopi-docka advanced service write-units"',
+                'echo "  sudo systemctl enable --now kopi-docka.timer"',
+                'echo ""',
+                'echo "To verify the schedule:"',
+                'echo "  systemctl list-timers | grep kopi-docka"',
+                'echo ""',
+                'echo "Next steps:"',
+                'echo "  * Verify repository: kopi-docka advanced repo status"',
+                'echo "  * List snapshots:    kopi-docka advanced snapshot list --snapshots"',
+                'echo "  * Start restore:     kopi-docka restore"',
+                'echo ""',
+            ]
 
         script = "\n".join(lines)
         path = out_dir / "recover.sh"
@@ -770,37 +1058,12 @@ class DisasterRecoveryManager:
         path.chmod(0o755)
 
     def _create_recovery_instructions(self, out_dir: Path, info: Dict[str, Any]) -> None:
-        rpt = info["repository"]
-        lines = [
-            "KOPI-DOCKA DISASTER RECOVERY INSTRUCTIONS",
-            "==========================================",
-            "",
-            f"Created: {info['created_at']}",
-            f"System:  {info['hostname']}",
-            "",
-            "REPOSITORY",
-            "----------",
-            f"Type:   {rpt['type']}",
-            f"Config: {json.dumps(rpt['connection'], indent=2)}",
-            f"Enc:    {rpt['encryption']}",
-            f"Comp:   {rpt['compression']}",
-            "",
-            "STEPS",
-            "-----",
-            "1) Prepare a fresh Linux host with Docker and Kopia installed.",
-            "2) Decrypt and extract this bundle (see README next to the archive).",
-            "3) Run: sudo ./recover.sh",
-            "4) Connect to the Kopia repository (guided).",
-            "5) Start the restore wizard: kopi-docka restore",
-            "",
-            "NOTES",
-            "-----",
-            "- This system uses COLD backups of container volumes and compose/inspect data.",
-            "- Databases are restored implicitly via their volumes (no separate DB dumps).",
-            "- Test recovery regularly.",
-            "",
-        ]
-        (out_dir / "RECOVERY-INSTRUCTIONS.txt").write_text("\n".join(lines))
+        """Legacy (directory-bundle) path for instructions. Delegates to the
+        shared string generator so SFTP/cloud users see the same external-
+        secrets section as the ZIP-export path produces."""
+        (out_dir / "RECOVERY-INSTRUCTIONS.txt").write_text(
+            self._generate_instructions_content(info)
+        )
 
     def _get_backup_status(self) -> Dict[str, Any]:
         status = {"timestamp": datetime.now().isoformat(), "snapshots": []}
