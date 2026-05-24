@@ -819,10 +819,15 @@ Required flags:
 | `--known-hosts=PATH` | Local known_hosts entry — required for unattended runs (systemd/cron); the wizard runs `ssh-keyscan` to populate it |
 
 > **Upgrading from v7.0.0–v7.3.13?** The legacy wizard wrote a broken
-> `kopia_params` form. Run `sudo kopi-docka doctor`; section
-> **5.1 Backend Sanity** prints a copy/paste-ready `sed` command that
-> rewrites your config in place. See
-> [TROUBLESHOOTING.md → Tailscale-SFTP kopia_params migration](TROUBLESHOOTING.md#-tailscale-sftp-kopia_params-migration-v7000v7313--v740).
+> `kopia_params` form. Run
+>
+> ```bash
+> sudo kopi-docka advanced config repair-kopia-params
+> ```
+>
+> which rebuilds `kopia_params` from your existing `[credentials]`
+> section atomically. See
+> [TROUBLESHOOTING.md → Tailscale-SFTP kopia_params migration](TROUBLESHOOTING.md#-tailscale-sftp-kopia_params-migration-v7000v7313--v750).
 
 **What the wizard does:**
 1. Checks Tailscale connection
