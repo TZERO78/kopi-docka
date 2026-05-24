@@ -154,9 +154,10 @@ graph LR
 
 - BackupManager
   - Public: `backup_unit(unit: BackupUnit, backup_scope, update_recovery_bundle)` ⇒ returns `BackupMetadata`.
-  - Steps inside: _ensure_policies(), execute pre-hook, stop containers, backup recipes, backup networks, backup volumes (parallel with ThreadPoolExecutor), start containers, execute post-hook, save metadata, optionally update DR bundle.
-  - Volume backup modes: `create_snapshot` (direct directory snapshot / best) or `create_snapshot_from_stdin` (tar stream, deprecated).
-  - **Stable staging paths (v5.3.0+):** Recipe and network backups use fixed staging directories (`/var/cache/kopi-docka/staging/recipes/<unit>/` and `/var/cache/kopi-docka/staging/networks/<unit>/`) instead of random temp dirs. This enables Kopia retention policies to work correctly by ensuring consistent snapshot source paths across backups.
+  - Steps inside (Plan 0028, v7.3.0): execute pre-hook → `_collect_backup_sources(unit, backup_id, scope)` (recipes + networks + docker_config + volume sources, **before** containers stop because docker inspect needs them alive) → stop containers → **one** sequential `repo.create_snapshots(sources)` call → start containers → execute post-hook → save metadata → optionally update DR bundle.
+  - Volume backup modes: `create_snapshot` (direct directory snapshot / best) or `create_snapshot_from_stdin` (tar stream, deprecated). TAR mode keeps a legacy per-volume path because stdin streams don't fit the `BackupSource` shape.
+  - **Stable staging paths (v5.3.0+):** Recipe and network backups use fixed staging directories (`/var/cache/kopi-docka/staging/recipes/<unit>/` and `/var/cache/kopi-docka/staging/networks/<unit>/`) instead of random temp dirs.
+  - **Retention is global only (v7.3.0+):** No per-path policies are written during a backup run. The global policy applied at `KopiaRepository.connect()` / `initialize()` covers every snapshot via Kopia's policy inheritance tree.
 
 - KopiaRepository
   - Core methods: `connect()`, `initialize()`, `create_snapshot(path, tags, exclude_patterns)`, `create_snapshot_from_stdin(stdin, dest_virtual_path, tags)`, `list_snapshots()`, `list_all_snapshots()`, `restore_snapshot()`, `verify_snapshot()`.
@@ -228,11 +229,11 @@ Below are compact, AI-friendly class → method tables and short notes for the m
 | _start_containers | (containers: List[ContainerInfo]) -> None | Start containers and wait for healthchecks.
 | _backup_recipes | (unit: BackupUnit, backup_id: str) -> Optional[str] | Save compose files + container inspect (redact env) to stable staging dir and snapshot via Repo. Uses `/var/cache/kopi-docka/staging/recipes/<unit-name>/` (v5.3.0+).
 | _backup_networks | (unit: BackupUnit, backup_id: str) -> (Optional[str], int) | Inspect and snapshot custom Docker networks to stable staging dir. Uses `/var/cache/kopi-docka/staging/networks/<unit-name>/` (v5.3.0+).
-| _backup_volume | (volume: VolumeInfo, unit: BackupUnit, backup_id: str) -> Optional[str] | Dispatcher to _backup_volume_direct/_backup_volume_tar.
+| _backup_volume | (volume: VolumeInfo, unit: BackupUnit, backup_id: str) -> Optional[str] | TAR-mode legacy dispatcher to _backup_volume_tar (Direct-mode volumes go through `_collect_backup_sources` + `repo.create_snapshots`).
 | _backup_volume_direct | (volume, unit, backup_id) -> Optional[str] | Preferred direct Kopia snapshot of filesystem path.
 | _backup_volume_tar | (volume, unit, backup_id) -> Optional[str] | Legacy tar → Kopia stdin snapshot (deprecated).
 | _save_metadata | (metadata: BackupMetadata) -> None | Persist metadata JSON for the run.
-| _ensure_policies | (unit: BackupUnit) -> None | Apply per-target retention via KopiaPolicyManager.
+| _collect_backup_sources | (unit, backup_id, backup_scope) -> List[BackupSource] | (v7.3.0+) Build the ordered source list backup_unit hands to repo.create_snapshots — recipes → networks → docker_config → volumes, scope-gated.
 
 ---
 
@@ -809,16 +810,12 @@ sequenceDiagram
 
   CLI->>Discovery: discover_backup_units()
   CLI->>Backup: backup_unit(unit)
-  Backup->>Policy: _ensure_policies(unit)
-  Note over Policy: Direct Mode: policies on actual mountpoints<br/>TAR Mode: policies on virtual paths
   Backup->>Hooks: execute_pre_backup(unit)
+  Backup->>Backup: _collect_backup_sources(unit, backup_id, scope)
+  Note over Backup: Stable staging dirs created here, docker inspect runs<br/>while containers are still alive (Plan 0028)
   Backup->>Docker: stop containers
-  Backup->>Backup: _backup_recipes() -> Repo.create_snapshot(staging_dir, tags)
-  Note over Backup: Stable staging: /var/cache/kopi-docka/staging/recipes/<unit>/
-  Backup->>Backup: _backup_networks() -> Repo.create_snapshot(staging_dir, tags)
-  Note over Backup: Stable staging: /var/cache/kopi-docka/staging/networks/<unit>/
-  Backup->>Backup: Start parallel _backup_volume() tasks
-  Backup->>Repo: create_snapshot/create_snapshot_from_stdin (per volume)
+  Backup->>Repo: create_snapshots(sources) — sequential, one call
+  Note over Repo: Global retention policy already covers every snapshot<br/>via Kopia's inheritance tree (set on connect)
   Backup->>Docker: start containers
   Backup->>Hooks: execute_post_backup(unit)
   Backup->>Repo: (optionally) update DR bundle via DisasterRecoveryManager

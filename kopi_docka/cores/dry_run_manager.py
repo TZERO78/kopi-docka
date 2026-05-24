@@ -96,7 +96,6 @@ class DryRunReport:
         print("\n### SYSTEM INFORMATION ###")
         print(f"Available RAM: {self.utils.get_available_ram():.2f} GB")
         print(f"CPU Cores: {self.utils.get_cpu_count()}")
-        print(f"Parallel Workers: {self.config.parallel_workers}")
         print(f"Backup Path: {self.config.backup_base_path}")
         # Show kopia_params
         kopia_params = self.config.get("kopia", "kopia_params", fallback="")
@@ -271,7 +270,6 @@ class DryRunReport:
         config_items = [
             ("Kopia Params", kopia_params),
             ("Backup Base Path", self.config.backup_base_path),
-            ("Parallel Workers", self.config.parallel_workers),
             ("Stop Timeout", f"{self.config.get('backup', 'stop_timeout')}s"),
             ("Start Timeout", f"{self.config.get('backup', 'start_timeout')}s"),
             ("Compression", self.config.get("kopia", "compression")),

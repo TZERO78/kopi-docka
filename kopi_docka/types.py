@@ -80,6 +80,27 @@ class VolumeInfo:
 
 
 @dataclass
+class BackupSource:
+    """One source to snapshot in a single backup run (Plan 0028).
+
+    Discovery (Docker walk, recipe staging, network export, …) emits a list
+    of these *before* containers are stopped, and the snapshot loop consumes
+    them. ``path`` is the absolute filesystem path passed to
+    ``kopia snapshot create``; ``tags`` is the metadata dict attached to the
+    resulting snapshot so it can be looked up later (unit, backup_id, kind).
+
+    Kind values mirror the historical helpers — ``volume``, ``recipe``,
+    ``network``, ``docker_config`` — purely informational; the snapshot
+    create call treats them identically.
+    """
+
+    path: str
+    kind: str
+    tags: Dict[str, str] = field(default_factory=dict)
+    description: Optional[str] = None
+
+
+@dataclass
 class MachineInfo:
     """Information about a backup source machine (for cross-machine restore).
 

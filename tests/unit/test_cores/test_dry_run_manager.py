@@ -100,11 +100,13 @@ class TestDryRunReport:
         captured = capsys.readouterr()
         output = captured.out
 
-        # Verify system info section
+        # Verify system info section. Plan 0028 (v7.3.0) removed the
+        # "Parallel Workers" line because the backup loop is sequential
+        # by design.
         assert "SYSTEM INFORMATION" in output
         assert "Available RAM: 16.50 GB" in output
         assert "CPU Cores: 8" in output
-        assert "Parallel Workers: 2" in output
+        assert "Parallel Workers" not in output
         assert "Backup Path:" in output
 
         # Verify dependency checks
@@ -198,11 +200,12 @@ class TestDryRunReport:
         captured = capsys.readouterr()
         output = captured.out
 
-        # Verify configuration review
+        # Verify configuration review. "Parallel Workers" no longer
+        # appears (Plan 0028 — sequential snapshot loop).
         assert "CONFIGURATION REVIEW" in output
         assert "Kopia Params:" in output
         assert "filesystem --path /tmp/test-repo" in output
-        assert "Parallel Workers: 2" in output
+        assert "Parallel Workers" not in output
         assert "Stop Timeout: 30s" in output
         assert "Start Timeout: 60s" in output
         assert "Compression: zstd" in output
@@ -321,10 +324,13 @@ class TestDryRunEstimates:
         assert large_duration > small_duration
         assert large_duration > small_duration * 2  # At least 2x longer
 
-    def test_parallel_workers_affect_estimate(self, backup_unit_factory, tmp_path, capsys):
-        """More workers reduce estimated time (implicit in report generation)."""
+    def test_estimate_runs_without_parallel_workers_config(
+        self, backup_unit_factory, tmp_path, capsys
+    ):
+        """Plan 0028 removed the parallel_workers display from the dry-run
+        report. The estimator still runs end-to-end without it."""
         config = make_mock_config(tmp_path)
-        config.parallel_workers = 4  # More workers
+        config.parallel_workers = 4  # Field still exists for back-compat
 
         report = DryRunReport(config)
         report.utils = make_mock_utils()
@@ -338,8 +344,9 @@ class TestDryRunEstimates:
         captured = capsys.readouterr()
         output = captured.out
 
-        # Verify parallel workers shown in config
-        assert "Parallel Workers: 4" in output
+        assert "Parallel Workers" not in output
+        # Estimate still produced for 4 volumes
+        assert "Estimated Total Time" in output
 
 
 # =============================================================================

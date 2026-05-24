@@ -31,18 +31,16 @@ Cold backup strategy:
 import json
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from ..helpers.logging import get_logger
 from ..helpers.ui_utils import run_command, SubprocessError
-from ..types import BackupUnit, ContainerInfo, BackupMetadata, BackupErrorDetail
+from ..types import BackupUnit, BackupSource, ContainerInfo, BackupMetadata, BackupErrorDetail
 from ..helpers.config import Config
 from ..cores.repository_manager import KopiaRepository, KopiaCommandError
 from ..cores.kopia_policy_manager import KopiaPolicyManager
-from ..helpers.policy_state import PolicyStateManager, compute_policy_hash
 from ..cores.hooks_manager import HooksManager
 from ..cores.notification_manager import NotificationManager, BackupStats
 from ..cores.safe_exit_manager import SafeExitManager, ServiceContinuityHandler
@@ -51,13 +49,10 @@ from ..backends.base import BackendUnreachableError
 from ..helpers.constants import (
     CONTAINER_STOP_TIMEOUT,
     CONTAINER_START_TIMEOUT,
-    VOLUME_BACKUP_DIR,
     DOCKER_CONFIG_BACKUP_DIR,
     BACKUP_SCOPE_MINIMAL,
     BACKUP_SCOPE_STANDARD,
     BACKUP_SCOPE_FULL,
-    BACKUP_FORMAT_DIRECT,
-    BACKUP_FORMAT_DEFAULT,
     STAGING_BASE_DIR,
 )
 
@@ -71,10 +66,8 @@ class BackupManager:
         self.config = config
         self.repo = KopiaRepository(config)
         self.policy_manager = KopiaPolicyManager(self.repo)
-        self.policy_state = PolicyStateManager(self.repo.profile_name)
         self.hooks_manager = HooksManager(config)
         self.notification_manager = NotificationManager(config)
-        self.max_workers = config.parallel_workers
 
         self.stop_timeout = self.config.getint("backup", "stop_timeout", CONTAINER_STOP_TIMEOUT)
         self.start_timeout = self.config.getint("backup", "start_timeout", CONTAINER_START_TIMEOUT)
@@ -119,10 +112,9 @@ class BackupManager:
         _preflight_error: Optional[BackendUnreachableError] = None
         _containers_stopped = False
 
-        try:
-            # Apply retention policies up front
-            self._ensure_policies(unit)
+        metadata.docker_config_backed_up = False
 
+        try:
             # 0) Pre-backup hook
             logger.info("Executing pre-backup hook...", extra={"unit_name": unit.name})
             if not self.hooks_manager.execute_pre_backup(unit.name):
@@ -134,11 +126,15 @@ class BackupManager:
                 return metadata
 
             # Pre-flight is done once per backup run (in _run_backup), not per unit (Plan 0026).
-            # If we get here, the backend was reachable when the run started; transient
-            # failures mid-run will surface as KopiaCommandError from the first failing
-            # kopia call below and unwind via the existing error path.
 
-            # 1) Stop containers
+            # 1) Discovery — collect every BackupSource BEFORE stopping containers.
+            #    Plan 0028 Phase 3: staging dirs + docker inspect happen while
+            #    containers are running (Inspect needs them alive); the snapshot
+            #    loop below runs after the stop and only touches static paths.
+            logger.info("Collecting backup sources...", extra={"unit_name": unit.name})
+            sources = self._collect_backup_sources(unit, backup_id, backup_scope)
+
+            # 2) Stop containers
             logger.info(
                 f"Stopping {len(unit.containers)} containers...",
                 extra={"unit_name": unit.name},
@@ -146,76 +142,50 @@ class BackupManager:
             self._stop_containers(unit.containers, service_handler)
             _containers_stopped = True
 
-            # 2) Recipes (skip for minimal scope)
-            if backup_scope != BACKUP_SCOPE_MINIMAL:
-                logger.info("Backing up recipes...", extra={"unit_name": unit.name})
-                recipe_snapshot = self._backup_recipes(unit, backup_id, backup_scope)
-                if recipe_snapshot:
-                    metadata.kopia_snapshot_ids.append(recipe_snapshot)
-            else:
-                logger.info(
-                    "Skipping recipes backup (minimal scope)", extra={"unit_name": unit.name}
-                )
+            # 3) Snapshot loop — sequential per Plan 0028.
+            #    repo.create_snapshots() returns one ID per source in order;
+            #    empty string marks per-source failure (already logged).
+            from ..helpers.constants import BACKUP_FORMAT_DEFAULT, BACKUP_FORMAT_DIRECT
 
-            # 2.5) Networks (standard and full scopes)
-            if backup_scope in [BACKUP_SCOPE_STANDARD, BACKUP_SCOPE_FULL]:
-                logger.info("Backing up networks...", extra={"unit_name": unit.name})
-                network_snapshot, network_count = self._backup_networks(unit, backup_id, backup_scope)
-                if network_snapshot:
-                    metadata.kopia_snapshot_ids.append(network_snapshot)
-                    metadata.networks_backed_up = network_count
-            else:
-                logger.debug(
-                    f"Skipping networks backup (scope: {backup_scope})",
-                    extra={"unit_name": unit.name},
-                )
-
-            # 2.6) Docker daemon config (full scope only)
-            if backup_scope == BACKUP_SCOPE_FULL:
-                logger.info("Backing up Docker daemon configuration...", extra={"unit_name": unit.name})
-                docker_config_snapshot = self._backup_docker_config(unit, backup_id, backup_scope)
-                if docker_config_snapshot:
-                    metadata.kopia_snapshot_ids.append(docker_config_snapshot)
+            snapshot_ids = self.repo.create_snapshots(sources)
+            for src, snap_id in zip(sources, snapshot_ids):
+                if not snap_id:
+                    label = src.tags.get("volume") or src.kind
+                    metadata.errors.append(f"Failed to snapshot {src.kind}: {label}")
+                    continue
+                metadata.kopia_snapshot_ids.append(snap_id)
+                if src.kind == "volume":
+                    metadata.volumes_backed_up += 1
+                elif src.kind == "network":
+                    metadata.networks_backed_up = int(src.tags.get("network_count", "0"))
+                elif src.kind == "docker_config":
                     metadata.docker_config_backed_up = True
-                else:
-                    metadata.docker_config_backed_up = False
-            else:
-                metadata.docker_config_backed_up = False
 
-            # 3) Volumes (parallel)
-            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                futures = []
+            # 4) TAR-mode volume fallback (legacy).
+            #    Direct mode's volumes are already covered by _collect_volume_sources
+            #    above. TAR mode pipes through stdin and can't be expressed as a
+            #    BackupSource, so it stays on the legacy per-volume call. No
+            #    parallelism — sequential by Plan 0028 design.
+            if BACKUP_FORMAT_DEFAULT != BACKUP_FORMAT_DIRECT:
                 for volume in unit.volumes:
-                    futures.append(
-                        (
-                            volume.name,
-                            executor.submit(self.volume_handler.backup_volume, volume, unit, backup_id, backup_scope),
-                        )
-                    )
-
-                task_timeout = max(0, self.config.getint("backup", "task_timeout", 0))
-                for vol_name, fut in futures:
                     try:
-                        snap_id = fut.result(timeout=task_timeout or None)
-                        if snap_id:
-                            metadata.kopia_snapshot_ids.append(snap_id)
-                            metadata.volumes_backed_up += 1
-                            logger.debug(
-                                f"Completed volume backup: {vol_name}",
-                                extra={"unit_name": unit.name, "volume": vol_name},
-                            )
-                        else:
-                            metadata.errors.append(f"Failed to backup volume: {vol_name}")
-                            logger.warning(
-                                f"No snapshot created for volume: {vol_name}",
-                                extra={"unit_name": unit.name},
-                            )
+                        snap_id = self.volume_handler.backup_volume(
+                            volume, unit, backup_id, backup_scope
+                        )
                     except Exception as e:
-                        metadata.errors.append(f"Error backing up volume {vol_name}: {str(e)}")
+                        metadata.errors.append(
+                            f"Error backing up volume {volume.name}: {e}"
+                        )
                         logger.error(
-                            f"Exception during volume backup {vol_name}: {e}",
+                            f"Exception during TAR-mode volume backup {volume.name}: {e}",
                             extra={"unit_name": unit.name},
                         )
+                        continue
+                    if snap_id:
+                        metadata.kopia_snapshot_ids.append(snap_id)
+                        metadata.volumes_backed_up += 1
+                    else:
+                        metadata.errors.append(f"Failed to backup volume: {volume.name}")
 
         except BackendUnreachableError as e:
             _preflight_error = e
@@ -470,30 +440,34 @@ class BackupManager:
 
         return staging_dir
 
-    def _backup_recipes(self, unit: BackupUnit, backup_id: str, backup_scope: str) -> Optional[str]:
-        """Backup compose files and container inspect data (with secret redaction)."""
+    def _collect_recipe_sources(
+        self, unit: BackupUnit, backup_id: str, backup_scope: str
+    ) -> List[BackupSource]:
+        """Stage compose files + redacted container inspects and return one
+        BackupSource pointing at the staging dir.
+
+        Plan 0028 Phase 2 split: this does the *discovery* (filesystem work,
+        secret redaction, tag construction) and stops at the boundary before
+        ``kopia snapshot create``. Returns an empty list if staging fails so
+        the caller doesn't try to snapshot a half-built directory.
+        """
         import shutil
+        import json as _json
 
         try:
-            # Prepare clean staging directory with stable path
             staging_dir = self._prepare_staging_dir("recipes", unit.name)
 
-            # Compose files (all from label, including overrides)
             compose_files_saved = []
             compose_dirs_processed = set()
 
             for compose_file in unit.compose_files:
                 if compose_file.exists():
-                    # Save with original filename
                     dest = staging_dir / compose_file.name
                     shutil.copy2(compose_file, dest)
                     compose_files_saved.append(compose_file.name)
                     compose_dirs_processed.add(compose_file.parent)
 
-            # Save compose order for restore (critical for override precedence)
             if compose_files_saved:
-                import json as _json
-
                 (staging_dir / "compose_order.json").write_text(
                     _json.dumps(compose_files_saved, indent=2)
                 )
@@ -502,26 +476,19 @@ class BackupManager:
                     extra={"unit_name": unit.name},
                 )
 
-            # Save related project files from ALL compose directories
             project_files_dir = staging_dir / "project-files"
             project_files_dir.mkdir(exist_ok=True)
 
-            config_patterns = [
-                ".env*",  # Environment files (critical!)
-                "*.conf",
-                "*.config",  # Config files
-                "*.toml",  # TOML configs
-            ]
+            config_patterns = [".env*", "*.conf", "*.config", "*.toml"]
 
             backed_up_files = []
             for compose_dir in compose_dirs_processed:
                 for pattern in config_patterns:
                     for config_file in compose_dir.glob(pattern):
-                        # Skip compose files (already saved above)
                         if config_file.is_file() and config_file.name not in compose_files_saved:
                             try:
                                 dest = project_files_dir / config_file.name
-                                if not dest.exists():  # Avoid duplicates
+                                if not dest.exists():
                                     shutil.copy2(config_file, dest)
                                     backed_up_files.append(config_file.name)
                             except Exception as e:
@@ -536,17 +503,9 @@ class BackupManager:
                     extra={"unit_name": unit.name},
                 )
 
-            # Inspect (redact env secrets)
-            import json as _json
-
             SENSITIVE = (
-                "PASS",
-                "SECRET",
-                "KEY",
-                "TOKEN",
-                "CREDENTIAL",
-                "API",
-                "AUTH",
+                "PASS", "SECRET", "KEY", "TOKEN",
+                "CREDENTIAL", "API", "AUTH",
             )
             for c in unit.containers:
                 result = run_command(
@@ -568,40 +527,55 @@ class BackupManager:
                         data[0]["Config"]["Env"] = red
                 (staging_dir / f"{c.name}_inspect.json").write_text(_json.dumps(data, indent=2))
 
-            # Snapshot with stable path (enables Kopia retention policies)
-            logger.debug(
-                f"Creating recipe snapshot from stable staging path: {staging_dir}",
-                extra={"unit_name": unit.name},
-            )
-            return self.repo.create_snapshot(
-                str(staging_dir),
-                tags={
-                    "type": "recipe",
-                    "unit": unit.name,
-                    "backup_id": backup_id,
-                    "backup_scope": backup_scope,
-                    "timestamp": datetime.now().isoformat(),
-                },
-            )
+            return [
+                BackupSource(
+                    path=str(staging_dir),
+                    kind="recipe",
+                    tags={
+                        "type": "recipe",
+                        "unit": unit.name,
+                        "backup_id": backup_id,
+                        "backup_scope": backup_scope,
+                        "timestamp": datetime.now().isoformat(),
+                    },
+                )
+            ]
         except Exception as e:
             logger.error(
-                f"Failed to backup recipes for {unit.name}: {e}",
+                f"Failed to collect recipe source for {unit.name}: {e}",
                 extra={"unit_name": unit.name},
             )
-            # Note: Keep staging directory on error for debugging
+            return []
+
+    def _backup_recipes(self, unit: BackupUnit, backup_id: str, backup_scope: str) -> Optional[str]:
+        """Backup compose files and container inspect data (with secret redaction)."""
+        sources = self._collect_recipe_sources(unit, backup_id, backup_scope)
+        if not sources:
+            return None
+        src = sources[0]
+        logger.debug(
+            f"Creating recipe snapshot from stable staging path: {src.path}",
+            extra={"unit_name": unit.name},
+        )
+        try:
+            return self.repo.create_snapshot(src.path, tags=src.tags)
+        except Exception as e:
+            logger.error(
+                f"Failed to snapshot recipes for {unit.name}: {e}",
+                extra={"unit_name": unit.name},
+            )
             return None
 
-    def _backup_networks(self, unit: BackupUnit, backup_id: str, backup_scope: str) -> Tuple[Optional[str], int]:
-        """
-        Backup custom Docker networks used by this unit.
-
-        Returns:
-            Tuple of (snapshot_id, network_count)
+    def _collect_network_sources(
+        self, unit: BackupUnit, backup_id: str, backup_scope: str
+    ) -> List[BackupSource]:
+        """Stage custom Docker network configurations and return a single
+        BackupSource. Returns ``[]`` when the unit uses no custom networks
+        (default Docker networks bridge/host/none are intentionally ignored).
         """
         import json as _json
 
         try:
-            # Collect all networks from unit's containers
             networks_to_backup = set()
             default_networks = {"bridge", "host", "none"}
 
@@ -609,25 +583,23 @@ class BackupManager:
                 inspect_data = container.inspect_data
                 if not inspect_data:
                     continue
-
                 container_networks = inspect_data.get("NetworkSettings", {}).get("Networks", {})
-
                 for net_name in container_networks.keys():
                     if net_name not in default_networks:
                         networks_to_backup.add(net_name)
 
             if not networks_to_backup:
                 logger.debug(
-                    f"No custom networks found for unit {unit.name}", extra={"unit_name": unit.name}
+                    f"No custom networks found for unit {unit.name}",
+                    extra={"unit_name": unit.name},
                 )
-                return None, 0
+                return []
 
             logger.info(
                 f"Backing up {len(networks_to_backup)} custom networks: {', '.join(sorted(networks_to_backup))}",
                 extra={"unit_name": unit.name},
             )
 
-            # Export network configurations
             network_configs = []
             for net_name in networks_to_backup:
                 try:
@@ -655,72 +627,80 @@ class BackupManager:
                     f"Could not retrieve any network configurations for unit {unit.name}",
                     extra={"unit_name": unit.name},
                 )
-                return None, 0
+                return []
 
-            # Prepare clean staging directory with stable path
             staging_dir = self._prepare_staging_dir("networks", unit.name)
+            (staging_dir / "networks.json").write_text(_json.dumps(network_configs, indent=2))
 
-            # Save network configurations
-            networks_file = staging_dir / "networks.json"
-            networks_file.write_text(_json.dumps(network_configs, indent=2))
-
-            # Create metadata file with additional info
-            metadata_file = staging_dir / "networks_metadata.json"
             metadata = {
                 "unit_name": unit.name,
                 "backup_timestamp": datetime.now().isoformat(),
                 "network_count": len(network_configs),
                 "network_names": [nc.get("Name") for nc in network_configs],
             }
-            metadata_file.write_text(_json.dumps(metadata, indent=2))
+            (staging_dir / "networks_metadata.json").write_text(_json.dumps(metadata, indent=2))
 
-            # Create snapshot with stable path (enables Kopia retention policies)
-            logger.debug(
-                f"Creating networks snapshot from stable staging path: {staging_dir}",
-                extra={"unit_name": unit.name},
-            )
-            snapshot_id = self.repo.create_snapshot(
-                str(staging_dir),
-                tags={
-                    "type": "networks",
-                    "unit": unit.name,
-                    "backup_id": backup_id,
-                    "backup_scope": backup_scope,
-                    "timestamp": datetime.now().isoformat(),
-                    "network_count": str(len(network_configs)),
-                },
-            )
-
-            logger.info(
-                f"Successfully backed up {len(network_configs)} networks for {unit.name}",
-                extra={"unit_name": unit.name, "network_count": len(network_configs)},
-            )
-
-            return snapshot_id, len(network_configs)
-
+            return [
+                BackupSource(
+                    path=str(staging_dir),
+                    kind="network",
+                    tags={
+                        "type": "networks",
+                        "unit": unit.name,
+                        "backup_id": backup_id,
+                        "backup_scope": backup_scope,
+                        "timestamp": datetime.now().isoformat(),
+                        "network_count": str(len(network_configs)),
+                    },
+                )
+            ]
         except Exception as e:
             logger.error(
-                f"Failed to backup networks for {unit.name}: {e}", extra={"unit_name": unit.name}
+                f"Failed to collect network sources for {unit.name}: {e}",
+                extra={"unit_name": unit.name},
             )
-            # Note: Keep staging directory on error for debugging
-            return None, 0
+            return []
 
-    def _backup_docker_config(
-        self, unit: BackupUnit, backup_id: str, backup_scope: str
-    ) -> Optional[str]:
-        """
-        Backup Docker daemon configuration for disaster recovery.
-
-        Only backs up known configuration files, not entire /etc/docker directory.
-        Errors are non-fatal - logs warning and returns None.
-
-        Args:
-            unit: Backup unit context
-            backup_id: Unique backup run identifier
-            backup_scope: Backup scope (always "full" when this is called)
+    def _backup_networks(self, unit: BackupUnit, backup_id: str, backup_scope: str) -> Tuple[Optional[str], int]:
+        """Backup custom Docker networks used by this unit.
 
         Returns:
-            Snapshot ID if successful, None otherwise
+            Tuple of (snapshot_id, network_count). The network count is parsed
+            back out of the BackupSource tags so callers don't have to know
+            whether the helper short-circuited or staged a snapshot.
+        """
+        sources = self._collect_network_sources(unit, backup_id, backup_scope)
+        if not sources:
+            return None, 0
+
+        src = sources[0]
+        network_count = int(src.tags.get("network_count", "0"))
+        logger.debug(
+            f"Creating networks snapshot from stable staging path: {src.path}",
+            extra={"unit_name": unit.name},
+        )
+        try:
+            snapshot_id = self.repo.create_snapshot(src.path, tags=src.tags)
+        except Exception as e:
+            logger.error(
+                f"Failed to snapshot networks for {unit.name}: {e}",
+                extra={"unit_name": unit.name},
+            )
+            return None, 0
+
+        logger.info(
+            f"Successfully backed up {network_count} networks for {unit.name}",
+            extra={"unit_name": unit.name, "network_count": network_count},
+        )
+        return snapshot_id, network_count
+
+    def _collect_docker_config_sources(
+        self, unit: BackupUnit, backup_id: str, backup_scope: str
+    ) -> List[BackupSource]:
+        """Stage Docker daemon config files (daemon.json + systemd overrides)
+        and return at most one BackupSource. Errors are non-fatal: the helper
+        logs and returns ``[]`` rather than raising — Docker config is a
+        nice-to-have for DR, not a hard requirement.
         """
         import shutil
 
@@ -728,7 +708,6 @@ class BackupManager:
             staging_dir = self._prepare_staging_dir(DOCKER_CONFIG_BACKUP_DIR, unit.name)
             files_backed_up = []
 
-            # 1. Main Docker daemon configuration
             daemon_json = Path("/etc/docker/daemon.json")
             if daemon_json.exists() and daemon_json.is_file():
                 try:
@@ -737,7 +716,6 @@ class BackupManager:
                 except PermissionError as e:
                     logger.warning(f"Cannot read {daemon_json}: {e}")
 
-            # 2. systemd service overrides
             systemd_overrides = Path("/etc/systemd/system/docker.service.d")
             if systemd_overrides.exists() and systemd_overrides.is_dir():
                 try:
@@ -749,26 +727,107 @@ class BackupManager:
 
             if not files_backed_up:
                 logger.info("No Docker config files found (normal on default installations)")
-                return None
+                return []
 
             logger.info(f"Backing up Docker daemon config: {', '.join(files_backed_up)}")
-
-            # Create snapshot with backup_scope tag
-            return self.repo.create_snapshot(
-                str(staging_dir),
-                tags={
-                    "type": "docker_config",
-                    "unit": unit.name,
-                    "backup_id": backup_id,
-                    "backup_scope": backup_scope,
-                    "timestamp": datetime.now().isoformat(),
-                    "files": ",".join(files_backed_up),
-                },
-            )
-
+            return [
+                BackupSource(
+                    path=str(staging_dir),
+                    kind="docker_config",
+                    tags={
+                        "type": "docker_config",
+                        "unit": unit.name,
+                        "backup_id": backup_id,
+                        "backup_scope": backup_scope,
+                        "timestamp": datetime.now().isoformat(),
+                        "files": ",".join(files_backed_up),
+                    },
+                )
+            ]
         except Exception as e:
-            logger.warning(f"Docker config backup failed (non-fatal): {e}", exc_info=True)
+            logger.warning(f"Docker config collection failed (non-fatal): {e}", exc_info=True)
+            return []
+
+    def _backup_docker_config(
+        self, unit: BackupUnit, backup_id: str, backup_scope: str
+    ) -> Optional[str]:
+        """Backup Docker daemon configuration for disaster recovery.
+
+        Only backs up known configuration files, not entire /etc/docker directory.
+        Errors are non-fatal — logs warning and returns None.
+        """
+        sources = self._collect_docker_config_sources(unit, backup_id, backup_scope)
+        if not sources:
             return None
+        src = sources[0]
+        try:
+            return self.repo.create_snapshot(src.path, tags=src.tags)
+        except Exception as e:
+            logger.warning(f"Docker config snapshot failed (non-fatal): {e}", exc_info=True)
+            return None
+
+    def _collect_volume_sources(
+        self, unit: BackupUnit, backup_id: str, backup_scope: str
+    ) -> List[BackupSource]:
+        """Return one BackupSource per Direct-mode volume in the unit.
+
+        Plan 0028 Phase 2: only the Direct-mode path emits BackupSources here.
+        TAR-mode still goes through the legacy ``BackupVolumeHandler.backup_volume_tar``
+        because it pipes through stdin and has no usable filesystem path —
+        Phase 3 will revisit that. For now ``backup_unit()`` still routes
+        volumes through ``volume_handler.backup_volume()`` and this helper
+        exists so callers can introspect the planned snapshot list ahead of
+        time.
+        """
+        from ..helpers.constants import BACKUP_FORMAT_DEFAULT, BACKUP_FORMAT_DIRECT
+
+        if BACKUP_FORMAT_DEFAULT != BACKUP_FORMAT_DIRECT:
+            return []
+
+        sources: List[BackupSource] = []
+        for volume in unit.volumes:
+            sources.append(
+                BackupSource(
+                    path=volume.mountpoint,
+                    kind="volume",
+                    tags={
+                        "type": "volume",
+                        "unit": unit.name,
+                        "volume": volume.name,
+                        "backup_id": backup_id,
+                        "backup_scope": backup_scope,
+                        "backup_format": BACKUP_FORMAT_DIRECT,
+                        "size_bytes": str(getattr(volume, "size_bytes", 0) or "0"),
+                    },
+                )
+            )
+        return sources
+
+    def _collect_backup_sources(
+        self, unit: BackupUnit, backup_id: str, backup_scope: str
+    ) -> List[BackupSource]:
+        """Aggregate every BackupSource ``backup_unit()`` would snapshot.
+
+        Returns sources in the order the snapshot loop will produce them:
+        recipes → networks → docker_config → volumes. Side-effects (staging
+        dirs being written) match what the corresponding ``_backup_*`` helper
+        would do.
+
+        Plan 0028 Phase 2 introduces this as the *future* single entry point.
+        ``backup_unit()`` still calls the individual ``_backup_*`` helpers,
+        so the aggregate stays observation-only until Phase 3 wires
+        ``repo.create_snapshots(sources)`` to it. Tests may use this method
+        today to verify discovery in isolation.
+        """
+        sources: List[BackupSource] = []
+        if backup_scope != BACKUP_SCOPE_MINIMAL:
+            sources.extend(self._collect_recipe_sources(unit, backup_id, backup_scope))
+        if backup_scope in (BACKUP_SCOPE_STANDARD, BACKUP_SCOPE_FULL):
+            sources.extend(self._collect_network_sources(unit, backup_id, backup_scope))
+        if backup_scope == BACKUP_SCOPE_FULL:
+            sources.extend(self._collect_docker_config_sources(unit, backup_id, backup_scope))
+        sources.extend(self._collect_volume_sources(unit, backup_id, backup_scope))
+        return sources
 
     def _save_metadata(self, metadata: BackupMetadata):
         """Persist backup metadata JSON."""
@@ -782,149 +841,3 @@ class BackupManager:
             extra={"unit_name": metadata.unit_name},
         )
 
-    def auto_prune_orphaned_policies(self) -> None:
-        """Remove per-path policies for paths kopi-docka manages but no longer snapshots.
-
-        Called once per backup run before the unit loop (Plan 0026). Removes
-        orphans accumulated when volumes are deleted, stacks renamed, or staging
-        paths change format across versions. Without this, Kopia's policy list
-        grows unbounded.
-
-        Safety constraints — we touch a policy only if ALL apply:
-          1. target.host matches this host's socket.gethostname()
-          2. target.userName matches getpass.getuser()
-          3. policy path starts with a prefix kopi-docka actually manages
-          4. no active snapshot exists for that path on this host
-
-        Constraints 1+2 protect cross-host restore scenarios (Plan 0024
-        restore --advanced): a host that connects to a foreign repo to read
-        another machine's snapshots must never delete the source host's
-        policies. Constraint 3 is defense-in-depth against future bugs in
-        list_snapshots() — we still won't touch /home/user/custom even if it
-        looks orphaned.
-        """
-        import getpass
-        import socket
-
-        try:
-            policies = self.policy_manager.list_policies()
-            snapshots = self.repo.list_snapshots()
-        except Exception as e:
-            logger.warning("Auto-prune skipped (could not fetch state): %s", e)
-            return
-
-        local_host = socket.gethostname()
-        local_user = getpass.getuser()
-
-        # list_snapshots() returns FLAT dicts (Plan 0026 Phase 0 bugfix in v7.1.5);
-        # snap["path"], not snap["source"]["path"].
-        snapshot_paths = {s.get("path", "") for s in snapshots if s.get("path")}
-
-        owned_prefixes = (
-            str(STAGING_BASE_DIR),       # /var/cache/kopi-docka/staging/...
-            "/var/lib/docker/volumes/",  # direct-mode volume mountpoints
-        )
-
-        orphaned = []
-        for pol in policies:
-            target = pol.get("target", {})
-            path = target.get("path", "")
-            host = target.get("host", "")
-            user = target.get("userName", "")
-            if not path or path == "(global)":
-                continue
-            if host != local_host or user != local_user:
-                continue
-            if path in snapshot_paths:
-                continue
-            if not path.startswith(owned_prefixes):
-                continue
-            orphaned.append(target)
-
-        if not orphaned:
-            return
-
-        logger.info("Auto-pruning %d orphaned policies", len(orphaned))
-        ok = self.policy_manager.delete_policies_batch(orphaned)
-        if not ok:
-            logger.warning(
-                "Auto-prune batch delete failed — run 'kopi-docka advanced policy prune' to clean up"
-            )
-            return
-
-        # Drop pruned targets from the smart-skip state — otherwise we'd skip
-        # reapplying when (if ever) the path returns.
-        for entry in orphaned:
-            self.policy_state.remove(entry.get("path", ""))
-        logger.info("Auto-pruned %d orphaned policies", len(orphaned))
-
-    def _ensure_policies(self, unit: BackupUnit):
-        """Set Kopia retention policies for this unit's volumes (with smart-skip).
-
-        Staging paths (recipes/networks/docker-config) inherit from the global
-        policy set at `kopia repository connect` time — no per-path overrides
-        needed. Per-path policies are only applied to volume mountpoints in
-        Direct Mode (or the virtual volumes/<unit> path in TAR Mode).
-
-        Smart-skip: each target's retention config is hashed and persisted via
-        PolicyStateManager. If the hash matches the previous run's hash for the
-        same (profile, target), the `kopia policy set` call is skipped — pure
-        overhead on slow remote backends. Hash is recorded only on success, so
-        a failure (timeout, backend down) will retry next run.
-        """
-        retention = {
-            "latest": self.config.getint("retention", "latest", 10),
-            "hourly": self.config.getint("retention", "hourly", 0),
-            "daily": self.config.getint("retention", "daily", 7),
-            "weekly": self.config.getint("retention", "weekly", 4),
-            "monthly": self.config.getint("retention", "monthly", 12),
-            "annual": self.config.getint("retention", "annual", 3),
-        }
-
-        if BACKUP_FORMAT_DEFAULT == BACKUP_FORMAT_DIRECT:
-            targets = [(v.mountpoint, v.name) for v in unit.volumes]
-        else:
-            targets = [(f"{VOLUME_BACKUP_DIR}/{unit.name}", None)]
-
-        for target, volume_name in targets:
-            self._apply_target_policy(unit, target, volume_name, retention)
-
-    def _apply_target_policy(
-        self,
-        unit: BackupUnit,
-        target: str,
-        volume_name: Optional[str],
-        retention: Dict[str, int],
-    ) -> None:
-        """Apply retention policy to one target, with hash-based smart-skip."""
-        expected_hash = compute_policy_hash(target, retention)
-        if self.policy_state.is_current(target, expected_hash):
-            logger.debug(
-                "Policy for %s unchanged — skipping kopia policy set",
-                target,
-                extra={"unit_name": unit.name, "target": target},
-            )
-            return
-
-        log_target = f"volume {volume_name} at {target}" if volume_name else target
-        log_extra = {"unit_name": unit.name, "target": target}
-        if volume_name:
-            log_extra["volume"] = volume_name
-
-        try:
-            self.policy_manager.set_retention_for_target(target, **{
-                f"keep_{k}": v for k, v in retention.items()
-            })
-        except Exception as e:
-            # Don't record the hash — next run will retry naturally.
-            logger.warning(
-                f"Could not apply Kopia policy on {log_target}: {e}",
-                extra=log_extra,
-            )
-            return
-
-        self.policy_state.mark_applied(target, expected_hash)
-        logger.debug(
-            f"Applied Kopia retention policy on {log_target}",
-            extra=log_extra,
-        )
