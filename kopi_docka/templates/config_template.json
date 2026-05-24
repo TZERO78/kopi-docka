@@ -15,6 +15,7 @@
     "backup_scope": "standard",
     "stop_timeout": 30,
     "start_timeout": 60,
+    "database_backup": "true",
     "update_recovery_bundle": false,
     "recovery_bundle_path": "/backup/recovery",
     "recovery_bundle_retention": 3,
