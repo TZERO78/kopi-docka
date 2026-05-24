@@ -25,6 +25,50 @@ A Disaster Recovery (DR) bundle is a single file containing everything needed to
 
 ---
 
+## What's NOT in the bundle (and why)
+
+For SFTP/Tailscale backends the **SSH private key** is intentionally *not* embedded in the DR bundle by default. The same applies to cloud credentials (AWS access keys, B2 keys, Azure storage keys, GCP service-account JSON) — they're never in the bundle.
+
+**Why:** this is **defense in depth** / **key separation** (NIST SP 800-57). If an attacker gets the bundle and its passphrase, the Kopia repository encryption can be broken (the repo password *is* in the bundle). But they still can't reach the backup server because the SSH key — the credential that *authenticates* to the remote — lives somewhere else. Two unrelated secrets at two unrelated locations is qualitatively harder to break than one.
+
+This matches the industry default: restic, Borg, Duplicity, rclone crypt all keep authentication credentials out of their recovery bundles.
+
+### What you need to keep separately
+
+The bundle prints this list at the end of `disaster-recovery export`, plus in `RECOVERY-INSTRUCTIONS.txt`, and `kopi-docka doctor` Section 9 shows it on every health check:
+
+| Backend | Keep separately at a different location |
+|---------|------------------------------------------|
+| **SFTP / Tailscale** | The SSH private key referenced in `kopia_params --keyfile=…` (e.g. `/root/.ssh/kopi-docka_ed25519`) |
+| **S3** | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` |
+| **Backblaze B2** | B2 Account ID + Application Key |
+| **Azure** | Storage Account name + Storage Key |
+| **GCS** | GCP service-account JSON file (`/root/gcp-sa.json` or `GOOGLE_APPLICATION_CREDENTIALS`) |
+| **Filesystem / rclone** | (Nothing — the bundle covers everything) |
+
+Suggested storage locations for the SSH key:
+
+- Password-manager attachment (1Password, Bitwarden, KeePassXC)
+- Separate encrypted USB stick kept at a different physical site
+- GPG-symmetric encrypted in a different cloud
+- Air-gapped paper printout (`ssh-keygen` private keys fit on one page at ~400 bytes)
+
+The export command and `RECOVERY-INSTRUCTIONS.txt` print the SHA256 fingerprint of the SSH key so you can verify the externally-held copy is the right one when restoring.
+
+### Opt-in: bundle everything together — `--include-ssh-key`
+
+If your bundle is stored at a *higher* trust level than the SSH key itself (e.g. air-gapped offline storage, hardware token vault), you can opt into the all-in-one bundle:
+
+```bash
+sudo kopi-docka disaster-recovery export ~/recovery.zip --include-ssh-key
+```
+
+The command prints a red warning panel and requires explicit confirmation (`--yes` to skip the prompt for automation). The bundle then contains `ssh-key/<basename>` plus its `.pub`, and `recover.sh` will install the key at the correct path with mode 600 before connecting.
+
+**Trade-off:** a single compromise (bundle + passphrase) now grants full backup-server access. Use only when you've actually thought through the storage threat model — for most users the default (key kept separate) is the right answer.
+
+---
+
 ## Bundle Formats
 
 ### Encrypted ZIP (Recommended) — `disaster-recovery export`

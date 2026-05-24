@@ -30,7 +30,9 @@ connect to the repository, the underlying storage (filesystem, rclone, s3, etc.)
 is automatically working. No separate backend checks needed.
 """
 
+from pathlib import Path
 from typing import Optional
+import os
 import platform
 
 import typer
@@ -607,6 +609,107 @@ def _check_backup_freshness(cfg: "Config", console: Console, warnings: list):
     console.print()
 
 
+def _check_dr_readiness(cfg: "Config", console: Console, warnings: list) -> None:
+    """Section 9 — Disaster Recovery Readiness (Plan 0030).
+
+    The DR bundle intentionally does NOT carry the SSH private key for
+    SFTP/Tailscale backends. This section makes the externally-held key
+    visible in everyday operation: shows its path + SHA256 (so the user
+    can record it for verification), warns if it's missing right now.
+
+    Silent for non-SFTP backends (filesystem repos need nothing extra;
+    cloud backends are flagged at export time, not here).
+    """
+    from ..cores.disaster_recovery_manager import sha256_file
+
+    kopia_params = cfg.get("kopia", "kopia_params", fallback="") or ""
+    backend = kopia_params.strip().split(None, 1)[0].lower()
+    if backend != "sftp":
+        return
+
+    # Extract --keyfile= and --known-hosts= via shlex (kopia_params is
+    # the canonical source after Plan 0029 / v7.4.0).
+    import shlex
+    keyfile_path = ""
+    known_hosts = ""
+    try:
+        for tok in shlex.split(kopia_params):
+            if tok.startswith("--keyfile="):
+                keyfile_path = tok.split("=", 1)[1]
+            elif tok.startswith("--known-hosts="):
+                known_hosts = tok.split("=", 1)[1]
+    except ValueError:
+        return
+
+    console.print("[bold]9. Disaster Recovery Readiness[/bold]")
+    console.print("-" * 40)
+
+    dr_table = Table(box=box.SIMPLE, show_header=False)
+    dr_table.add_column("Check", style="cyan", width=24)
+    dr_table.add_column("Status", width=18)
+    dr_table.add_column("Details", style="dim")
+
+    dr_table.add_row("Backend Type", "", backend)
+
+    # SSH key presence + fingerprint
+    if not keyfile_path:
+        dr_table.add_row(
+            "SSH Key",
+            "[yellow]Not in params[/yellow]",
+            "kopia_params has no --keyfile=…",
+        )
+        warnings.append(
+            "kopia_params is SFTP but has no --keyfile — DR recovery from a "
+            "fresh system will need it (run: advanced config repair-kopia-params)"
+        )
+    else:
+        kf = Path(keyfile_path)
+        if not kf.exists():
+            dr_table.add_row("SSH Key", "[red]✗ MISSING[/red]", keyfile_path)
+            warnings.append(
+                f"SSH key referenced in kopia_params is missing: {keyfile_path} "
+                f"— DR recovery from a fresh system will fail without it"
+            )
+        elif not os.access(keyfile_path, os.R_OK):
+            dr_table.add_row(
+                "SSH Key",
+                "[yellow]✗ Not readable[/yellow]",
+                keyfile_path,
+            )
+            warnings.append(
+                f"SSH key {keyfile_path} exists but is not readable by this "
+                f"process (try: sudo kopi-docka doctor)"
+            )
+        else:
+            dr_table.add_row("SSH Key", "[green]✓ Found[/green]", keyfile_path)
+            sha = sha256_file(kf)
+            if sha:
+                dr_table.add_row(
+                    "SSH Key SHA256",
+                    "",
+                    f"{sha}",
+                )
+                dr_table.add_row(
+                    "",
+                    "",
+                    "[dim]Record this for DR verification[/dim]",
+                )
+
+    # Known hosts (advisory, not blocking)
+    if known_hosts:
+        if Path(known_hosts).exists():
+            dr_table.add_row("Known Hosts", "[green]✓ Found[/green]", known_hosts)
+        else:
+            dr_table.add_row(
+                "Known Hosts",
+                "[yellow]✗ Missing[/yellow]",
+                known_hosts,
+            )
+
+    console.print(dr_table)
+    console.print()
+
+
 def cmd_doctor(ctx: typer.Context, verbose: bool = False):
     """
     Run comprehensive system health check.
@@ -793,6 +896,11 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
         # ═══════════════════════════════════════════
         if cfg:
             _check_backup_freshness(cfg, console, warnings)
+
+        # Section 9: Disaster Recovery Readiness (Plan 0030)
+        # ═══════════════════════════════════════════
+        if cfg:
+            _check_dr_readiness(cfg, console, warnings)
 
     # ═══════════════════════════════════════════
     # Summary
