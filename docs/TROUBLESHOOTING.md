@@ -214,7 +214,7 @@ sudo kopi-docka list --units
 
 ### Troubleshooting Tailscale
 
-#### ❌ Tailscale-SFTP `kopia_params` migration (v7.0.0–v7.3.13 → v7.4.0)
+#### ❌ Tailscale-SFTP `kopia_params` migration (v7.0.0–v7.3.13 → v7.5.0+)
 
 **Symptom:** Backups hang on connect, or `kopia` errors out with
 `required flag(s) '--username' not provided` / `repository not
@@ -224,27 +224,26 @@ initialized` — even though the wizard ran "successfully".
 `kopia_params` shape — `--path=HOST:PATH --host=HOST` without
 `--username` or `--keyfile`. Kopia accepts the form at
 `repository connect` and only blows up on the first snapshot. Fixed in
-v7.4.0.
+v7.4.0; v7.5.0 ships a one-command repair path.
 
-**Fix — run doctor:**
-
-```bash
-sudo kopi-docka doctor
-```
-
-Section **5.1 Backend Sanity** prints a copy/paste-ready `sed` command
-populated with your existing credentials, e.g.:
+**Fix — one command:**
 
 ```bash
-sudo sed -i 's#"kopia_params": .*#"kopia_params": "sftp --path=/mnt/user/backups/kopi-docka --host=tzero-server.beetal-vega.ts.net --username=root --keyfile=/root/.ssh/kopi-docka_ed25519 --known-hosts=/root/.ssh/known_hosts",#' /etc/kopi-docka.json
+sudo kopi-docka advanced config repair-kopia-params
 ```
 
-Then reconnect to the existing repository (no data loss — only the
-config string is being rewritten):
+The command reads your existing `[credentials]` section (peer FQDN,
+SSH user, key path, known_hosts) and rebuilds `kopia_params` in the
+canonical shape. It shows a diff and asks for confirmation before
+writing; pass `--dry-run` to preview only, `--yes` to skip the prompt.
+The Kopia repository itself is untouched — only the local config string
+changes.
+
+Then reconnect to the existing repository (no data loss):
 
 ```bash
 sudo kopi-docka advanced repo init
-sudo kopi-docka doctor   # confirms 5.1 is all green
+sudo kopi-docka doctor   # confirms Section 5.1 is all green
 ```
 
 **Verify the new form by hand:** the four required flags Kopia's SFTP

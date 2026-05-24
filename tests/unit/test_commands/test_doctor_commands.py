@@ -126,55 +126,41 @@ class TestKopiaParamsSanity:
 
 
 @pytest.mark.unit
-class TestSftpMigrationCommand:
-    """Plan 0029 / Phase 3 — migration command pulls real credentials."""
+class TestBackendSanityHint:
+    """Plan 0029 / v7.5.0 — broken-config user is pointed at the new
+    `advanced config repair-kopia-params` command, not a sed line.
+    """
 
-    def _make_cfg(self, credentials: dict, kopia_params: str = "sftp --path=p:/x"):
-        cfg = Mock()
+    def test_doctor_emits_repair_command_hint(self, cli_runner, mock_root, tmp_path):
+        import json
+
         config_data = {
-            "kopia": {"kopia_params": kopia_params},
-            "credentials": credentials,
+            "kopia": {
+                # Broken pre-v7.4 wizard form: --path=HOST:PATH, no --username/--keyfile
+                "kopia_params": "sftp --path=peer.ts.net:/backup --host=peer.ts.net",
+                "password": "test-password-123",
+                "profile": "test-profile",
+            },
+            "credentials": {
+                "remote_path": "/backup",
+                "peer_fqdn": "peer.ts.net",
+                "ssh_user": "root",
+                "ssh_key": "/root/.ssh/id_ed25519",
+            },
+            "backup": {"base_path": "/tmp/x"},
+            "docker": {"socket": "/var/run/docker.sock"},
+            "retention": {"daily": 7, "weekly": 4, "monthly": 12, "yearly": 5},
+            "logging": {"level": "INFO", "file": "/tmp/x.log"},
         }
+        cfg_file = tmp_path / "kopi-docka.json"
+        cfg_file.write_text(json.dumps(config_data))
 
-        def _get(section, option, fallback=None):
-            return config_data.get(section, {}).get(option, fallback)
+        with patch("kopi_docka.commands.doctor_commands.DependencyManager"):
+            result = cli_runner.invoke(app, ["--config", str(cfg_file), "doctor"])
 
-        cfg.get.side_effect = _get
-        cfg.config_file = "/etc/kopi-docka.json"
-        return cfg
-
-    def test_migration_command_uses_concrete_values(self):
-        from kopi_docka.commands.doctor_commands import _build_sftp_migration_command
-
-        cfg = self._make_cfg({
-            "remote_path": "/mnt/user/backups/kopi-docka",
-            "peer_fqdn": "tzero-server.beetal-vega.ts.net",
-            "ssh_user": "root",
-            "ssh_key": "/root/.ssh/kopi-docka_ed25519",
-            "known_hosts": "/root/.ssh/known_hosts",
-        })
-
-        cmd = _build_sftp_migration_command(cfg, "/etc/kopi-docka.json")
-
-        assert cmd is not None
-        assert "/mnt/user/backups/kopi-docka" in cmd
-        assert "tzero-server.beetal-vega.ts.net" in cmd
-        assert "--username=root" in cmd
-        assert "/root/.ssh/kopi-docka_ed25519" in cmd
-        assert "/root/.ssh/known_hosts" in cmd
-        assert "/etc/kopi-docka.json" in cmd
-        assert cmd.startswith("sudo sed -i")
-
-    def test_migration_command_omits_known_hosts_when_unset(self):
-        from kopi_docka.commands.doctor_commands import _build_sftp_migration_command
-
-        cfg = self._make_cfg({
-            "remote_path": "/backup",
-            "peer_fqdn": "peer.ts.net",
-            "ssh_user": "backup",
-            "ssh_key": "/home/backup/.ssh/id",
-            # no known_hosts
-        })
-
-        cmd = _build_sftp_migration_command(cfg, "/etc/kopi-docka.json")
-        assert "--known-hosts" not in cmd
+        out = result.output
+        assert "advanced config repair-kopia-params" in out, (
+            f"Doctor should suggest the repair command, got output:\n{out}"
+        )
+        # Make sure we no longer dump a sed line at the user.
+        assert "sudo sed -i" not in out, "Doctor should no longer emit the sed migration"

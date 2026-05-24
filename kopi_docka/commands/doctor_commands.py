@@ -191,42 +191,6 @@ def _check_kopia_params_sanity(kopia_params: str) -> list:
     return issues
 
 
-def _build_sftp_migration_command(cfg: Config, config_file: str) -> Optional[str]:
-    """Construct a copy/paste-ready ``sed`` command that rewrites a broken
-    SFTP kopia_params in-place to the v7.4.0 form.
-
-    Uses values from ``[credentials]`` so the user gets concrete paths
-    instead of placeholders. Returns ``None`` if we can't derive enough
-    to suggest a precise command (e.g. credentials section missing) —
-    the doctor falls back to a generic instruction in that case.
-    """
-    def _cred(key: str, default: str = "") -> str:
-        return cfg.get("credentials", key, fallback=default) or default
-
-    remote_path = _cred("remote_path", "<REMOTE_PATH>")
-    peer_fqdn = _cred("peer_fqdn") or _cred("peer_hostname", "<HOST>")
-    ssh_user = _cred("ssh_user", "root")
-    ssh_key = _cred("ssh_key", "<SSH_KEY_PATH>")
-    known_hosts = _cred("known_hosts", "")
-
-    new_params = (
-        f"sftp --path={remote_path} "
-        f"--host={peer_fqdn} "
-        f"--username={ssh_user} "
-        f"--keyfile={ssh_key}"
-    )
-    if known_hosts:
-        new_params += f" --known-hosts={known_hosts}"
-
-    # The sed expression rewrites the kopia_params JSON line. We avoid
-    # the standard `|` delimiter because paths likely contain slashes
-    # but rarely `#`.
-    return (
-        f"sudo sed -i 's#\"kopia_params\": .*#\"kopia_params\": \"{new_params}\",#' "
-        f"{config_file}"
-    )
-
-
 def _show_backend_sanity(cfg: Optional[Config], warnings: list, issues: list):
     """Section 5.1 — surface broken kopia_params shapes (Plan 0029)."""
     if not cfg:
@@ -281,24 +245,25 @@ def _show_backend_sanity(cfg: Optional[Config], warnings: list, issues: list):
         console.print()
         console.print(
             "[yellow]Migration:[/yellow] this config was likely written by the "
-            "v7.0.0–v7.3.13 Tailscale wizard (bug fixed in v7.4.0). To "
-            "rewrite kopia_params in place, run:"
+            "v7.0.0–v7.3.13 Tailscale wizard (bug fixed in v7.4.0). "
+            "Repair the config in place with:"
         )
-        config_file_str = str(getattr(cfg, "config_file", "/etc/kopi-docka.json"))
-        migration_cmd = _build_sftp_migration_command(cfg, config_file_str)
-        if migration_cmd:
-            console.print()
-            console.print(f"  [cyan]{migration_cmd}[/cyan]")
-            console.print()
-            console.print(
-                "[dim]Then run:[/dim] [cyan]sudo kopi-docka advanced repo init[/cyan] "
-                "[dim](reconnects to the existing repo with the corrected params)[/dim]"
-            )
-        else:
-            console.print(
-                "[dim](Could not derive a precise migration command from "
-                "credentials; consult docs/TROUBLESHOOTING.md.)[/dim]"
-            )
+        console.print()
+        console.print(
+            "  [cyan]sudo kopi-docka advanced config repair-kopia-params[/cyan]"
+        )
+        console.print()
+        console.print(
+            "[dim]The command rebuilds kopia_params from your existing "
+            "[bold][credentials][/bold] section (peer FQDN, ssh user, key path, "
+            "known_hosts). Pass [bold]--dry-run[/bold] to preview, "
+            "[bold]--yes[/bold] to skip the confirmation prompt.[/dim]"
+        )
+        console.print()
+        console.print(
+            "[dim]After repair, run:[/dim] [cyan]sudo kopi-docka advanced repo init[/cyan] "
+            "[dim](reconnects to the existing repository with the corrected params).[/dim]"
+        )
 
     console.print()
 

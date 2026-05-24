@@ -959,6 +959,128 @@ def cmd_change_password(
     print_success_panel("Password changed successfully!")
 
 
+def cmd_repair_kopia_params(
+    ctx: typer.Context,
+    dry_run: bool = False,
+    yes: bool = False,
+):
+    """Rebuild ``kopia_params`` for SFTP-style backends from ``[credentials]``.
+
+    Targets the v7.0.0 – v7.3.13 Tailscale-wizard bug (Plan 0029) — those
+    runs emitted ``--path=HOST:PATH`` and forgot ``--username`` /
+    ``--keyfile``. This command reads the still-correct values from
+    ``[credentials]`` (remote_path, peer_fqdn, ssh_user, ssh_key,
+    known_hosts) and writes a Kopia-correct ``kopia_params`` string
+    back atomically.
+
+    Behaves like a no-op if ``kopia_params`` already matches the
+    canonical shape, so it's safe to run repeatedly.
+    """
+    import shlex
+    from rich.markup import escape
+
+    cfg = ensure_config(ctx)
+
+    current = (cfg.get("kopia", "kopia_params", fallback="") or "").strip()
+    if not current:
+        print_error_panel(
+            "Config has no [bold]kopia_params[/bold] to repair.\n\n"
+            "[dim]Run:[/dim] [cyan]kopi-docka advanced config new[/cyan] "
+            "to bootstrap a fresh config."
+        )
+        raise typer.Exit(code=1)
+
+    backend = current.split(None, 1)[0].lower()
+    if backend != "sftp":
+        print_error_panel(
+            f"Backend [bold]{backend}[/bold] has no repair logic.\n\n"
+            f"[dim]This command targets the Tailscale-wizard SFTP shape "
+            f"(Plan 0029, v7.0.0–v7.3.13). Other backends use different "
+            f"flag conventions and don't need this fix.[/dim]"
+        )
+        raise typer.Exit(code=1)
+
+    # Pull the source-of-truth values from [credentials]. The wizard
+    # writes these alongside kopia_params, and they were not affected by
+    # the v7.0–v7.3.13 bug.
+    remote_path = cfg.get("credentials", "remote_path", fallback="") or ""
+    peer_fqdn = (
+        cfg.get("credentials", "peer_fqdn", fallback="")
+        or cfg.get("credentials", "peer_hostname", fallback="")
+        or ""
+    )
+    ssh_user = cfg.get("credentials", "ssh_user", fallback="root") or "root"
+    ssh_key = cfg.get("credentials", "ssh_key", fallback="") or ""
+    known_hosts = cfg.get("credentials", "known_hosts", fallback="") or ""
+
+    missing = []
+    if not remote_path:
+        missing.append("remote_path")
+    if not peer_fqdn:
+        missing.append("peer_fqdn (or peer_hostname)")
+    if not ssh_key:
+        missing.append("ssh_key")
+    if missing:
+        print_error_panel(
+            "Cannot rebuild [bold]kopia_params[/bold] — the following "
+            "[credentials] keys are missing:\n\n"
+            + "\n".join(f"  • {m}" for m in missing)
+            + "\n\n[dim]Re-run:[/dim] [cyan]kopi-docka advanced config new[/cyan] "
+            "[dim]to recreate the credentials block.[/dim]"
+        )
+        raise typer.Exit(code=1)
+
+    params = [
+        "sftp",
+        f"--path={shlex.quote(remote_path)}",
+        f"--host={peer_fqdn}",
+        f"--username={ssh_user}",
+        f"--keyfile={shlex.quote(ssh_key)}",
+    ]
+    if known_hosts:
+        params.append(f"--known-hosts={shlex.quote(known_hosts)}")
+    new_params = " ".join(params)
+
+    if new_params == current:
+        print_success(
+            "kopia_params already in the canonical shape — nothing to repair."
+        )
+        return
+
+    console.print()
+    console.print(Panel.fit(
+        f"[bold]Old kopia_params[/bold]\n"
+        f"[dim]{escape(current)}[/dim]\n\n"
+        f"[bold]New kopia_params[/bold]\n"
+        f"[green]{escape(new_params)}[/green]",
+        title="[bold cyan]Repair Preview[/bold cyan]",
+        border_style="cyan",
+    ))
+    console.print()
+
+    if dry_run:
+        print_warning("Dry run — config not modified.")
+        return
+
+    if not yes:
+        if not prompt_confirm("Apply this change?"):
+            print_warning("Aborted — config untouched.")
+            return
+
+    # Config.save() is already atomic (temp-file rename) — see
+    # helpers/config.py. No manual backup needed; Kopia repo itself is
+    # also untouched, only the local config string changes.
+    cfg.set("kopia", "kopia_params", new_params)
+    cfg.save()
+
+    print_success(f"kopia_params updated in {cfg.config_file}")
+    console.print()
+    console.print(
+        "[dim]Next:[/dim] [cyan]sudo kopi-docka advanced repo init[/cyan] "
+        "[dim](reconnects to the existing repository with the corrected params)[/dim]"
+    )
+
+
 def cmd_status(ctx: typer.Context):
     """Show detailed status of configured repository storage."""
     from rich.console import Console
