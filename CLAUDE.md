@@ -6,7 +6,7 @@ Kopi-Docka is a Python CLI tool that wraps **Kopia** for encrypted, deduplicated
 
 **Important**: This project will always be a Kopia wrapper. No second backup engine planned.
 
-- **Version**: 7.3.5
+- **Version**: 7.3.6
 - **Python**: 3.10, 3.11, 3.12
 - **License**: MIT
 - **Author**: Markus F. (TZERO78)
@@ -128,8 +128,9 @@ git checkout -b release/vX.Y.Z main
 Update version in **all** of these files:
 1. `pyproject.toml` → `version = "X.Y.Z"`
 2. `kopi_docka/helpers/constants.py` → `VERSION = "X.Y.Z"`
-3. `CLAUDE.md` → Version field in header
-4. `CHANGELOG.md` → Set release date (replace "Unreleased")
+3. `kopi_docka/templates/config_template.json` → `"version": "X.Y.Z"` (since v7.3.6 the shipped config template tracks the release, so a freshly generated `kopi-docka.json` records which kopi-docka version wrote it)
+4. `CLAUDE.md` → Version field in header
+5. `CHANGELOG.md` → Set release date (replace "Unreleased")
 
 **Step 2 — Commit & PR:**
 ```bash
