@@ -382,7 +382,16 @@ class SnapshotManager:
     def _display_retention(self) -> None:
         current = self._current_retention_from_config()
         kopia_policy = self.policy.get_global_policy()
-        kopia_ret = (kopia_policy.get("retentionPolicy") or {})
+        # Kopia's `policy show --global --json` puts retention under the
+        # top-level "retention" key — NOT "retentionPolicy". Reading the
+        # wrong key produced a misleading "Kopia policy unavailable" panel
+        # on healthy repos. Accept both shapes defensively in case kopia
+        # ever renames it back, but read "retention" first.
+        kopia_ret = (
+            kopia_policy.get("retention")
+            or kopia_policy.get("retentionPolicy")
+            or {}
+        )
 
         panel_lines = (
             "[bold]Config file:[/bold]\n"

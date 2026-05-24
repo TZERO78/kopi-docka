@@ -186,14 +186,22 @@ class TestConnect:
         instance.apply_global_defaults.assert_called_once_with()
 
     @patch("kopi_docka.cores.kopia_policy_manager.KopiaPolicyManager")
-    def test_short_circuit_when_already_connected_does_not_reapply(self, policy_cls):
-        """Already-connected path returns early — no point reapplying defaults."""
+    def test_already_connected_still_reapplies_global_defaults(self, policy_cls):
+        """v7.3.1 fix: even when ``kopia repository connect`` would be a
+        no-op (we're already connected), apply_global_defaults must still
+        run so retention changes in kopi-docka.json reach Kopia. Without
+        this, Kopia's global policy and the config drift indefinitely on
+        long-lived connections.
+        """
+        instance = Mock()
+        policy_cls.return_value = instance
         repo = make_repository()
         repo.is_connected = Mock(return_value=True)
 
         repo.connect()
 
-        policy_cls.assert_not_called()
+        policy_cls.assert_called_once_with(repo)
+        instance.apply_global_defaults.assert_called_once_with()
 
     @patch("kopi_docka.cores.kopia_policy_manager.KopiaPolicyManager")
     def test_apply_global_defaults_failure_does_not_abort_connect(self, policy_cls):

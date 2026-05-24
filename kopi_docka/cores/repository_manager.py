@@ -374,10 +374,24 @@ class KopiaRepository:
         """
         Connect to existing repository (idempotent).
         If repository doesn't exist, raises error - use initialize() instead.
+
+        Plan 0028 / v7.3.1: ``apply_global_defaults()`` runs on every call,
+        not just when ``kopia repository connect`` is actually invoked. The
+        previous short-circuit on ``is_connected()=True`` meant that
+        existing connections never picked up retention changes from
+        ``kopi-docka.json`` — the Kopia repo's global policy and the
+        kopi-docka config could drift indefinitely.
         """
-        # Already connected?
+        # Already connected? Still apply global defaults so retention changes
+        # in the config reach Kopia on the very next run.
         if self.is_connected():
             logger.debug("Already connected to repository")
+            try:
+                from .kopia_policy_manager import KopiaPolicyManager
+
+                KopiaPolicyManager(self).apply_global_defaults()
+            except Exception as e:
+                logger.debug("Skipping policy defaults (optional): %s", e)
             return
 
         params = shlex.split(self.kopia_params)
