@@ -360,7 +360,7 @@ def cmd_estimate_size(ctx: typer.Context):
 def register(app: typer.Typer):
     """Register dry-run command (top-level).
 
-    Note: The 'estimate-size' command has been moved to 'admin snapshot estimate-size'.
+    Note: The 'estimate-size' command has been moved to 'advanced snapshot estimate-size'.
     """
 
     @app.command("dry-run")

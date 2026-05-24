@@ -3,7 +3,7 @@
 #
 # @file:        service_commands.py
 # @module:      kopi_docka.commands.advanced
-# @description: Service management commands (admin service subgroup) - WRAPPER
+# @description: Service management commands (advanced service subgroup) - WRAPPER
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
 # @version:     3.4.1
@@ -14,14 +14,14 @@
 ################################################################################
 
 """
-Service management commands under 'admin service'.
+Service management commands under 'advanced service'.
 
 This is a thin wrapper that delegates to the legacy service_commands module.
 All business logic resides in kopi_docka.commands.service_commands.
 
 Commands:
-- admin service daemon      - Run as systemd-friendly daemon
-- admin service write-units - Write systemd unit files
+- advanced service daemon      - Run as systemd-friendly daemon
+- advanced service write-units - Write systemd unit files
 """
 
 from pathlib import Path
@@ -50,7 +50,7 @@ service_app = typer.Typer(
 
 
 def register(app: typer.Typer):
-    """Register service commands under 'admin service'."""
+    """Register service commands under 'advanced service'."""
 
     @service_app.command("daemon")
     def _daemon_cmd(

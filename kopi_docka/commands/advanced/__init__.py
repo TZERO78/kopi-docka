@@ -17,11 +17,11 @@
 Advanced Administration Commands
 
 This module provides the 'admin' subcommand group with administrative functions:
-- admin config  - Configuration management (show, edit, new, reset)
-- admin repo    - Repository management (init, maintenance, status)
-- admin service - Systemd service management (daemon, write-units)
-- admin system  - System dependency management (install-deps, show-deps)
-- admin snapshot- Snapshot management (list, estimate-size)
+- advanced config  - Configuration management (show, edit, new, reset)
+- advanced repo    - Repository management (init, maintenance, status)
+- advanced service - Systemd service management (daemon, write-units)
+- advanced system  - System dependency management (install-deps, show-deps)
+- advanced snapshot- Snapshot management (list, estimate-size)
 """
 
 import typer

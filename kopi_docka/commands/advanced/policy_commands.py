@@ -3,7 +3,7 @@
 #
 # @file:        policy_commands.py
 # @module:      kopi_docka.commands.advanced
-# @description: Policy management commands (admin policy subgroup)
+# @description: Policy management commands (advanced policy subgroup)
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
 # @version:     7.1.2
@@ -14,10 +14,10 @@
 ################################################################################
 
 """
-Policy management commands under 'admin policy'.
+Policy management commands under 'advanced policy'.
 
 Commands:
-- admin policy prune  - Delete legacy per-path Kopia retention policies
+- advanced policy prune  - Delete legacy per-path Kopia retention policies
 """
 
 import getpass
@@ -220,7 +220,7 @@ def cmd_prune(ctx: typer.Context, dry_run: bool, force: bool) -> None:
 
 
 def register(app: typer.Typer):
-    """Register policy commands under 'admin policy'."""
+    """Register policy commands under 'advanced policy'."""
 
     @policy_app.command("prune")
     def _prune_cmd(

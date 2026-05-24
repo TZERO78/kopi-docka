@@ -3,7 +3,7 @@
 #
 # @file:        config_commands.py
 # @module:      kopi_docka.commands.advanced
-# @description: Configuration management commands (admin config subgroup)
+# @description: Configuration management commands (advanced config subgroup)
 #               Thin wrapper around legacy config_commands.py
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
@@ -15,18 +15,18 @@
 ################################################################################
 
 """
-Configuration management commands under 'admin config'.
+Configuration management commands under 'advanced config'.
 
 This module is a thin wrapper that delegates to config_commands.py.
 All business logic is in the legacy module to avoid code duplication.
 
 Commands:
-- admin config show            - Show current configuration
-- admin config new             - Create new configuration
-- admin config edit            - Edit configuration file
-- admin config reset           - Reset configuration (DANGEROUS)
-- admin config status          - Show repository storage status
-- admin config change-password - Change repository password
+- advanced config show            - Show current configuration
+- advanced config new             - Create new configuration
+- advanced config edit            - Edit configuration file
+- advanced config reset           - Reset configuration (DANGEROUS)
+- advanced config status          - Show repository storage status
+- advanced config change-password - Change repository password
 """
 
 from pathlib import Path
@@ -58,7 +58,7 @@ config_app = typer.Typer(
 
 
 def register(app: typer.Typer):
-    """Register configuration commands under 'admin config'."""
+    """Register configuration commands under 'advanced config'."""
 
     @config_app.command("show")
     def _config_show_cmd(ctx: typer.Context):

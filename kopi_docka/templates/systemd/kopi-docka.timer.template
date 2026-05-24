@@ -11,23 +11,23 @@
 #
 # DAEMON MODE (Alternative - kopi-docka.service):
 #   For continuous operation with internal scheduling, use:
-#     kopi-docka admin service daemon --interval-minutes 60
+#     kopi-docka advanced service daemon --interval-minutes 60
 #   This runs as Type=notify daemon with internal scheduling.
 #
 # INSTALLATION:
-#   Run: sudo kopi-docka admin service write-units
+#   Run: sudo kopi-docka advanced service write-units
 #   Then: sudo systemctl daemon-reload
 #   Finally: sudo systemctl enable --now kopi-docka.timer
 #
 # MANAGEMENT:
-#   - Interactive configuration: sudo kopi-docka admin service manage
+#   - Interactive configuration: sudo kopi-docka advanced service manage
 #   - Check next run: systemctl list-timers kopi-docka.timer
 #   - View timer status: systemctl status kopi-docka.timer
 #
 # CUSTOMIZATION:
 #   To change the schedule without editing this file:
 #     sudo systemctl edit kopi-docka.timer
-#   Or use: sudo kopi-docka admin service manage
+#   Or use: sudo kopi-docka advanced service manage
 #
 ################################################################################
 

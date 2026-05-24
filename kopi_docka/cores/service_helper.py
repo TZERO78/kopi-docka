@@ -235,7 +235,7 @@ class ServiceHelper:
         It NEVER creates or modifies the lock file.
 
         Lock files are ONLY created by the daemon service (kopi-docka.service)
-        when it starts via 'kopi-docka admin service daemon'.
+        when it starts via 'kopi-docka advanced service daemon'.
 
         Returns:
             Dict with exists, pid, and process_running fields

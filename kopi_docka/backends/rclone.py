@@ -417,13 +417,13 @@ class RcloneBackend(BackendBase):
             typer.echo("")
             typer.echo("Workarounds (choose one):")
             typer.echo("  1. Use sudo -E to preserve environment:")
-            typer.echo("     sudo -E kopi-docka admin config new")
+            typer.echo("     sudo -E kopi-docka advanced config new")
             typer.echo("")
             typer.echo("  2. Make config readable by root:")
             sudo_user = os.environ.get("SUDO_USER")
             if sudo_user:
                 typer.echo(f"     chmod 644 /home/{sudo_user}/.config/rclone/rclone.conf")
-            typer.echo("     sudo kopi-docka admin config new")
+            typer.echo("     sudo kopi-docka advanced config new")
             typer.echo("")
             typer.echo("  3. Copy config to root's home:")
             if sudo_user:

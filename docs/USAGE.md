@@ -37,7 +37,7 @@ kopi-docka
     │   ├── list
     │   ├── estimate-size
     │   ├── manage              ← interactive wizard (new in v7.0.0)
-    │   ├── maintenance [--full] ← moved from admin repo (v7.0.0)
+    │   ├── maintenance [--full] ← moved from advanced repo (v7.0.0)
     │   ├── prune-empty [--dry-run]
     │   ├── delete <id> [--force]
     │   ├── pin <id>
@@ -112,7 +112,7 @@ kopi-docka
 | `advanced snapshot list --snapshots` | Show all snapshots in repo |
 | `advanced snapshot estimate-size` | Calculate backup size |
 | `advanced snapshot manage` | **Interactive management wizard** (delete, pin, retention, …) |
-| `advanced snapshot maintenance [--full]` | Run repository maintenance (moved from `admin repo` in v7.0.0) |
+| `advanced snapshot maintenance [--full]` | Run repository maintenance (moved from `advanced repo` in v7.0.0) |
 | `advanced snapshot prune-empty [--dry-run]` | Apply retention policy and expire old snapshots |
 | `advanced snapshot delete <id> [--force]` | Delete a specific snapshot |
 | `advanced snapshot pin <id>` | Pin snapshot — protect from retention cleanup |
@@ -181,7 +181,7 @@ sudo kopi-docka restore --yes
 sudo kopi-docka doctor
 
 # What will be backed up?
-sudo kopi-docka admin snapshot list
+sudo kopi-docka advanced snapshot list
 
 # Test run (no changes)
 sudo kopi-docka dry-run
@@ -193,10 +193,10 @@ sudo kopi-docka backup
 sudo kopi-docka backup --unit webapp --unit database
 
 # Repository status
-sudo kopi-docka admin repo status
+sudo kopi-docka advanced repo status
 
 # Show all snapshots
-sudo kopi-docka admin snapshot list --snapshots
+sudo kopi-docka advanced snapshot list --snapshots
 ```
 
 ### Backup History
@@ -302,7 +302,7 @@ sudo ./recover.sh
 
 ```bash
 # Generate systemd units
-sudo kopi-docka admin service write-units
+sudo kopi-docka advanced service write-units
 
 # Enable timer (daily 02:00)
 sudo systemctl enable --now kopi-docka.timer

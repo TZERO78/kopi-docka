@@ -3,7 +3,7 @@
 #
 # @file:        repo_commands.py
 # @module:      kopi_docka.commands.advanced
-# @description: Repository management commands (admin repo subgroup) - WRAPPER
+# @description: Repository management commands (advanced repo subgroup) - WRAPPER
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
 # @version:     3.4.1
@@ -14,21 +14,21 @@
 ################################################################################
 
 """
-Repository management commands under 'admin repo'.
+Repository management commands under 'advanced repo'.
 
 This is a thin wrapper that delegates to the legacy repository_commands module.
 All business logic resides in kopi_docka.commands.repository_commands.
 
 Commands:
-- admin repo init           - Initialize repository
-- admin repo status         - Show repository status
-- admin repo init-path      - Create repository at specific path
-- admin repo selftest       - Run repository self-test
-- admin repo which-config   - Show which config file is used
-- admin repo set-default    - Set as default Kopia config
-- admin repo change-password - Change repository password
+- advanced repo init           - Initialize repository
+- advanced repo status         - Show repository status
+- advanced repo init-path      - Create repository at specific path
+- advanced repo selftest       - Run repository self-test
+- advanced repo which-config   - Show which config file is used
+- advanced repo set-default    - Set as default Kopia config
+- advanced repo change-password - Change repository password
 
-Note: 'admin repo maintenance' was moved to 'admin snapshot maintenance' in v7.0.0.
+Note: 'advanced repo maintenance' was moved to 'advanced snapshot maintenance' in v7.0.0.
 """
 
 from pathlib import Path
@@ -61,7 +61,7 @@ repo_app = typer.Typer(
 
 
 def register(app: typer.Typer):
-    """Register repository commands under 'admin repo'."""
+    """Register repository commands under 'advanced repo'."""
 
     @repo_app.command("init")
     def _repo_init_cmd(ctx: typer.Context):
