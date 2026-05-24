@@ -5,6 +5,49 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.3.11] - 2026-05-24
+
+### 📝 Documentation + doctor warning — rclone known-slow-path
+
+Following user reports of multi-minute backup runtimes on rclone +
+Google Drive (296 s for a single `kopia policy set --global` write,
+160 s for a recipe-snapshot containing a couple of KB), the upstream
+Kopia community was checked — the symptom is **well-known** and
+**not a kopi-docka bug**:
+
+- Kopia's own CLI docs mark the rclone backend as "Not maintained".
+- Forum threads ([example](https://kopia.discourse.group/t/very-slow-commands-on-rclone-google-drive-repository/2597))
+  show `kopia repository status` at 28 s vs 0.8 s on SFTP for the same
+  repo, and ~40 min maintenance runs on GDrive vs seconds locally.
+- The bottleneck is Kopia spawning a fresh `rclone serve` subprocess
+  per call and rclone's per-call OAuth refresh, plus GDrive's small-file
+  write overhead.
+
+This release surfaces all of that to the user without changing the
+backend code path itself:
+
+- **`docs/TROUBLESHOOTING.md`** gains a "Backups against rclone+Google
+  Drive feel very slow" section with measured numbers, the upstream
+  links, and a comparison table for the realistic alternatives
+  (Tailscale → SFTP, Backblaze B2, native Kopia `gdrive`).
+- **`docs/CONFIGURATION.md`** Storage Backends section now starts with
+  a "performance reality check" callout that points at the same
+  troubleshooting entry.
+- **`kopi-docka doctor`** now adds a yellow performance warning in
+  section 4 (Backend Dependencies) when the configured backend is
+  `rclone`, with an extra paragraph if the rclone params point at
+  Google Drive. The warning also gets summarised in the doctor's
+  bottom "warnings" panel so it ends up in the final health-check
+  summary too.
+
+No code change in the snapshot/backup hot path — this is a
+documentation + observability fix. The previous releases' actual
+performance optimisations (read-before-write in v7.3.9, dry-run skip
+in v7.3.10) stay the user's friend; this just stops people from
+diagnosing rclone-shaped problems as kopi-docka bugs.
+
+---
+
 ## [7.3.10] - 2026-05-24
 
 ### 🚀 Performance & UX — `kopi-docka backup`

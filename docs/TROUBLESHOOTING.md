@@ -128,6 +128,53 @@ file the script printed.
 
 See [CONFIGURATION.md → "Migrating an older config"](CONFIGURATION.md#migrating-an-older-config) for the full reference.
 
+### 🐌 "Backups against rclone+Google Drive feel very slow"
+
+This is a **known upstream issue** with the Kopia ↔ rclone ↔ Google Drive
+combination, not a kopi-docka bug. The Kopia project itself marks the
+rclone backend as `[Not maintained]` in its CLI docs, and other users
+on the Kopia forum report identical symptoms.
+
+**Typical numbers** (from forum reports plus our own measurements):
+
+| Operation                              | rclone+GDrive | SFTP (e.g. via Tailscale) |
+|----------------------------------------|---------------|---------------------------|
+| First `kopia repository status` (cold) | 60–120 s      | < 1 s                     |
+| Single `kopia policy set --global`     | 30–300 s      | ~ 0.5 s                   |
+| Maintenance ops on a 100 GB repo       | 40+ minutes   | seconds                   |
+| Per-snapshot fixed overhead            | 1–5 minutes   | sub-second                |
+
+**Why it's slow**: Kopia spawns a fresh `rclone serve` subprocess for
+each invocation, and rclone has to re-auth against Google Drive every
+time (OAuth refresh + first API call routinely take ≥60 s). On top of
+that, GDrive's per-file write overhead is high — Kopia's manifest
+commits, which are many small writes, hit it on every snapshot. The
+sum is what you feel as "kopi-docka hangs".
+
+**What kopi-docka v7.3.10 already does to soften it**:
+
+- Single `is_connected()` per backup run (no `force_refresh` double-check).
+- Rich spinner during the unavoidable cold-start with a
+  "rclone cold-start can take 60-120 s on Google Drive" hint.
+- `kopia policy set --global` is read-before-write (v7.3.9) — no write
+  when nothing actually changed.
+- `kopi-docka backup --dry-run` skips the repo status check entirely.
+
+But the per-snapshot ~1–5 minutes of rclone overhead is **physical** —
+we can't fix it from kopi-docka's side. Three realistic alternatives:
+
+| Backend                       | Setup effort | Speed                       | Notes                                                                                                                                  |
+|-------------------------------|--------------|-----------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
+| **Tailscale → SFTP** (recommended) | small        | LAN-speed mesh              | If you already have a second machine (NAS, home server, second VPS) on Tailscale, this is the fastest path. Kopia uses SFTP natively, no rclone in sight. See [Tailscale Backend in CONFIGURATION.md](CONFIGURATION.md#storage-backends). |
+| **Backblaze B2**              | small        | normal cloud bandwidth      | $6.95/TB/month, Kopia has native B2 support (no rclone). The cheapest "just works" cloud option for kopia.                                |
+| **Native Kopia `gdrive`**     | medium       | ~5–10× faster than rclone    | Kopia has an experimental, non-rclone Google Drive backend. **Major caveat**: service-account auth only, and Google service accounts have a **30 GB Drive quota** — fine for small data, useless for larger repos. |
+
+Sources (forum + upstream tracker):
+
+- [Kopia Forum — "Very slow commands on rclone Google Drive repository"](https://kopia.discourse.group/t/very-slow-commands-on-rclone-google-drive-repository/2597)
+- [GitHub kopia/kopia#2344 — "Slow backup process on GDrive"](https://github.com/kopia/kopia/issues/2344)
+- [Kopia docs — repository connect rclone (\"[Not maintained]\")](https://kopia.io/docs/reference/command-line/common/repository-connect-rclone/)
+
 ### ❌ "invalid repository password"
 
 **Cause:** Repository already exists with different password.
