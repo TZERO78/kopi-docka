@@ -5,6 +5,44 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.5.3] - 2026-05-24
+
+### 🧹 Timezone-aware datetime cleanup (mop-up after v7.5.2)
+
+After v7.5.2 normalized the snapshot-tag timestamps to tz-aware UTC, a
+read-only codebase scan turned up five more places that were still
+emitting naive `datetime.now().isoformat()` strings:
+
+- `cores/backup_manager.py:101` — `BackupMetadata.timestamp` (lands in
+  `/backup/kopi-docka/metadata/*.json`)
+- `cores/backup_volume_handler.py:125, 207` — TAR-mode snapshot tags
+- `cores/disaster_recovery_manager.py:697` — `created_at` in the DR
+  bundle's `recovery-info.json`
+- `cores/disaster_recovery_manager.py:1069` — `timestamp` in
+  `backup-status.json` inside the DR bundle
+
+All five now use `datetime.now(timezone.utc).isoformat()`, so every
+timestamp emitted by kopi-docka round-trips through
+`datetime.fromisoformat()` as a tz-aware UTC value. Two new regression
+tests (`test_recovery_info_created_at_is_tz_aware`,
+`test_backup_status_timestamp_is_tz_aware`) lock the property in for
+the DR-bundle path. Existing snapshots / metadata files remain
+readable — the parsing side has been defensive about naive legacy
+strings since v7.5.2.
+
+No user-visible behavior change; this is housekeeping so the codebase
+stays internally consistent. Pre-existing user-facing local-time
+strings used in filenames (`config-backup-*`, restore-rollback tarballs,
+DR-bundle output filenames) intentionally stay naive — they're meant
+to read as local wall-clock time, not as machine-parseable timestamps.
+
+The remaining hygiene items from the scan (subprocess timeout
+strategy, `Union[X, Y]` modernization, `match`-statement adoption,
+bare-`except` narrowing, f-string vs. %-style logging unification,
+`pydantic` upper-bound) are filed in **Plan 0032** as nice-to-have.
+
+---
+
 ## [7.5.2] - 2026-05-24
 
 ### 🛠️ Restore wizard no longer crashes on legacy timestamps + `repo init` honors backend swaps
