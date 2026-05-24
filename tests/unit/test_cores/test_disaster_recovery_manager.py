@@ -369,6 +369,48 @@ class TestRecoveryInfoCreation:
         assert info["hostname"] == "testhost"
         assert info["repository"]["type"] == "unknown"
 
+    @patch("socket.gethostname", return_value="testhost")
+    def test_recovery_info_created_at_is_tz_aware(self, _mock_hostname):
+        """Regression (v7.5.3): ``created_at`` must round-trip as tz-aware UTC.
+
+        Until v7.5.3 ``created_at`` was naive ``datetime.now().isoformat()``,
+        which made any consumer that parses it via ``datetime.fromisoformat``
+        get a timezone-blind value. Aligning it with the v7.5.2 snapshot-tag
+        fix keeps every timestamp in the bundle consistent.
+        """
+        from datetime import datetime, timezone
+
+        repo_status = {"storage": {"type": "filesystem", "config": {"path": "/x"}}}
+        config = make_mock_config()
+        manager = DisasterRecoveryManager(config)
+        manager.repo = Mock()
+        manager.repo.status.return_value = repo_status
+
+        with patch.object(manager, "_get_kopia_version", return_value="0"), \
+             patch.object(manager, "_get_docker_version", return_value="0"), \
+             patch.object(manager, "_get_python_version", return_value="0"):
+            info = manager._create_recovery_info()
+
+        parsed = datetime.fromisoformat(info["created_at"])
+        assert parsed.tzinfo is not None, (
+            f"created_at must be tz-aware, got naive: {info['created_at']!r}"
+        )
+        assert parsed.utcoffset() == timezone.utc.utcoffset(None)
+
+    def test_backup_status_timestamp_is_tz_aware(self):
+        """Regression (v7.5.3): ``_get_backup_status()`` timestamp tz-aware."""
+        from datetime import datetime, timezone
+
+        config = make_mock_config()
+        manager = DisasterRecoveryManager(config)
+        manager.repo = Mock()
+        manager.repo.list_snapshots.return_value = []
+
+        status = manager._get_backup_status()
+        parsed = datetime.fromisoformat(status["timestamp"])
+        assert parsed.tzinfo is not None
+        assert parsed.utcoffset() == timezone.utc.utcoffset(None)
+
 
 # =============================================================================
 # Repository Extraction Tests

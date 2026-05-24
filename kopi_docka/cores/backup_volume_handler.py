@@ -18,7 +18,7 @@ Handles volume backups via direct Kopia snapshots (v5.0+) or legacy TAR streams.
 """
 
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -122,7 +122,7 @@ class BackupVolumeHandler:
                     "volume": volume.name,
                     "backup_id": backup_id,
                     "backup_scope": backup_scope,
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "size_bytes": str(getattr(volume, "size_bytes", 0) or "0"),
                     "backup_format": BACKUP_FORMAT_DIRECT,
                 },
@@ -204,7 +204,7 @@ class BackupVolumeHandler:
                             "volume": volume.name,
                             "backup_id": backup_id,
                             "backup_scope": backup_scope,
-                            "timestamp": datetime.now().isoformat(),
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
                             "size_bytes": str(getattr(volume, "size_bytes", 0) or "0"),
                             "backup_format": BACKUP_FORMAT_TAR,
                         },
