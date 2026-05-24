@@ -6,7 +6,7 @@ Kopi-Docka is a Python CLI tool that wraps **Kopia** for encrypted, deduplicated
 
 **Important**: This project will always be a Kopia wrapper. No second backup engine planned.
 
-- **Version**: 7.4.0
+- **Version**: 7.5.0
 - **Python**: 3.10, 3.11, 3.12
 - **License**: MIT
 - **Author**: Markus F. (TZERO78)
@@ -88,6 +88,8 @@ All Kopia CLI calls should go through `KopiaRepository` in `cores/repository_man
 Top-level commands ("The Big 6"): `setup`, `backup`, `restore`, `disaster-recovery`, `dry-run`, `doctor`, `version`
 
 Admin/advanced subcommands: `config`, `repo`, `snapshot`, `service`, `system`, `notification`, `policy`
+
+`advanced config` subcommands: `show`, `new`, `edit`, `reset`, `status`, `change-password`, `repair-kopia-params` (v7.5.0 — rebuilds SFTP `kopia_params` from `[credentials]` after the v7.0–v7.3.13 Tailscale wizard bug)
 
 `advanced snapshot` subcommands: `list`, `estimate-size`, `manage`, `maintenance [--full]`, `prune-empty [--dry-run]`, `delete <id> [--force]`, `pin <id>`, `unpin <id>`, `retention show`, `retention set [options]`
 

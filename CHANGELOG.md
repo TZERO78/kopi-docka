@@ -5,6 +5,62 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.5.0] - 2026-05-24
+
+### ✨ One-command migration for the v7.0–v7.3.13 Tailscale `kopia_params` bug
+
+Follow-up on Plan 0029. The v7.4.0 doctor told users to copy/paste a
+generated `sed` line. That worked but felt brittle and was easy to
+fat-finger. v7.5.0 replaces it with a real kopi-docka command.
+
+#### New command
+
+```bash
+sudo kopi-docka advanced config repair-kopia-params
+```
+
+- Reads `kopia_params` and the still-correct `[credentials]` section
+  (`remote_path`, `peer_fqdn` / `peer_hostname`, `ssh_user`, `ssh_key`,
+  `known_hosts`).
+- Rebuilds `kopia_params` in the canonical Kopia-SFTP shape (separate
+  `--path` / `--host` / `--username` / `--keyfile` / `--known-hosts`).
+- Shows an old-vs-new diff and prompts for confirmation.
+- Writes atomically through the existing `Config.save()` path (temp-file
+  rename — same code that protects every other config change).
+- Idempotent: a second invocation says "already in the canonical
+  shape — nothing to repair".
+- `--dry-run` to preview without writing, `--yes` to skip the prompt
+  (useful for ansible/scripts).
+
+#### Doctor change
+
+Section 5.1 Backend Sanity now points at the new command. The previous
+`sed` printout (and the `_build_sftp_migration_command` helper that
+generated it) is removed.
+
+#### Tests
+
+- `tests/unit/test_commands/test_config_commands.py` (new): 6 cases —
+  rewrite, idempotency, dry-run, missing-credentials abort, non-SFTP
+  refusal, `peer_hostname` fallback for very old configs.
+- `tests/unit/test_commands/test_doctor_commands.py`: replaces the two
+  obsolete `sed`-shape tests with a single `TestBackendSanityHint`
+  case that asserts doctor surfaces the new command (and no longer
+  emits `sudo sed -i`).
+
+#### Migration (existing v7.0.0–v7.3.13 users, restated)
+
+```bash
+sudo kopi-docka advanced config repair-kopia-params
+sudo kopi-docka advanced repo init
+sudo kopi-docka doctor   # confirms 5.1 is green
+```
+
+No data loss; the Kopia repository is untouched. Only the local
+`kopia_params` string changes.
+
+---
+
 ## [7.4.0] - 2026-05-24
 
 ### 🐛 Tailscale-SFTP correctness — wizard fix, doctor migration, Unraid inode detection
