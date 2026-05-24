@@ -57,6 +57,44 @@ sudo kopi-docka new-config
 sudo kopi-docka setup
 ```
 
+### 🛠️ Existing config out of sync with a new release
+
+After a kopi-docka upgrade your `kopi-docka.json` may be missing keys
+that the new version's template added (e.g. `alerting.missed_backup`
+landed in v7.1.0, `notifications.preflight_check` followed). Existing
+values keep working — kopi-docka falls back to the schema default — but
+running with an outdated file can mask new features.
+
+There's a helper for that. It compares your file against the template
+shipped with the installed kopi-docka, prints a clean diff, and (by
+default) only **adds** missing keys; nothing existing is overwritten or
+removed:
+
+```bash
+# Source checkout of the kopi-docka repository
+scripts/migrate-config.sh --config /etc/kopi-docka.json --dry-run
+
+# Apply (writes a timestamped backup next to the original)
+sudo scripts/migrate-config.sh --config /etc/kopi-docka.json
+```
+
+The script's output groups changes into three buckets:
+
+- **Missing** — added from template defaults.
+- **Unknown** — present in your config but no longer in the template
+  (`backup.parallel_workers`, `backup.task_timeout` after Plan 0028 /
+  v7.3.0 are the common ones). **Kept by default** to avoid deleting
+  your own custom keys. Add `--prune-unknown` to remove them.
+- **Type mismatch** — same path, different JSON type. Never touched
+  automatically; review and fix manually.
+
+The script does not modify the password, `kopia_params`, or any other
+value you already set — it only fills in defaults for keys you don't
+have yet. If anything looks wrong, restore the `.backup-YYYYMMDD-HHMMSS`
+file the script printed.
+
+See [CONFIGURATION.md → "Migrating an older config"](CONFIGURATION.md#migrating-an-older-config) for the full reference.
+
 ### ❌ "invalid repository password"
 
 **Cause:** Repository already exists with different password.
