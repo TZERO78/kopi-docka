@@ -296,9 +296,20 @@ When a new kopi-docka release adds keys to the config schema, an existing
 `kopi-docka.json` keeps working — missing keys fall back to the schema's
 default, and removed keys (e.g. `backup.parallel_workers` after v7.3.0)
 are silently ignored. But if you want your file to match the current
-template, there's a helper script in the source tree:
+template, there's a helper script that ships in the source tree and is
+also published as a single file on GitHub:
 
 ```bash
+# Download (one-time)
+sudo curl -fsSL -o /usr/local/bin/kopi-docka-migrate-config \
+  https://raw.githubusercontent.com/TZERO78/kopi-docka/main/scripts/migrate-config.sh
+sudo chmod +x /usr/local/bin/kopi-docka-migrate-config
+
+# Or run it directly from GitHub:
+curl -fsSL https://raw.githubusercontent.com/TZERO78/kopi-docka/main/scripts/migrate-config.sh \
+  | sudo bash -s -- --config /etc/kopi-docka.json [OPTIONS]
+
+# Or — if you've cloned the repo — from the source tree:
 scripts/migrate-config.sh --config /etc/kopi-docka.json [OPTIONS]
 ```
 
@@ -326,21 +337,23 @@ present in each (it does not look at values, so your password and
   Upgrade kopi-docka, then re-run the script and the new release's
   keys show up automatically.
 
-**Common flags**
+**Common flags** (substitute `kopi-docka-migrate-config` /
+`scripts/migrate-config.sh` / `curl …| sudo bash -s --` for the
+invocation style you prefer):
 
 ```bash
 # 1) Show the diff without writing anything
-scripts/migrate-config.sh --config /etc/kopi-docka.json --dry-run
+kopi-docka-migrate-config --config /etc/kopi-docka.json --dry-run
 
 # 2) Apply (recommended first run)
-sudo scripts/migrate-config.sh --config /etc/kopi-docka.json
+sudo kopi-docka-migrate-config --config /etc/kopi-docka.json
 
 # 3) Also drop keys the template no longer has
-sudo scripts/migrate-config.sh --config /etc/kopi-docka.json --prune-unknown
+sudo kopi-docka-migrate-config --config /etc/kopi-docka.json --prune-unknown
 
 # 4) Override template location (e.g. when running against a
 #    user-local install)
-scripts/migrate-config.sh \
+kopi-docka-migrate-config \
     --config /home/me/kopi-docka.json \
     --template /opt/kopi-docka-venv/lib/python3.12/site-packages/kopi_docka/templates/config_template.json
 ```

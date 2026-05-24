@@ -68,13 +68,37 @@ running with an outdated file can mask new features.
 There's a helper for that. It compares your file against the template
 shipped with the installed kopi-docka, prints a clean diff, and (by
 default) only **adds** missing keys; nothing existing is overwritten or
-removed:
+removed.
+
+**One-shot from GitHub** (no clone needed; downloads + runs):
 
 ```bash
-# Source checkout of the kopi-docka repository
-scripts/migrate-config.sh --config /etc/kopi-docka.json --dry-run
+# Dry-run — show the diff, don't write anything
+curl -fsSL https://raw.githubusercontent.com/TZERO78/kopi-docka/main/scripts/migrate-config.sh \
+  | sudo bash -s -- --config /etc/kopi-docka.json --dry-run
 
-# Apply (writes a timestamped backup next to the original)
+# Apply — adds missing keys, writes a timestamped backup
+curl -fsSL https://raw.githubusercontent.com/TZERO78/kopi-docka/main/scripts/migrate-config.sh \
+  | sudo bash -s -- --config /etc/kopi-docka.json
+```
+
+**Or download it once and keep it on disk** (useful if you'd rather
+review the script before running it):
+
+```bash
+sudo curl -fsSL -o /usr/local/bin/kopi-docka-migrate-config \
+  https://raw.githubusercontent.com/TZERO78/kopi-docka/main/scripts/migrate-config.sh
+sudo chmod +x /usr/local/bin/kopi-docka-migrate-config
+
+# Then:
+sudo kopi-docka-migrate-config --config /etc/kopi-docka.json --dry-run
+sudo kopi-docka-migrate-config --config /etc/kopi-docka.json
+```
+
+**From a source checkout** (if you cloned the repo):
+
+```bash
+scripts/migrate-config.sh --config /etc/kopi-docka.json --dry-run
 sudo scripts/migrate-config.sh --config /etc/kopi-docka.json
 ```
 
