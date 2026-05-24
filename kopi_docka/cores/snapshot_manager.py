@@ -102,17 +102,94 @@ class SnapshotManager:
 
     def cmd_retention_set(
         self,
-        latest: int,
-        hourly: int,
-        daily: int,
-        weekly: int,
-        monthly: int,
-        annual: int,
+        latest: Optional[int] = None,
+        hourly: Optional[int] = None,
+        daily: Optional[int] = None,
+        weekly: Optional[int] = None,
+        monthly: Optional[int] = None,
+        annual: Optional[int] = None,
+        force: bool = False,
     ) -> None:
-        """Non-interactive retention update (Kopia policy + config file)."""
-        ok = self.policy.update_global_retention(latest, hourly, daily, weekly, monthly, annual)
+        """Apply retention changes — Kopia global policy + config file.
+
+        Any argument left as ``None`` keeps its current config value, so a
+        single ``--daily 14`` invocation only touches that one field.
+
+        If *every* argument is ``None`` the user is asking the command to
+        do a full no-op rewrite. We confirm in that case because:
+
+          - The Kopia call (``kopia policy set --global …``) is a metadata
+            round-trip that costs 30-90 s on rclone backends, and a typo
+            shouldn't trigger it silently.
+          - The "rewrite my config back to itself" intent is rare enough
+            to warrant a prompt; ``--force`` bypasses it for scripts.
+        """
+        current = self._current_retention_from_config()
+
+        # Merge: explicit args win, otherwise fall back to current config.
+        effective = {
+            "latest":  latest  if latest  is not None else current.get("latest", 10),
+            "hourly":  hourly  if hourly  is not None else current.get("hourly", 0),
+            "daily":   daily   if daily   is not None else current.get("daily", 7),
+            "weekly":  weekly  if weekly  is not None else current.get("weekly", 4),
+            "monthly": monthly if monthly is not None else current.get("monthly", 12),
+            "annual":  annual  if annual  is not None else current.get("annual", 3),
+        }
+
+        any_explicit = any(
+            v is not None for v in (latest, hourly, daily, weekly, monthly, annual)
+        )
+
+        if not any_explicit and not force:
+            console.print()
+            console.print(
+                Panel(
+                    "No retention flags given — this would re-write the current "
+                    "config to Kopia without changing anything (a no-op that "
+                    "still costs a 30-90 s metadata round-trip on rclone "
+                    "backends).\n\n"
+                    "Pass at least one of "
+                    "[bold]--latest / --hourly / --daily / --weekly / --monthly / --annual[/bold]"
+                    ", or re-run with [bold]--force[/bold] to apply anyway.",
+                    title="Nothing to change",
+                    border_style="yellow",
+                    expand=False,
+                )
+            )
+            return
+
+        # Show what's about to happen *before* the slow call.
+        console.print()
+        console.print(
+            Panel(
+                "[bold]New retention values:[/bold]\n"
+                + "  " + "  ".join(f"{k}={v}" for k, v in effective.items()),
+                title="Updating Kopia global policy",
+                border_style="cyan",
+                expand=False,
+            )
+        )
+        console.print(
+            "[dim]Applying via `kopia policy set --global …`. "
+            "On rclone backends this typically takes 30-90 s — the spinner "
+            "below is the only feedback Kopia gives during that wait.[/dim]"
+        )
+
+        ok = False
+        with console.status(
+            "[cyan]kopia policy set --global …[/cyan] (no progress output is normal)",
+            spinner="dots",
+        ):
+            ok = self.policy.update_global_retention(
+                effective["latest"], effective["hourly"], effective["daily"],
+                effective["weekly"], effective["monthly"], effective["annual"],
+            )
+
         if ok:
-            self.config.update_retention(latest, hourly, daily, weekly, monthly, annual)
+            self.config.update_retention(
+                effective["latest"], effective["hourly"], effective["daily"],
+                effective["weekly"], effective["monthly"], effective["annual"],
+            )
             print_success("Retention policy updated in Kopia and config.")
         else:
             print_error("Failed to update Kopia retention policy.")

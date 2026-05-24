@@ -5,6 +5,45 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.3.7] - 2026-05-24
+
+### 🐛 Fixed — `advanced snapshot retention set`
+
+Two UX problems surfaced on a live rclone+GDrive production system where
+`kopia policy set --global` takes ~5 minutes (!) for a single round-trip:
+
+- **Empty `retention set` invocations now ask for confirmation.** The
+  command's six retention flags used to default to fixed numbers
+  (`--latest 10 --daily 7 …`) at the Typer layer, which meant
+  `kopi-docka advanced snapshot retention set` typed by accident would
+  silently overwrite a custom config (say `monthly=6`) with the Typer
+  defaults — and then spend a 30-90 s metadata round-trip doing it.
+  Each flag is now `Optional[int]` defaulting to `None`. With no flags
+  the command prints a yellow "Nothing to change" panel and exits;
+  `--force` overrides for scripts that intend a no-op rewrite.
+- **Partial invocations preserve the other values.** Previously
+  `retention set --daily 14` would also clobber `latest`/`hourly`/etc.
+  with Typer defaults. Now an omitted flag means "keep what the config
+  has"; the new effective tuple is built by merging explicit args over
+  the current config.
+- **Spinner during the Kopia call.** The 30-90 s (up to 5 min on slow
+  remote backends) `kopia policy set --global` round-trip used to run
+  with no terminal feedback at all — looked like the CLI was hung. Now
+  a Rich spinner runs, with a one-line "this typically takes 30-90 s on
+  rclone backends" hint above it.
+
+### Tests
+
+Four new tests in `tests/unit/test_cores/test_snapshot_manager.py`
+covering: explicit args still update, Kopia failure doesn't write
+config, partial args merge with current config, no-args without
+`--force` aborts cleanly, no-args with `--force` applies the current
+config values. CLI-layer tests in
+`tests/unit/test_commands/test_snapshot_commands_new.py` updated for
+the new `Optional[int]` signature plus a new `--force` test.
+
+---
+
 ## [7.3.6] - 2026-05-24
 
 ### 📝 Convention
