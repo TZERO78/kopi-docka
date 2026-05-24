@@ -89,11 +89,15 @@ def ensure_repository(ctx: typer.Context) -> KopiaRepository:
         print_error_panel("Repository not available")
         raise typer.Exit(code=1)
 
-    spinner_text = (
-        "[cyan]Connecting to repository…[/cyan] "
-        "[dim](rclone cold-start can take 60-120 s on Google Drive — "
-        "Kopia gives no progress output during this wait)[/dim]"
-    )
+    is_rclone = (repo.kopia_params or "").strip().lower().startswith("rclone")
+    if is_rclone:
+        spinner_text = (
+            "[cyan]Connecting to repository…[/cyan] "
+            "[dim](rclone cold-start can take 60-120 s on Google Drive — "
+            "Kopia gives no progress output during this wait)[/dim]"
+        )
+    else:
+        spinner_text = "[cyan]Connecting to repository…[/cyan]"
 
     try:
         with console.status(spinner_text, spinner="dots"):

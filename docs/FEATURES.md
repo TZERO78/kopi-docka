@@ -517,6 +517,16 @@ sudo kopi-docka backup
 - **Network:** Direct P2P via WireGuard, no relay
 - **Discovery:** Automatic via `tailscale status --json`
 - **Performance:** Peer selection based on latency
+- **Hostname:** Real tailnet FQDN (`*.ts.net`) from `tailscale status
+  --json` — survives `sudo`/systemd where search-domain resolution doesn't
+- **Kopia params** (v7.4.0+): each connection parameter as a separate
+  flag — `--path` (path only, no host prefix), `--host`, `--username`,
+  `--keyfile`, plus `--known-hosts` so unattended runs don't hang on a
+  host-key prompt
+- **Unraid handling:** detects whether `/root/.ssh` is symlinked to
+  `/boot/config/ssh/root/` (Unraid 6.12+) and skips the redundant
+  persistent mirror in that case; older Unraid/NAS layouts still get the
+  mirror
 
 #### Requirements
 

@@ -214,6 +214,64 @@ sudo kopi-docka list --units
 
 ### Troubleshooting Tailscale
 
+#### ❌ Tailscale-SFTP `kopia_params` migration (v7.0.0–v7.3.13 → v7.4.0)
+
+**Symptom:** Backups hang on connect, or `kopia` errors out with
+`required flag(s) '--username' not provided` / `repository not
+initialized` — even though the wizard ran "successfully".
+
+**Cause:** The Tailscale wizard in v7.0.0–v7.3.13 emitted a broken
+`kopia_params` shape — `--path=HOST:PATH --host=HOST` without
+`--username` or `--keyfile`. Kopia accepts the form at
+`repository connect` and only blows up on the first snapshot. Fixed in
+v7.4.0.
+
+**Fix — run doctor:**
+
+```bash
+sudo kopi-docka doctor
+```
+
+Section **5.1 Backend Sanity** prints a copy/paste-ready `sed` command
+populated with your existing credentials, e.g.:
+
+```bash
+sudo sed -i 's#"kopia_params": .*#"kopia_params": "sftp --path=/mnt/user/backups/kopi-docka --host=tzero-server.beetal-vega.ts.net --username=root --keyfile=/root/.ssh/kopi-docka_ed25519 --known-hosts=/root/.ssh/known_hosts",#' /etc/kopi-docka.json
+```
+
+Then reconnect to the existing repository (no data loss — only the
+config string is being rewritten):
+
+```bash
+sudo kopi-docka advanced repo init
+sudo kopi-docka doctor   # confirms 5.1 is all green
+```
+
+**Verify the new form by hand:** the four required flags Kopia's SFTP
+backend wants are `--path` (path **only**, no host prefix), `--host`,
+`--username`, and one of `--keyfile`/`--key-data`/`--sftp-password`. For
+unattended runs (systemd/cron) also add `--known-hosts=PATH` so Kopia
+doesn't hang on the host-key prompt.
+
+---
+
+#### ℹ️ Unraid 6.12+ persistent SSH key handling
+
+On modern Unraid (6.12 and later) `/root/.ssh` is symlinked or
+bind-mounted onto `/boot/config/ssh/root/` — writes to
+`~/.ssh/authorized_keys` are *already* persistent. The wizard detects
+this layout by comparing inodes (`stat -c '%d:%i'`) and **skips the
+mirror step**.
+
+If `kopi-docka doctor` or the wizard logs `Detected USB-boot/tmpfs-style
+remote (e.g. Unraid). Also writing authorized_keys to …`, your Unraid is
+the older layout where `/boot/config/ssh/root` is a single file
+containing the authorized keys; that path still works and is mirrored on
+your behalf. Either way the public key survives a reboot — only the
+mechanism differs.
+
+---
+
 #### ❌ "No peers found in Tailnet"
 
 **Cause:** No other devices in Tailnet or not logged in.

@@ -799,9 +799,30 @@ export B2_APPLICATION_KEY="..."
 #### 7. Tailscale
 **P2P backups over your private network**
 
+Kopia's SFTP backend wants each connection parameter as its own flag —
+embedding the host into `--path` (the form pre-v7.4 wizard runs shipped)
+makes `kopia repository status` and every snapshot hang. The wizard now
+emits the correct shape:
+
 ```json
-"kopia_params": "sftp --path sftp://root@backup-server.tailnet:/backup/kopia"
+"kopia_params": "sftp --path=/backup/kopia --host=backup-server.beetal-vega.ts.net --username=root --keyfile=/root/.ssh/kopi-docka_ed25519 --known-hosts=/root/.ssh/known_hosts"
 ```
+
+Required flags:
+
+| Flag | Purpose |
+|------|---------|
+| `--path=PATH` | Repo path **on the remote** — no host prefix |
+| `--host=FQDN` | Tailnet FQDN (e.g. `*.ts.net`), not the bare hostname |
+| `--username=USER` | Remote SSH user |
+| `--keyfile=PATH` | Path to the private SSH key |
+| `--known-hosts=PATH` | Local known_hosts entry — required for unattended runs (systemd/cron); the wizard runs `ssh-keyscan` to populate it |
+
+> **Upgrading from v7.0.0–v7.3.13?** The legacy wizard wrote a broken
+> `kopia_params` form. Run `sudo kopi-docka doctor`; section
+> **5.1 Backend Sanity** prints a copy/paste-ready `sed` command that
+> rewrites your config in place. See
+> [TROUBLESHOOTING.md → Tailscale-SFTP kopia_params migration](TROUBLESHOOTING.md#-tailscale-sftp-kopia_params-migration-v7000v7313--v740).
 
 **What the wizard does:**
 1. Checks Tailscale connection
@@ -811,8 +832,14 @@ export B2_APPLICATION_KEY="..."
    - Latency/ping
 3. **Automatically sets up SSH key**:
    - Generates ED25519 key
-   - Copies to target server
-   - Passwordless SSH
+   - Deploys to the target server (`ssh-copy-id` or manual paste)
+   - On Unraid 6.12+, ssh-copy-id is already persistent via the
+     `/root/.ssh → /boot/config/ssh/root/` symlink — the wizard
+     detects this via inode comparison and skips the redundant
+     mirror step. Older Unraid (< 6.12) and other tmpfs-rooted NAS
+     boxes still get the legacy mirror.
+   - Populates `~/.ssh/known_hosts` so the first Kopia connect is
+     non-interactive (systemd/cron-safe)
 4. Tests connection
 
 **Example output:**

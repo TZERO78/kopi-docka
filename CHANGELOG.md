@@ -5,6 +5,90 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.4.0] - 2026-05-24
+
+### 🐛 Tailscale-SFTP correctness — wizard fix, doctor migration, Unraid inode detection
+
+Plan 0029. Three connected bugs surfaced during a live migration from
+rclone+Google Drive to Tailscale-SFTP. The wizard happily wrote broken
+Kopia parameters that hung on the first `repository status`; the backup
+spinner showed a misleading "rclone cold-start" hint regardless of
+backend; and the Unraid persistence-mirror treated the persistent
+`/boot/config/ssh/root` *directory* (Unraid 6.12+) as a file.
+
+#### Fixes
+
+- **Tailscale wizard emits the correct SFTP parameter shape.** Kopia's
+  SFTP backend wants each connection parameter as its own flag, *not*
+  embedded in `--path`:
+
+  ```
+  sftp --path=/backup/kopia          \
+       --host=peer.tailXXXXX.ts.net  \
+       --username=root               \
+       --keyfile=/root/.ssh/kopi-docka_ed25519 \
+       --known-hosts=/root/.ssh/known_hosts
+  ```
+
+  The legacy wizard (v7.0.0 – v7.3.13) shipped `--path=HOST:PATH` and
+  omitted `--username` and `--keyfile` entirely; Kopia accepted the form
+  at connect but every snapshot then hung indefinitely. The wizard now
+  also pre-populates `~/.ssh/known_hosts` via `ssh-keyscan` so the very
+  first connect under `systemd`/`cron` doesn't stall on a host-key
+  prompt.
+
+- **Backup spinner is backend-aware.** "rclone cold-start can take
+  60-120 s on Google Drive" used to print for every backend. It now
+  fires only when `kopia_params` starts with `rclone`.
+
+- **Unraid 6.12+ no longer gets a destructive "persistent mirror".**
+  Modern Unraid symlinks (or bind-mounts) `/root/.ssh` onto
+  `/boot/config/ssh/root/`, so the ssh-copy-id write is *already*
+  persistent. The wizard now compares inodes
+  (`stat -c '%d:%i' /root/.ssh /boot/config/ssh/root`) and:
+  - skips the mirror when the inodes match (symlinked);
+  - writes to `/boot/config/ssh/root/authorized_keys` (file *inside* the
+    directory) on modern Unraid layouts where the two paths exist on
+    separate filesystems;
+  - falls back to the legacy file-on-the-directory-path append for
+    pre-6.12 Unraid;
+  - leaves standard Linux untouched.
+
+#### Doctor
+
+- **New Section 5.1 Backend Sanity.** `kopi-docka doctor` parses
+  `kopia_params` for SFTP backends and flags the three legacy-wizard
+  fingerprints (`--path=HOST:PATH`, missing `--username`, missing
+  `--keyfile`). If any are detected, doctor prints a copy/paste-ready
+  `sed` command populated with the user's actual credentials that
+  rewrites `kopia_params` in place — no data loss, only the config
+  string changes.
+
+#### Migration
+
+Tailscale users on v7.0.0 – v7.3.13:
+
+1. `sudo kopi-docka doctor` — Section 5.1 prints a migration command
+   with your existing peer/path/key values.
+2. Copy/paste the `sed` command to rewrite `/etc/kopi-docka.json`.
+3. `sudo kopi-docka advanced repo init` — reconnects to the existing
+   repository with the corrected params.
+
+See **docs/TROUBLESHOOTING.md → "Tailscale-SFTP kopia_params migration"**
+for the full procedure.
+
+#### Tests
+
+- `tests/unit/backends/test_tailscale_backend.py`: +13 cases covering
+  `_ensure_known_hosts`, `setup_interactive` kopia_params shape, layout
+  classification, and the four mirror cases.
+- `tests/unit/test_commands/test_doctor_commands.py`: +10 cases for
+  `_check_kopia_params_sanity` and `_build_sftp_migration_command`.
+- `tests/unit/test_commands/test_backup_commands.py` (new): 4 cases for
+  spinner backend-awareness.
+
+---
+
 ## [7.3.13] - 2026-05-24
 
 ### ✨ Tailscale wizard: manual key-install option + auto-detect tmpfs-rooted remotes
