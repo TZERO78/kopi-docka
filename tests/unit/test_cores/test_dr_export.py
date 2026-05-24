@@ -342,7 +342,13 @@ class TestExportToFile:
 
     @patch("subprocess.run")
     def test_export_sets_ownership(self, mock_subprocess, tmp_path):
-        """export_to_file calls os.chown when SUDO_USER is set."""
+        """export_to_file chowns the bundle when SUDO_USER is set.
+
+        Plan 0037 (v7.6.0): the ownership-fix is now delegated to
+        ``sudo_helper.chown_to_sudo_user`` which reads SUDO_UID/SUDO_GID
+        directly from the env (no more ``pwd.getpwnam`` lookup). The
+        test mocks at the helper boundary instead of the OS boundary.
+        """
         manager, repo_status = _make_manager()
 
         mock_subprocess.side_effect = [
@@ -358,13 +364,16 @@ class TestExportToFile:
                 with patch.object(manager, "_get_python_version", return_value="3.12.3"):
                     with patch.object(manager, "_find_rclone_config", return_value=None):
                         with patch("pathlib.Path.exists", return_value=False):
-                            with patch.dict(os.environ, {"SUDO_USER": "testuser"}):
-                                with patch("os.chown") as mock_chown:
-                                    with patch("pwd.getpwnam") as mock_getpw:
-                                        mock_getpw.return_value = Mock(pw_uid=1000, pw_gid=1000)
-                                        manager.export_to_file(output, "test-pp")
+                            with patch.dict(
+                                os.environ,
+                                {"SUDO_USER": "testuser", "SUDO_UID": "1000", "SUDO_GID": "1000"},
+                            ):
+                                with patch(
+                                    "kopi_docka.helpers.sudo_helper.os.chown"
+                                ) as mock_chown:
+                                    manager.export_to_file(output, "test-pp")
 
-                                        mock_chown.assert_called_once_with(output, 1000, 1000)
+                                    mock_chown.assert_called_once_with(output, 1000, 1000)
 
     @patch("subprocess.run")
     def test_export_no_chown_without_sudo(self, mock_subprocess, tmp_path):
@@ -385,7 +394,9 @@ class TestExportToFile:
                     with patch.object(manager, "_find_rclone_config", return_value=None):
                         with patch("pathlib.Path.exists", return_value=False):
                             with patch.dict(os.environ, {}, clear=True):
-                                with patch("os.chown") as mock_chown:
+                                with patch(
+                                    "kopi_docka.helpers.sudo_helper.os.chown"
+                                ) as mock_chown:
                                     manager.export_to_file(output, "test-pp")
                                     mock_chown.assert_not_called()
 

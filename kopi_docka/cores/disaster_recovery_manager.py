@@ -30,7 +30,6 @@ from __future__ import annotations
 import io
 import json
 import hashlib
-import os
 import re
 import socket
 import sys
@@ -45,6 +44,7 @@ import pyzipper
 
 from ..helpers.logging import get_logger
 from ..helpers.config import Config
+from ..helpers.sudo_helper import chown_to_sudo_user, sudo_user_home_path
 from ..helpers.ui_utils import run_command
 from ..cores.repository_manager import KopiaRepository
 from ..helpers.constants import VERSION
@@ -412,16 +412,8 @@ class DisasterRecoveryManager:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(content)
 
-        # Set ownership to the invoking user (not root)
-        sudo_user = os.environ.get("SUDO_USER")
-        if sudo_user:
-            try:
-                import pwd
-                pw = pwd.getpwnam(sudo_user)
-                os.chown(output_path, pw.pw_uid, pw.pw_gid)
-                logger.info(f"Set ownership of {output_path} to {sudo_user}")
-            except (KeyError, OSError) as e:
-                logger.warning(f"Could not set ownership to {sudo_user}: {e}")
+        # Set ownership to the invoking user (not root) — Plan 0037.
+        chown_to_sudo_user(output_path)
 
         logger.info("Encrypted ZIP recovery bundle created",
                      extra={"output": str(output_path), "size": output_path.stat().st_size})
@@ -647,11 +639,9 @@ class DisasterRecoveryManager:
         candidates = [
             Path("/root/.config/rclone/rclone.conf"),
         ]
-        sudo_user = os.environ.get("SUDO_USER")
-        if sudo_user and not re.match(r"^[a-zA-Z0-9._-]+$", sudo_user):
-            sudo_user = None
-        if sudo_user:
-            candidates.append(Path(f"/home/{sudo_user}/.config/rclone/rclone.conf"))
+        user_candidate = sudo_user_home_path(".config/rclone/rclone.conf")
+        if user_candidate is not None:
+            candidates.append(user_candidate)
 
         for candidate in candidates:
             try:

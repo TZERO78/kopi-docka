@@ -1,5 +1,5 @@
 {
-  "version": "7.5.3",
+  "version": "7.6.0",
   "kopia": {
     "kopia_params": "filesystem --path /backup/kopia-repository",
     "profile": "kopi-docka",

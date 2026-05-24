@@ -21,7 +21,6 @@ Uses Kopia's built-in rclone support to connect to any cloud storage
 that rclone supports (OneDrive, Dropbox, Google Drive, etc.).
 """
 
-import os
 import re
 import shutil
 import socket
@@ -34,6 +33,7 @@ import typer
 
 from .base import BackendBase
 from ..helpers.dependency_helper import DependencyHelper, ToolInfo
+from ..helpers.sudo_helper import get_sudo_user_info, sudo_user_home_path
 from ..helpers.ui_utils import run_command, SubprocessError
 
 
@@ -121,10 +121,8 @@ class RcloneBackend(BackendBase):
             - sudo_user_name: Name of the SUDO_USER (or None)
         """
         root_config = Path("/root/.config/rclone/rclone.conf")
-        sudo_user = os.environ.get("SUDO_USER")
-        if sudo_user and not re.match(r"^[a-zA-Z0-9._-]+$", sudo_user):
-            sudo_user = None
-        user_config = Path(f"/home/{sudo_user}/.config/rclone/rclone.conf") if sudo_user else None
+        sudo_info = get_sudo_user_info()
+        user_config = sudo_user_home_path(".config/rclone/rclone.conf")
 
         # Check root config with PermissionError handling
         root_config_accessible = None
@@ -143,7 +141,7 @@ class RcloneBackend(BackendBase):
             except PermissionError:
                 pass
 
-        return (root_config_accessible, user_config_accessible, sudo_user)
+        return (root_config_accessible, user_config_accessible, sudo_info.name)
 
     def _detect_rclone_config_with_status(self) -> ConfigDetectionResult:
         """
@@ -165,11 +163,9 @@ class RcloneBackend(BackendBase):
         checked_paths = []
 
         # If running with sudo, prefer original user's config
-        sudo_user = os.environ.get("SUDO_USER")
-        if sudo_user and not re.match(r"^[a-zA-Z0-9._-]+$", sudo_user):
-            sudo_user = None
-        if sudo_user and sudo_user != "root":
-            user_config = Path(f"/home/{sudo_user}/.config/rclone/rclone.conf")
+        sudo_info = get_sudo_user_info()
+        if sudo_info.invoked_with_sudo and sudo_info.name != "root":
+            user_config = sudo_user_home_path(".config/rclone/rclone.conf")
             checked_paths.append(str(user_config))
 
             try:
@@ -420,15 +416,15 @@ class RcloneBackend(BackendBase):
             typer.echo("     sudo -E kopi-docka advanced config new")
             typer.echo("")
             typer.echo("  2. Make config readable by root:")
-            sudo_user = os.environ.get("SUDO_USER")
-            if sudo_user:
-                typer.echo(f"     chmod 644 /home/{sudo_user}/.config/rclone/rclone.conf")
+            sudo_user_path = sudo_user_home_path(".config/rclone/rclone.conf")
+            if sudo_user_path:
+                typer.echo(f"     chmod 644 {sudo_user_path}")
             typer.echo("     sudo kopi-docka advanced config new")
             typer.echo("")
             typer.echo("  3. Copy config to root's home:")
-            if sudo_user:
+            if sudo_user_path:
                 typer.echo(
-                    f"     sudo cp /home/{sudo_user}/.config/rclone/rclone.conf /root/.config/rclone/"
+                    f"     sudo cp {sudo_user_path} /root/.config/rclone/"
                 )
             typer.echo("")
 

@@ -46,6 +46,7 @@ from rich.prompt import Prompt
 from rich.panel import Panel
 
 from ..helpers.logging import get_logger
+from ..helpers.sudo_helper import get_sudo_user_info
 from ..helpers.ui_utils import (
     run_command,
     SubprocessError,
@@ -1767,12 +1768,12 @@ class RestoreManager:
         Get real user IDs when running with sudo.
 
         Returns:
-            (uid, gid, username) tuple
+            (uid, gid, username) tuple — username defaults to "root"
+            when not running under sudo (preserving pre-Plan-0037
+            behavior).
         """
-        uid = int(os.environ.get("SUDO_UID", os.getuid()))
-        gid = int(os.environ.get("SUDO_GID", os.getgid()))
-        user = os.environ.get("SUDO_USER", "root")
-        return uid, gid, user
+        info = get_sudo_user_info()
+        return info.uid, info.gid, (info.name or "root")
 
     def _copy_with_permissions(
         self, source_path: Path, target_dir: Path, uid: int, gid: int
@@ -1908,7 +1909,7 @@ class RestoreManager:
             target_path = Path(target).expanduser()
 
             # Check write permissions (skip if running with sudo)
-            running_with_sudo = os.environ.get("SUDO_USER") is not None
+            running_with_sudo = get_sudo_user_info().invoked_with_sudo
 
             if not running_with_sudo:
                 parent_dir = target_path.parent if not target_path.exists() else target_path
