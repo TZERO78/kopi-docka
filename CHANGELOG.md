@@ -5,6 +5,60 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.5.2] - 2026-05-24
+
+### 🛠️ Restore wizard no longer crashes on legacy timestamps + `repo init` honors backend swaps
+
+Two bugs surfaced in field use of the v7.5.0/7.5.1 release.
+
+1. **Restore wizard crashed with `can't compare offset-naive and offset-aware datetimes`.**
+   `backup_manager` wrote snapshot-tag timestamps with naive `datetime.now()`,
+   while `restore_manager._find_restore_points*()` fell back to `datetime.now(timezone.utc)`
+   (aware) whenever a snapshot had no/garbage `timestamp` tag. As soon as the
+   list contained one of each, `out.sort(key=lambda x: x.timestamp)` threw and
+   the wizard exited with the error above before showing any restore points.
+
+2. **`advanced repo init` was blind to backend swaps in `kopia_params`.**
+   When the user edited `kopia_params` in `/etc/kopi-docka.json` (e.g. from
+   `rclone …` to `sftp …`) and re-ran `advanced repo init`, the command
+   reported success — but Kopia was still happily connected to the previous
+   backend, so subsequent backups silently kept going to the old destination
+   while the new target stayed empty. Root cause: `initialize()` only checked
+   `is_connected()` and treated any active connection as "we're done", without
+   verifying that it pointed at the backend currently configured.
+
+#### Fixes
+
+- **`restore_manager`**: new `_parse_snapshot_timestamp()` helper normalizes
+  every snapshot timestamp to a tz-aware UTC datetime (naive legacy tags are
+  treated as UTC, parse errors fall back to `datetime.now(timezone.utc)`).
+  Both `_find_restore_points()` and `_find_restore_points_for_machine()` use
+  it. Existing snapshots from older Kopi-Docka versions remain restorable —
+  no repo re-init needed.
+- **`backup_manager`**: new snapshot-tag timestamps and the
+  `backup_timestamp` in the networks-metadata payload are now written
+  tz-aware (`datetime.now(timezone.utc).isoformat()`), so going forward the
+  tags carry a `+00:00` suffix and round-trip cleanly through
+  `datetime.fromisoformat`.
+- **`repository_manager.initialize()`**: before the "already connected"
+  shortcut, compare the first token of `kopia_params` (`sftp` / `rclone` /
+  `filesystem` / …) against the `storage.type` recorded in Kopia's own
+  connect-config. On mismatch, emit a warning and call `disconnect()` so
+  the subsequent `create` + `connect` actually retargets the new backend.
+  Pure-fresh installs (no config file yet) and matching-backend re-runs
+  are unaffected.
+
+#### Notes
+
+- The mismatch detection only checks storage **type**, not path/host/bucket.
+  A path swap inside the same backend (e.g. SFTP-path changed) still hits
+  the "already connected" shortcut — fix that situation by an explicit
+  `kopia repository disconnect` followed by `kopi-docka advanced repo init`.
+- No config-format changes. `repair-kopia-params` from v7.5.0 remains the
+  right tool for the Tailscale-wizard SFTP-param drift; v7.5.2 only
+  addresses the case where `kopia_params` is already correct but Kopia
+  itself is connected to a stale backend.
+
 ## [7.5.1] - 2026-05-24
 
 ### 🔐 Disaster recovery — SSH-key hygiene + `recover.sh` exit-fix
