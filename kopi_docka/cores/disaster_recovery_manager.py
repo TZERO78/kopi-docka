@@ -37,7 +37,7 @@ import sys
 import tarfile
 import secrets
 import string
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, BinaryIO
 
@@ -694,7 +694,7 @@ class DisasterRecoveryManager:
                 paths["password"] = str(password_path.resolve())
 
         return {
-            "created_at": datetime.now().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "kopi_docka_version": VERSION,
             "hostname": socket.gethostname(),
             "repository": {
@@ -1066,7 +1066,7 @@ class DisasterRecoveryManager:
         )
 
     def _get_backup_status(self) -> Dict[str, Any]:
-        status = {"timestamp": datetime.now().isoformat(), "snapshots": []}
+        status = {"timestamp": datetime.now(timezone.utc).isoformat(), "snapshots": []}
         try:
             snaps = self.repo.list_snapshots()
             status["snapshots"] = snaps[:10] if isinstance(snaps, list) else []

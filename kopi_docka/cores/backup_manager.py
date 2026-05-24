@@ -98,7 +98,7 @@ class BackupManager:
 
         metadata = BackupMetadata(
             unit_name=unit.name,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             duration_seconds=0,
             backup_id=backup_id,
             backup_scope=backup_scope,
