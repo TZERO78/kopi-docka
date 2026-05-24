@@ -21,12 +21,13 @@ This module is a thin wrapper that delegates to config_commands.py.
 All business logic is in the legacy module to avoid code duplication.
 
 Commands:
-- advanced config show            - Show current configuration
-- advanced config new             - Create new configuration
-- advanced config edit            - Edit configuration file
-- advanced config reset           - Reset configuration (DANGEROUS)
-- advanced config status          - Show repository storage status
-- advanced config change-password - Change repository password
+- advanced config show               - Show current configuration
+- advanced config new                - Create new configuration
+- advanced config edit               - Edit configuration file
+- advanced config reset              - Reset configuration (DANGEROUS)
+- advanced config status             - Show repository storage status
+- advanced config change-password    - Change repository password
+- advanced config repair-kopia-params - Rebuild SFTP kopia_params from [credentials]
 """
 
 from pathlib import Path
@@ -42,6 +43,7 @@ from ..config_commands import (
     cmd_reset_config,  # reset
     cmd_status,  # status (FIXED: dead code removed)
     cmd_change_password,  # change-password
+    cmd_repair_kopia_params,  # repair-kopia-params (v7.5.0, Plan 0029)
 )
 
 # Create config subcommand group
@@ -100,6 +102,19 @@ def register(app: typer.Typer):
     def _config_change_password_cmd(ctx: typer.Context):
         """Change repository encryption password."""
         cmd_change_password(ctx)
+
+    @config_app.command("repair-kopia-params")
+    def _config_repair_kopia_params_cmd(
+        ctx: typer.Context,
+        dry_run: bool = typer.Option(
+            False, "--dry-run", help="Show the diff but don't write the config."
+        ),
+        yes: bool = typer.Option(
+            False, "--yes", "-y", help="Skip the confirmation prompt."
+        ),
+    ):
+        """Rebuild SFTP kopia_params from [credentials] (fixes Plan 0029 / v7.0–v7.3.13 wizard bug)."""
+        cmd_repair_kopia_params(ctx, dry_run=dry_run, yes=yes)
 
     # Add config subgroup to admin app
     app.add_typer(config_app, name="config", help="Configuration management commands")
