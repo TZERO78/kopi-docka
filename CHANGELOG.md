@@ -5,9 +5,17 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [7.3.8] - 2026-05-24
+## [7.3.0 – 7.3.8] - 2026-05-24 — Plan 0028 + post-release stabilization
 
-### 🐛 Fixed — critical: silent second-config creation under permission failure
+Nine related releases over a single day. **Plan 0028 (v7.3.0)** was the
+main refactor — eliminate per-path Kopia policies, route everything through
+a global policy applied at `connect()` time, collapse the snapshot loop into
+one sequential `create_snapshots()` call. **v7.3.1 through v7.3.8** were
+stabilization fixes prompted by the first runs against a real rclone+GDrive
+production system. Three of those get their own block below; the other six
+are summarised at the bottom.
+
+### 🐛 v7.3.8 — CRITICAL: silent second-config creation under permission failure
 
 A live-system run uncovered a real **data-loss footgun**. Sequence:
 
@@ -30,122 +38,17 @@ A live-system run uncovered a real **data-loss footgun**. Sequence:
    bundle exports against the wrong config, and the user has two
    configs whose drift goes undetected.
 
-Fix: `_find_config_file()` now collects unreadable existing paths
-across the search pass and **raises `PermissionError`** if any were
-found, instead of silently creating a second config. The error
-message lists the unreadable path(s) and — when one of them is under
-`/etc/` — explicitly suggests running with `sudo`.
+Fix: `_find_config_file()` collects unreadable existing paths across the
+search pass and **raises `PermissionError`** instead of silently creating
+a second config. The error message lists the unreadable path(s) and —
+when one is under `/etc/` — explicitly suggests `sudo`. The only way to
+get a second config now is to ask for it explicitly via `--config`. New
+tests in `tests/unit/test_helpers/test_config.py` pin the "raise instead
+of silent fallback" + the sudo hint.
 
-```
-$ kopi-docka advanced snapshot retention set --latest 5
-Configuration file exists but is not readable: /etc/kopi-docka.json.
+### 🛠️ v7.3.4 — migrate-config.sh: false-positive cleanup + template drift
 
-It's almost certainly a missing sudo: an /etc-scoped config is normally
-root-owned. Re-run the command with `sudo`.
-
-If you really want to start with a fresh user-scoped config instead of
-using the existing one, point --config at a new path explicitly …
-```
-
-The only way to get a second config is now to ask for it explicitly
-via `--config`. New tests in `tests/unit/test_helpers/test_config.py`
-pin the "raise instead of silent fallback" + the sudo hint.
-
----
-
-## [7.3.7] - 2026-05-24
-
-### 🐛 Fixed — `advanced snapshot retention set`
-
-Two UX problems surfaced on a live rclone+GDrive production system where
-`kopia policy set --global` takes ~5 minutes (!) for a single round-trip:
-
-- **Empty `retention set` invocations now ask for confirmation.** The
-  command's six retention flags used to default to fixed numbers
-  (`--latest 10 --daily 7 …`) at the Typer layer, which meant
-  `kopi-docka advanced snapshot retention set` typed by accident would
-  silently overwrite a custom config (say `monthly=6`) with the Typer
-  defaults — and then spend a 30-90 s metadata round-trip doing it.
-  Each flag is now `Optional[int]` defaulting to `None`. With no flags
-  the command prints a yellow "Nothing to change" panel and exits;
-  `--force` overrides for scripts that intend a no-op rewrite.
-- **Partial invocations preserve the other values.** Previously
-  `retention set --daily 14` would also clobber `latest`/`hourly`/etc.
-  with Typer defaults. Now an omitted flag means "keep what the config
-  has"; the new effective tuple is built by merging explicit args over
-  the current config.
-- **Spinner during the Kopia call.** The 30-90 s (up to 5 min on slow
-  remote backends) `kopia policy set --global` round-trip used to run
-  with no terminal feedback at all — looked like the CLI was hung. Now
-  a Rich spinner runs, with a one-line "this typically takes 30-90 s on
-  rclone backends" hint above it.
-
-### Tests
-
-Four new tests in `tests/unit/test_cores/test_snapshot_manager.py`
-covering: explicit args still update, Kopia failure doesn't write
-config, partial args merge with current config, no-args without
-`--force` aborts cleanly, no-args with `--force` applies the current
-config values. CLI-layer tests in
-`tests/unit/test_commands/test_snapshot_commands_new.py` updated for
-the new `Optional[int]` signature plus a new `--force` test.
-
----
-
-## [7.3.6] - 2026-05-24
-
-### 📝 Convention
-
-- **Config template `version` field now tracks the kopi-docka release.**
-  The shipped `kopi_docka/templates/config_template.json` carried
-  `"version": "3.0"` since the v3.0 schema reshuffle and nobody had
-  bumped it since. From v7.3.6 on, this field mirrors the kopi-docka
-  release that wrote it (so a fresh `advanced config new` against
-  v7.3.6 produces a file marked `"version": "7.3.6"`). This is purely
-  a marker — Pydantic accepts any string — but it makes "which release
-  generated this config file?" answerable by opening the file. Existing
-  user configs are untouched; the migration helper does not rewrite the
-  field (it's a user value, by the rule "don't overwrite what's already
-  there").
-
-- **Release checklist in CLAUDE.md** updated: the config template now
-  joins `pyproject.toml`, `helpers/constants.py`, `CLAUDE.md` and
-  `CHANGELOG.md` as a file to bump on every release.
-
----
-
-## [7.3.5] - 2026-05-24
-
-### 📝 Documentation / UX
-
-- **All user-facing text now uses `advanced` instead of `admin`.** The
-  CLI itself had been registering both names for a while —
-  `advanced` as the documented top-level group and `admin` as a hidden
-  Typer alias — but help texts, docstrings, error hints, disaster
-  recovery scripts and the bundled systemd units were inconsistently
-  mixing both. A `kopi-docka --help` showed `advanced` but a typical
-  `kopi-docka advanced policy` user would still hit doc strings
-  saying "use `kopi-docka admin config edit` instead", and the
-  shipped `kopi-docka.service` template ran `kopi-docka admin service
-  daemon`. 134 references across 23 files unified to `advanced`.
-
-  **Back-compat**: the `admin` name remains as a `hidden=True` Typer
-  alias on the same Typer app, so every existing user script, systemd
-  unit, or cron entry that still says `admin` keeps working. The
-  rename is a documentation / display fix, not a CLI break.
-
-  Notably, the bundled systemd templates now use `advanced service
-  daemon` and `advanced service write-units` — old installs running
-  `admin service daemon` are unaffected, but freshly installed units
-  match the documentation.
-
----
-
-## [7.3.4] - 2026-05-24
-
-### 🐛 Fixed
-
-Round two of UX cleanup for `scripts/migrate-config.sh`, after a real
+Round two of UX cleanup for `scripts/migrate-config.sh` after a real
 production config (with full notification setup, legacy hooks, and a
 `retention.yearly` key from an old version) exposed several false
 positives and a missing template field.
@@ -159,102 +62,20 @@ positives and a missing template field.
   only genuine type clashes (e.g. `int` vs `bool`) surface.
 - **Trailing empty `! ` entry in the type-mismatch block** removed.
   The block was concatenated with `$'\n'` between entries plus a
-  terminating `$'\n'`, which produced one extra blank line at the
-  end of the report. Switched to a proper bash array.
-- **Template now ships `backup.database_backup`.** The Pydantic schema
-  has had this field with default `"true"` since 5.x, but it was
-  missing from `config_template.json` — so the migration helper would
-  otherwise warn on every install that still had the key.
-
-### 📝 Documentation
-
+  terminating `$'\n'`. Switched to a proper bash array.
+- **Template now ships `backup.database_backup`.** Pydantic schema has
+  had it (default `"true"`) since 5.x but `config_template.json` was
+  missing it.
 - **Known legacy renames table** in `docs/CONFIGURATION.md`. Several
   "Unknown keys" the script reports are not custom additions but old
   names: `retention.yearly` → `retention.annual`,
   `backup.pre_backup_hook` → `backup.hooks.pre_backup`,
   `backup.post_backup_hook` → `backup.hooks.post_backup`. The script
-  doesn't auto-rename (it has no opinion about your data); the doc
-  tells you which "Unknown" lines are safe to `--prune-unknown` once
-  you've copied the value into the new key.
+  doesn't auto-rename; the doc tells you which "Unknown" lines are
+  safe to `--prune-unknown` once you've copied the value into the new
+  key.
 
----
-
-## [7.3.3] - 2026-05-24
-
-### 🐛 Fixed
-
-`scripts/migrate-config.sh` UX hardening after the first live-system run.
-
-- **Template auto-locate is no longer `python3 -c 'import kopi_docka'` only.**
-  When kopi-docka is installed under pipx or in a venv, the default
-  `/usr/bin/python3` can't import the package — the script printed
-  `tried: <empty>` with no further hint. New strategy chain:
-    1. explicit `--template` flag
-    2. default `python3 -c 'import kopi_docka'`
-    3. python from `which kopi-docka`'s shebang (handles pipx / venv)
-    4. GitHub raw fallback (no install needed)
-  Each failed step now logs *why*; the final "could not locate" error
-  lists all four strategies plus how to fix each one.
-- **Documented the `chmod +x` step inline.** The `curl -o /usr/local/bin/...`
-  command leaves the file without an execute bit; the docs now chain
-  the `chmod` on the same line so the copy-paste path works first try.
-
-### ✨ Added
-
-- **`--config` is now optional.** When omitted, the script probes the
-  same default locations kopi-docka itself uses
-  (`$HOME/.config/kopi-docka/config.json` first, then
-  `/etc/kopi-docka.json`). Honors `$SUDO_USER` so that
-  `sudo migrate-config.sh` finds the invoking user's per-user config
-  instead of root's.
-- **kopi-docka version banner.** Every run prints the installed
-  kopi-docka version and binary path up front, or says "not found on
-  PATH — will use the GitHub-hosted template" if the binary is missing.
-  Makes it obvious which release the migration is checking against.
-
----
-
-## [7.3.2] - 2026-05-24
-
-### ✨ Added
-
-- **`scripts/migrate-config.sh`** — config migration helper that diffs an
-  existing `kopi-docka.json` against the template shipped with the
-  installed kopi-docka and fills in missing keys with the template
-  defaults. The script does not hard-code any field names; every key
-  it adds, warns about, or (optionally) prunes is derived live from
-  the template, so a future release that adds new keys is handled
-  automatically. Existing user values are never overwritten. A
-  timestamped backup of the original file is written by default.
-  Documented in `docs/CONFIGURATION.md` (Migrating an older config)
-  and cross-linked from `docs/TROUBLESHOOTING.md`.
-
-### 🐛 Fixed
-
-- **Config template now ships with `kopia.profile`.** The Pydantic
-  schema has had `kopia.profile` with default `"kopi-docka"` since
-  early 5.x, but the on-disk `config_template.json` was missing the
-  field — so `kopi-docka advanced config new` generated configs
-  without a visible profile entry, and the migration helper above
-  would otherwise flag every multi-profile install's `kopia.profile`
-  as "unknown". Template now includes it.
-
----
-
-## [7.3.1] - 2026-05-24
-
-### 🐛 Fixed
-
-Two pre-existing bugs uncovered by the post-v7.3.0 end-to-end testlab run.
-
-- **`KopiaRepository.connect()` now re-applies the global retention policy on every call**, even when the underlying repository is already connected. Before this fix, the `is_connected()` short-circuit meant `apply_global_defaults()` only ran on a *fresh* `kopia repository connect` — long-lived connections never picked up retention changes from `kopi-docka.json`, so the config file and Kopia's actual global policy drifted indefinitely. Plan 0028's "idempotent on every connect" promise wasn't actually delivered on existing installs. The reapply is still idempotent at the Kopia layer (`kopia policy set --global` with identical values is a no-op), so the only cost on slow remote backends is one extra metadata round-trip per `connect()` call.
-- **`advanced snapshot retention show` no longer reports "Kopia policy unavailable" on healthy repos**. `_display_retention` looked up Kopia's global policy under the `retentionPolicy` JSON key, but Kopia's `policy show --global --json` puts retention under the top-level `retention` key. The wrong key always resolved to `None`, hiding the actual Kopia values behind a misleading "not connected?" hint. Now reads `retention` first and falls back to `retentionPolicy` for defensive compatibility.
-
-Both fixes verified end-to-end on the rclone+GDrive testlab — after upgrade, `kopia policy show --global` and `kopi-docka advanced snapshot retention show` agree on the same values from `kopi-docka.json`.
-
----
-
-## [7.3.0] - 2026-05-24 — Plan 0028: Global-Policy-Only
+### 🎯 v7.3.0 — Plan 0028: Global-Policy-Only
 
 Eliminates the entire per-path policy apparatus that v7.2.0 still relied on
 for volume retention. With Plan 0028 there is exactly one place where Kopia
@@ -263,7 +84,7 @@ retention is written: the global policy at repository `connect()` /
 orphans, no more divergent timing on rclone backends. Three atomic commits on
 `refactor/global-policy-only`.
 
-### 🚀 Performance & Reliability
+#### 🚀 Performance & Reliability
 
 - **Backup hot path no longer writes per-path Kopia policies.** Plan 0026
   trimmed staging-path policies; Plan 0028 removes the remaining volume
@@ -276,7 +97,7 @@ orphans, no more divergent timing on rclone backends. Three atomic commits on
   no-op), so retention changes in `kopi-docka.json` reach Kopia on the next
   run without a manual step.
 
-### 🗑️ Removed
+#### 🗑️ Removed
 
 - `BackupManager._ensure_policies`, `BackupManager._apply_target_policy`,
   `BackupManager.auto_prune_orphaned_policies` — the entire smart-skip +
@@ -288,7 +109,7 @@ orphans, no more divergent timing on rclone backends. Three atomic commits on
   these.
 - The `auto_prune_orphaned_policies()` call from `commands/backup_commands.py`.
 
-### 🐛 Fixed
+#### 🐛 Fixed
 
 - **`advanced policy prune` is now a true legacy-cleanup.** Pre-Plan-0028
   versions only deleted *orphaned* per-path policies — entries whose path
@@ -300,62 +121,96 @@ orphans, no more divergent timing on rclone backends. Three atomic commits on
   a kopi-docka-managed prefix (`/var/lib/docker/volumes/`,
   `/var/cache/kopi-docka/staging/`), regardless of snapshot state.
   Cross-host policies and unknown prefixes stay untouched as before
-  (Plan 0024 safety). Verified end-to-end on the rclone+GDrive testlab:
-  one leftover per-path policy detected by doctor, pruned in one batch
-  call, doctor reports clean global-only state.
+  (Plan 0024 safety).
 
-### 🧱 Refactor
+#### 🧱 Refactor
 
 - **Backup discovery decoupled from snapshot execution.** New
-  ``BackupSource`` dataclass in ``kopi_docka/types.py`` carries the
-  ``(path, kind, tags)`` triple a snapshot needs. New ``_collect_*_sources``
-  helpers on ``BackupManager`` produce these — one per kind for
+  `BackupSource` dataclass in `kopi_docka/types.py` carries the
+  `(path, kind, tags)` triple a snapshot needs. New `_collect_*_sources`
+  helpers on `BackupManager` produce these — one per kind for
   recipes / networks / docker_config, one per volume for direct-mode
-  volumes. The aggregate ``_collect_backup_sources()`` returns the full
-  ordered list ``backup_unit()`` would snapshot.
+  volumes. The aggregate `_collect_backup_sources()` returns the full
+  ordered list `backup_unit()` would snapshot.
 - **Single sequential snapshot entry point.** New
-  ``KopiaRepository.create_snapshots(sources)`` is the only call
-  ``backup_unit()`` makes to produce snapshots. It iterates ``sources`` in
-  order, returns one ID per source (empty string for failures so callers
-  can map failures back to a kind/volume), and is intentionally sequential
-  — see the docstring for the rationale and the Kopia upstream issue
-  (``kopia/kopia#1725``) that would let the body be swapped for a
-  multi-path call.
+  `KopiaRepository.create_snapshots(sources)` is the only call
+  `backup_unit()` makes to produce snapshots. Sequential by design —
+  see the docstring for the rationale and the Kopia upstream issue
+  ([`kopia/kopia#1725`](https://github.com/kopia/kopia/issues/1725))
+  that would let the body be swapped for a multi-path call.
 - **ThreadPoolExecutor removed from the volume loop.** Per-volume
   parallelism is gone (user preference: log determinism and predictable
-  rclone behaviour beat throughput on VPS-class hardware). If a future
-  user needs parallelism, ``kopia policy set --global --max-parallel-snapshots=N``
-  is the right knob at the Kopia layer.
+  rclone behaviour beat throughput on VPS-class hardware).
 - **Discovery now runs before container stop.** Compose-file copy, docker
   inspect, network export and config staging happen with containers
   alive (docker inspect needs them); the snapshot loop runs after stop.
-  This is also a friendlier failure mode — a discovery error aborts
-  before anything is stopped.
+  A discovery error now aborts before anything is stopped.
 
-### 🧹 Migration
+#### 🧹 Migration
 
-- **`~/.config/kopi-docka/policy_state.json` is removed automatically.**
-  v7.2.0's smart-skip hash cache is dead data after Plan 0028. On the
-  first kopia call after upgrade, `KopiaRepository._maybe_cleanup_legacy_state_files()`
-  unlinks the file once (idempotent, logged at INFO). No action required.
+- **`~/.config/kopi-docka/policy_state.json` is removed automatically**
+  on the first kopia call after upgrade — `_maybe_cleanup_legacy_state_files()`
+  unlinks it once (idempotent, logged at INFO).
 - **`backup.parallel_workers` and `backup.task_timeout` config fields are
-  ignored.** Both are kept in the schema so existing `kopi-docka.json`
-  files still validate, but the sequential snapshot loop reads neither.
-  Fresh `config_template.json` no longer ships these keys.
+  ignored.** Both stay in the Pydantic schema so existing config files
+  validate; the sequential snapshot loop reads neither.
 
-### Upgrade Notes
+#### Upgrade Notes
 
 - Existing repositories that still carry per-path policies from older
   kopi-docka versions are *not* automatically cleaned up by the backup
   run anymore (auto-prune is gone). Run **`kopi-docka advanced policy prune`**
-  once after upgrading — under Plan 0028 it removes *every* per-path
-  policy on this host (kopi-docka-managed prefixes only; cross-host
-  policies stay untouched). Doctor flags any leftovers as "Legacy
-  Per-Path Policies" with the same hint.
-- The systemd templates still carve out write access to
-  `/root/.config/kopi-docka` so the one-time `policy_state.json` cleanup
-  on first run after upgrade can happen — after that the directory is
-  no longer written to by kopi-docka.
+  once after upgrading.
+
+### 🔧 Post-release stabilization patches (v7.3.1 – v7.3.7)
+
+Six smaller follow-ups between Plan 0028 and the critical v7.3.8 fix,
+in release order:
+
+- **v7.3.1** — `KopiaRepository.connect()` now actually re-applies the
+  global retention policy on every call. The `is_connected()` short-circuit
+  was making Plan 0028's "idempotent on every connect" promise untrue on
+  existing installs (config and Kopia drifted indefinitely until the next
+  fresh connect). Plus: `advanced snapshot retention show` no longer reports
+  "Kopia policy unavailable" on healthy repos — was reading the wrong JSON
+  key (`retentionPolicy` vs `retention`).
+- **v7.3.2** — new `scripts/migrate-config.sh` helper. Diffs a user's
+  `kopi-docka.json` against the shipped template, fills in missing keys with
+  template defaults, reports unknown/deprecated keys, writes a timestamped
+  backup. No hardcoded field list — everything is derived live from the
+  template, so future releases that add new keys are handled automatically.
+  Plus: `kopia.profile` added to `config_template.json` (was in Pydantic
+  since 5.x but missing from the on-disk template).
+- **v7.3.3** — migrate-config.sh robustness pass after a pipx-installed
+  live system tripped `tried: <empty>`. Four-step template lookup
+  (`--template` → default `python3 -c 'import kopi_docka'` → python from
+  `which kopi-docka`'s shebang → GitHub raw fallback). `--config` is
+  optional now (probes the same defaults kopi-docka itself uses, honoring
+  `$SUDO_USER`). Version banner at the top of every run. Docs got the
+  `chmod +x` on the same line as `curl -o /usr/local/bin/…` so first-time
+  copy-paste users don't hit "Permission denied".
+- **v7.3.5** — `admin` → `advanced` rename in all user-facing text (134
+  references across 23 files: help text, docstrings, error hints, DR shell
+  snippets, systemd unit templates, top-level docs). The CLI itself had
+  `advanced` as the documented name and `admin` as a `hidden=True` Typer
+  alias for a while — everything around it mixed both. The `admin` alias
+  stays registered for back-compat; existing user scripts, cron entries
+  and systemd units keep working.
+- **v7.3.6** — `config_template.json`'s `version` field now tracks the
+  kopi-docka release (was stuck at `"3.0"` since the v3.0 schema reshuffle).
+  Useful for "which kopi-docka version wrote this config file?" without
+  digging through git history. CLAUDE.md release checklist updated: the
+  template joins the list of files to bump on every release.
+- **v7.3.7** — `advanced snapshot retention set` UX, after a 286-second
+  (!) `kopia policy set --global` round-trip on a real GDrive backend
+  looked identical to a hang. A Rich spinner now runs during the call with
+  a "this normally takes 30-90 s on rclone backends" hint above it. Each
+  retention flag is now `Optional[int]`: passing just `--daily 14`
+  preserves the other five values from the config instead of clobbering
+  them with Typer defaults. An empty `retention set` invocation asks for
+  confirmation (or `--force`) instead of silently writing a 30-90 s no-op.
+
+---
 
 ## [7.1.2 – 7.2.1] - 2026-05-23 — Rclone/Policy convergence
 
