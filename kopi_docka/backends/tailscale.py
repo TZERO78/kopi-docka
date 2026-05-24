@@ -191,6 +191,13 @@ class TailscaleBackend(BackendBase):
         if not ssh_key_path.exists():
             if utils.prompt_confirm(t("tailscale.setup_ssh_key", lang)):
                 self._setup_ssh_key(selected_peer.fqdn, ssh_key_path)
+        else:
+            utils.print_info(
+                f"SSH key already exists at {ssh_key_path} — reusing it."
+            )
+            # Make sure the existing key works against this peer; if not,
+            # offer manual / auto deployment.
+            self._ensure_key_on_remote(selected_peer.fqdn, ssh_key_path)
 
         # Get SSH user
         ssh_user = utils.prompt_text(f"{t('tailscale.ssh_user', lang)} [root]", default="root")
@@ -509,10 +516,20 @@ class TailscaleBackend(BackendBase):
     def _setup_ssh_key(self, host: str, key_path: Path) -> bool:
         """Setup SSH key for passwordless access.
 
-        ``host`` is the address ssh-copy-id will dial: a Tailscale FQDN
-        like ``tzero-server.beetal-vega.ts.net``. Pre-v7.3.12 the
-        caller passed a bare hostname and this function appended
-        ``.tailnet`` — a suffix no modern Tailnet uses.
+        Two installation modes — the user picks one:
+
+        - **Automatic**: ``ssh-copy-id``. Needs the remote to accept
+          password-auth as root, which not every NAS does, but is the
+          one-step path on most Linux servers. After it lands, we try to
+          mirror the key to a Unraid-style persistent path if the remote
+          looks tmpfs-rooted.
+        - **Manual**: print the public key, let the user paste it
+          wherever it belongs (NAS web UI, ``/boot/config/ssh/root`` on
+          Unraid, ``~/.ssh/authorized_keys`` via a different account, …).
+          Works against any remote, even ones with no password-auth.
+
+        Both paths end with a passwordless-SSH verification so a broken
+        setup fails loudly here, not on the first Kopia call.
         """
         from kopi_docka.helpers import ui_utils as utils
         from kopi_docka.i18n import t, get_current_language
@@ -541,23 +558,253 @@ class TailscaleBackend(BackendBase):
 
             utils.print_success(t("tailscale.ssh_key_generated", lang))
 
-            # Copy to remote
-            utils.print_info(f"{t('tailscale.copying_ssh_key', lang)} {host}...")
-            utils.print_warning("You may need to enter the root password")
-
-            run_command(
-                ["ssh-copy-id", "-i", str(key_path), f"root@{host}"],
-                "Copying SSH key to remote",
-                timeout=60,
-                show_output=True,  # User may need to enter password
-            )
-
-            utils.print_success(t("tailscale.ssh_key_copied", lang))
-            return True
+            # Ask user how they want to deploy the public key to the remote.
+            return self._deploy_public_key(host, key_path)
 
         except SubprocessError as e:
             utils.print_error(f"{t('tailscale.ssh_key_failed', lang)}: {e}")
             return False
+
+    def _deploy_public_key(self, host: str, key_path: Path) -> bool:
+        """Offer two key-deployment modes (auto / manual) and execute the
+        chosen one. Returns True iff passwordless SSH works at the end.
+        """
+        from kopi_docka.helpers import ui_utils as utils
+
+        pub_key_path = Path(str(key_path) + ".pub")
+        pub_key = pub_key_path.read_text().strip() if pub_key_path.exists() else ""
+
+        utils.console.print()
+        utils.console.print(
+            "[bold cyan]How should the public key reach the remote?[/bold cyan]"
+        )
+        utils.console.print(
+            "  [cyan]1[/cyan]  Automatic — run `ssh-copy-id` (needs root password "
+            "auth on the remote)"
+        )
+        utils.console.print(
+            "  [cyan]2[/cyan]  Manual — show the key, I'll paste it where it "
+            "belongs (NAS web UI, Unraid persistent path, etc.)"
+        )
+
+        choice = utils.prompt_text("Choose [1/2]", default="1").strip()
+
+        if choice == "2":
+            self._deploy_public_key_manual(host, pub_key, key_path)
+        else:
+            self._deploy_public_key_auto(host, key_path)
+
+        # Both paths end with the same verification.
+        return self._verify_passwordless(host, key_path)
+
+    def _deploy_public_key_auto(self, host: str, key_path: Path) -> None:
+        """ssh-copy-id path. Mirrors to a persistent file if the remote
+        looks tmpfs-rooted (Unraid pattern)."""
+        from kopi_docka.helpers import ui_utils as utils
+        from kopi_docka.i18n import t, get_current_language
+
+        lang = get_current_language()
+
+        utils.print_info(f"{t('tailscale.copying_ssh_key', lang)} {host}...")
+        utils.print_warning("You may need to enter the root password")
+
+        try:
+            run_command(
+                ["ssh-copy-id", "-i", str(key_path), f"root@{host}"],
+                "Copying SSH key to remote",
+                timeout=60,
+                show_output=True,
+            )
+            utils.print_success(t("tailscale.ssh_key_copied", lang))
+            # Unraid-style persistence — generic test for /boot/config/ssh.
+            self._mirror_key_to_persistent_path(host, key_path)
+        except SubprocessError as e:
+            utils.print_error(
+                f"ssh-copy-id failed: {e}. You may want to retry with the "
+                f"manual option (display the key and paste it yourself)."
+            )
+
+    def _deploy_public_key_manual(self, host: str, pub_key: str, key_path: Path) -> None:
+        """Show the public key and wait for the user to install it on the
+        remote however they like. Works against any remote — Unraid USB
+        boot, Synology DSM web UI, TrueNAS via the GUI, etc.
+        """
+        from kopi_docka.helpers import ui_utils as utils
+
+        utils.console.print()
+        utils.console.print(
+            "[bold]Public key to install on the remote:[/bold]"
+        )
+        utils.console.print()
+        utils.console.print(f"  [cyan]{pub_key}[/cyan]")
+        utils.console.print()
+        utils.console.print(
+            "[dim]Paste this into the remote's authorized_keys file. "
+            "Common locations:[/dim]"
+        )
+        utils.console.print(
+            "[dim]  • Standard Linux server: ~/.ssh/authorized_keys "
+            "(or /root/.ssh/authorized_keys when connecting as root)[/dim]"
+        )
+        utils.console.print(
+            "[dim]  • Unraid: /boot/config/ssh/root  (persistent — survives "
+            "reboots; Unraid copies it to /root/.ssh/ on boot)[/dim]"
+        )
+        utils.console.print(
+            "[dim]  • Synology DSM: Control Panel → Terminal & SNMP → "
+            "user's SSH key (or ~/.ssh/authorized_keys via SSH)[/dim]"
+        )
+        utils.console.print(
+            "[dim]  • TrueNAS: System Settings → Shell → "
+            "/root/.ssh/authorized_keys[/dim]"
+        )
+        utils.console.print()
+        utils.prompt_text(
+            "Press Enter once the key is installed on the remote",
+            default="",
+        )
+
+    def _mirror_key_to_persistent_path(self, host: str, key_path: Path) -> None:
+        """If the remote's /root/ is tmpfs (NAS-style boot, Unraid etc.),
+        copy authorized_keys into the conventional persistent location
+        (/boot/config/ssh/root). No-op on standard Linux servers where
+        /root/.ssh/authorized_keys is already persistent.
+        """
+        from kopi_docka.helpers import ui_utils as utils
+
+        # 1) Probe: does the remote have an Unraid-style persistent SSH dir?
+        try:
+            probe = run_command(
+                [
+                    "ssh", "-i", str(key_path),
+                    "-o", "StrictHostKeyChecking=no",
+                    "-o", "BatchMode=yes",
+                    "-o", "ConnectTimeout=10",
+                    f"root@{host}",
+                    "test -d /boot/config/ssh && echo yes || echo no",
+                ],
+                "Probing for persistent SSH config path",
+                timeout=15,
+                check=False,
+            )
+        except SubprocessError as e:
+            logger.debug("Persistent-path probe failed (skipping mirror): %s", e)
+            return
+
+        if "yes" not in (probe.stdout or ""):
+            # Standard Linux — /root/.ssh/authorized_keys is already on
+            # persistent storage, nothing more to do.
+            logger.debug(
+                "Remote %s: no /boot/config/ssh detected — treating /root as "
+                "persistent (standard Linux server).",
+                host,
+            )
+            return
+
+        # 2) Mirror the key
+        utils.print_info(
+            f"Detected USB-boot/tmpfs-style remote (e.g. Unraid). "
+            f"Also writing authorized_keys to /boot/config/ssh/root for "
+            f"reboot-persistence…"
+        )
+        try:
+            run_command(
+                [
+                    "ssh", "-i", str(key_path),
+                    "-o", "StrictHostKeyChecking=no",
+                    "-o", "BatchMode=yes",
+                    f"root@{host}",
+                    # Append to /boot/config/ssh/root (don't overwrite — other
+                    # keys may already live there for the user's other tools).
+                    # touch+chmod first so the file exists with safe perms.
+                    "mkdir -p /boot/config/ssh && "
+                    "touch /boot/config/ssh/root && "
+                    "chmod 600 /boot/config/ssh/root && "
+                    # Only append if our key isn't already present
+                    "(grep -qFx \"$(cat /root/.ssh/authorized_keys | tail -n1)\" "
+                    "/boot/config/ssh/root || "
+                    "cat /root/.ssh/authorized_keys | tail -n1 "
+                    ">> /boot/config/ssh/root) && "
+                    "echo persistent-write-ok",
+                ],
+                "Writing persistent SSH key",
+                timeout=30,
+                check=True,
+            )
+            utils.print_success(
+                "SSH key also stored at /boot/config/ssh/root — "
+                "survives remote reboots."
+            )
+        except SubprocessError as e:
+            utils.print_warning(
+                f"Could not write persistent SSH key path on remote: {e}. "
+                f"The key works for now but may be lost on remote reboot. "
+                f"Manually copy /root/.ssh/authorized_keys → "
+                f"/boot/config/ssh/root on the remote to fix this."
+            )
+
+    def _verify_passwordless(self, host: str, key_path: Path) -> bool:
+        """One last check that the installed key actually unlocks
+        passwordless SSH. Returns True on success. If it fails, the
+        caller can decide whether to retry the deployment or continue —
+        but at least the next Kopia call won't be a surprise.
+        """
+        from kopi_docka.helpers import ui_utils as utils
+
+        try:
+            result = run_command(
+                [
+                    "ssh", "-i", str(key_path),
+                    "-o", "StrictHostKeyChecking=no",
+                    "-o", "BatchMode=yes",
+                    "-o", "ConnectTimeout=10",
+                    "-o", "PasswordAuthentication=no",
+                    f"root@{host}",
+                    "echo passwordless-ok",
+                ],
+                "Verifying passwordless SSH",
+                timeout=15,
+                check=False,
+            )
+            if "passwordless-ok" in (result.stdout or ""):
+                utils.print_success(
+                    f"Passwordless SSH to {host} verified — Kopia will be able "
+                    f"to back up without prompting."
+                )
+                return True
+            utils.print_warning(
+                f"Passwordless SSH check did NOT succeed (exit "
+                f"{result.returncode}). The key was supplied but the remote is "
+                f"still refusing key-based auth. Likely causes: sshd_config "
+                f"disallowing pubkey auth, wrong permissions on /root/.ssh/, "
+                f"or the key didn't land in the expected file. Run "
+                f"`ssh -i {key_path} -v root@{host}` manually to see the "
+                f"negotiation."
+            )
+            return False
+        except SubprocessError as e:
+            utils.print_warning(
+                f"Could not verify passwordless SSH: {e}. "
+                f"Test manually with: ssh -i {key_path} root@{host}"
+            )
+            return False
+
+    def _ensure_key_on_remote(self, host: str, key_path: Path) -> None:
+        """Existing local key: check if it already gets us passwordless SSH
+        to this peer. If yes, do nothing. If no, offer the same auto/manual
+        deployment as a fresh key would get.
+        """
+        from kopi_docka.helpers import ui_utils as utils
+
+        if self._verify_passwordless(host, key_path):
+            return
+
+        utils.console.print()
+        utils.print_warning(
+            "Existing local SSH key doesn't authenticate against this peer "
+            "yet — let's install it."
+        )
+        self._deploy_public_key(host, key_path)
 
     def get_recovery_instructions(self) -> str:
         """Get recovery instructions"""

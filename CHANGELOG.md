@@ -5,6 +5,52 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.3.13] - 2026-05-24
+
+### ✨ Tailscale wizard: manual key-install option + auto-detect tmpfs-rooted remotes
+
+Two improvements to the Tailscale-backend setup wizard, both prompted
+by a real live install onto an Unraid server (USB-boot OS, `/root/` is
+tmpfs).
+
+- **Manual public-key install path.** The wizard now asks "how should
+  the public key reach the remote?" with two options:
+  1. *Automatic* — `ssh-copy-id` (needs root password auth on the
+     remote, what we did before)
+  2. *Manual* — wizard prints the public key as plain text and waits
+     for the user to paste it wherever it belongs (NAS web UI, Unraid
+     persistent path, TrueNAS GUI, etc.). Works against any remote,
+     including ones with no password-auth.
+
+  The manual prompt suggests the four most common locations explicitly:
+  standard Linux (`/root/.ssh/authorized_keys`), **Unraid
+  (`/boot/config/ssh/root` — survives reboots)**, Synology DSM (Control
+  Panel route + SSH route), TrueNAS (`/root/.ssh/authorized_keys` via
+  Shell).
+
+- **Generic tmpfs-rooted-remote detection.** When the automatic
+  `ssh-copy-id` path succeeds, the wizard probes the remote for
+  `/boot/config/ssh/` (the Unraid persistent-SSH-config directory). If
+  found, it appends `authorized_keys` there too — so the key survives
+  the next reboot, which it otherwise wouldn't on Unraid. The probe is
+  generic (just `test -d /boot/config/ssh`), so any other USB-boot NAS
+  that adopted the same convention gets the same treatment.
+
+- **Post-deployment passwordless verification.** Both paths end with a
+  `ssh -o BatchMode=yes -o PasswordAuthentication=no` check. If that
+  fails, the wizard prints a clear diagnostic ("the key was supplied
+  but the remote is still refusing key-based auth — likely sshd_config,
+  permissions, or the key didn't land in the expected file") instead
+  of letting the first Kopia call fail mysteriously.
+
+- **Existing-key path also gets the verify + redeploy flow.** If a
+  `/root/.ssh/kopi-docka_ed25519` key already exists locally, the wizard
+  used to silently reuse it without checking whether it actually works
+  against the selected peer. It now runs the same `_verify_passwordless`
+  check, and offers the auto/manual deploy menu if the answer is no.
+
+---
+
 ## [7.3.12] - 2026-05-24
 
 ### 🐛 Fixed — Tailscale backend now uses the real Tailnet FQDN
