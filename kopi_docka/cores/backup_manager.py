@@ -68,7 +68,6 @@ class BackupManager:
         self.policy_manager = KopiaPolicyManager(self.repo)
         self.hooks_manager = HooksManager(config)
         self.notification_manager = NotificationManager(config)
-        self.max_workers = config.parallel_workers
 
         self.stop_timeout = self.config.getint("backup", "stop_timeout", CONTAINER_STOP_TIMEOUT)
         self.start_timeout = self.config.getint("backup", "start_timeout", CONTAINER_START_TIMEOUT)

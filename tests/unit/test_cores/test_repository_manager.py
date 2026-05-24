@@ -232,6 +232,69 @@ class TestConnect:
 
 
 # =============================================================================
+# Legacy state-file cleanup (Plan 0028 housekeeping)
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestLegacyStateCleanup:
+    """``policy_state.json`` was the smart-skip cache from v7.2.0. Plan 0028
+    removed the manager that produced it; the file on disk is dead data on
+    upgraded installs. ``_maybe_cleanup_legacy_state_files`` removes it on
+    first ``_run`` after upgrade and stays a no-op afterwards.
+    """
+
+    def test_removes_legacy_file_when_present(self, tmp_path, monkeypatch):
+        legacy_dir = tmp_path / ".config" / "kopi-docka"
+        legacy_dir.mkdir(parents=True)
+        legacy = legacy_dir / "policy_state.json"
+        legacy.write_text('{"some": "stale data"}')
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        repo = make_repository()
+        # Reset the flag in case the helper has been called before in fixtures
+        repo._legacy_state_cleaned = False
+
+        repo._maybe_cleanup_legacy_state_files()
+
+        assert not legacy.exists()
+
+    def test_noop_when_file_absent(self, tmp_path, monkeypatch):
+        """Fresh installs (or installs already cleaned) must not log noise
+        and must not raise."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        repo = make_repository()
+        repo._legacy_state_cleaned = False
+
+        # Must not raise even though the file isn't there
+        repo._maybe_cleanup_legacy_state_files()
+
+        assert repo._legacy_state_cleaned is True
+
+    def test_runs_at_most_once_per_repo_instance(self, tmp_path, monkeypatch):
+        """The helper sets a flag and short-circuits on subsequent calls — no
+        repeated stat() calls per kopia subprocess invocation."""
+        legacy_dir = tmp_path / ".config" / "kopi-docka"
+        legacy_dir.mkdir(parents=True)
+        legacy = legacy_dir / "policy_state.json"
+        legacy.write_text("{}")
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        repo = make_repository()
+        repo._legacy_state_cleaned = False
+        repo._maybe_cleanup_legacy_state_files()
+        # Re-create the file as if a third party wrote it; second call must
+        # NOT remove it (we already ran the migration this session).
+        legacy.write_text("{}")
+        repo._maybe_cleanup_legacy_state_files()
+
+        assert legacy.exists()
+
+
+# =============================================================================
 # Status Tests
 # =============================================================================
 

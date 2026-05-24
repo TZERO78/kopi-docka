@@ -16,6 +16,7 @@
           "create_filesystem_repo_at_path",
           "create_snapshot",
           "create_snapshot_from_stdin",
+          "create_snapshots",
           "disconnect",
           "discover_machines",
           "initialize",
@@ -70,8 +71,11 @@
         "name": "KopiaPolicyManager",
         "methods": [
           "apply_global_defaults",
-          "set_compression_for_target",
-          "set_retention_for_target"
+          "delete_policies_batch",
+          "delete_policy",
+          "get_global_policy",
+          "list_policies",
+          "update_global_retention"
         ]
       }
     ],
@@ -152,6 +156,7 @@
           "create_filesystem_repo_at_path",
           "create_snapshot",
           "create_snapshot_from_stdin",
+          "create_snapshots",
           "disconnect",
           "discover_machines",
           "initialize",
@@ -249,8 +254,11 @@
         "name": "KopiaPolicyManager",
         "methods": [
           "apply_global_defaults",
-          "set_compression_for_target",
-          "set_retention_for_target"
+          "delete_policies_batch",
+          "delete_policy",
+          "get_global_policy",
+          "list_policies",
+          "update_global_retention"
         ]
       }
     ],

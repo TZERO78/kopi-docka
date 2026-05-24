@@ -83,19 +83,30 @@ orphans, no more divergent timing on rclone backends. Three atomic commits on
   This is also a friendlier failure mode — a discovery error aborts
   before anything is stopped.
 
+### 🧹 Migration
+
+- **`~/.config/kopi-docka/policy_state.json` is removed automatically.**
+  v7.2.0's smart-skip hash cache is dead data after Plan 0028. On the
+  first kopia call after upgrade, `KopiaRepository._maybe_cleanup_legacy_state_files()`
+  unlinks the file once (idempotent, logged at INFO). No action required.
+- **`backup.parallel_workers` and `backup.task_timeout` config fields are
+  ignored.** Both are kept in the schema so existing `kopi-docka.json`
+  files still validate, but the sequential snapshot loop reads neither.
+  Fresh `config_template.json` no longer ships these keys.
+
 ### Upgrade Notes
 
 - Existing repositories that still carry per-path policies from older
-  kopi-docka versions are not actively cleaned up by the backup run anymore
-  (auto-prune is gone). They're harmless — Kopia merges per-path on top of
-  global so they'd still apply if anything, just not in a way you'd notice —
-  but they slow rclone backends down on every `kopia policy list` call.
-  Run **`kopi-docka advanced policy prune`** once after upgrading to flush
-  them out. The doctor now flags them as "Legacy Per-Path Policies" with the
-  same hint.
+  kopi-docka versions are *not* automatically cleaned up by the backup
+  run anymore (auto-prune is gone). Run **`kopi-docka advanced policy prune`**
+  once after upgrading — under Plan 0028 it removes *every* per-path
+  policy on this host (kopi-docka-managed prefixes only; cross-host
+  policies stay untouched). Doctor flags any leftovers as "Legacy
+  Per-Path Policies" with the same hint.
 - The systemd templates still carve out write access to
-  `/root/.config/kopi-docka`, but only for compatibility with leftover state
-  files from older versions — Plan 0028 itself writes nothing there.
+  `/root/.config/kopi-docka` so the one-time `policy_state.json` cleanup
+  on first run after upgrade can happen — after that the directory is
+  no longer written to by kopi-docka.
 
 ## [7.1.2 – 7.2.1] - 2026-05-23 — Rclone/Policy convergence
 

@@ -204,7 +204,12 @@ class BackupConfig(BaseModel):
         default="standard", description="Backup scope: minimal, standard, or full"
     )
     parallel_workers: str = Field(
-        default="auto", description="Number of parallel workers (auto or 1-32)"
+        default="auto",
+        description=(
+            "Deprecated since v7.3.0 / Plan 0028 — ignored. The backup loop "
+            "is sequential by design; field kept so existing config files "
+            "still validate."
+        ),
     )
     stop_timeout: int = Field(
         default=30, ge=1, le=600, description="Container stop timeout in seconds"
@@ -212,7 +217,13 @@ class BackupConfig(BaseModel):
     start_timeout: int = Field(
         default=60, ge=1, le=600, description="Container start timeout in seconds"
     )
-    task_timeout: int = Field(default=0, ge=0, description="Task timeout in seconds (0=unlimited)")
+    task_timeout: int = Field(
+        default=0, ge=0,
+        description=(
+            "Deprecated since v7.3.0 / Plan 0028 — ignored (used to bound the "
+            "removed ThreadPoolExecutor). Kept for backward-compat parsing."
+        ),
+    )
     database_backup: Optional[str] = Field(
         default="true", description="Enable database backup (true/false)"
     )

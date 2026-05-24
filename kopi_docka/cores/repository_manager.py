@@ -137,6 +137,33 @@ class KopiaRepository:
             return []
         return [f"--rclone-startup-timeout={self.config.kopia_rclone_startup_timeout}"]
 
+    def _maybe_cleanup_legacy_state_files(self) -> None:
+        """Plan 0028: ``~/.config/kopi-docka/policy_state.json`` was the
+        smart-skip hash cache for v7.2.0's per-path policy writes. v7.3.0
+        removed the writes (and the manager that used the file), so the
+        file is dead data on upgraded installs. Remove it idempotently so
+        upgraded systemd installs don't keep a stale carve-out reason.
+
+        No-op when the file is absent (fresh installs, or already cleaned).
+        Failure to delete is logged at debug only — this is housekeeping,
+        not a hard requirement.
+        """
+        if getattr(self, "_legacy_state_cleaned", False):
+            return
+        self._legacy_state_cleaned = True
+        legacy = Path.home() / ".config" / "kopi-docka" / "policy_state.json"
+        if not legacy.exists():
+            return
+        try:
+            legacy.unlink()
+            logger.info(
+                "Removed obsolete %s (smart-skip cache from v7.2.0; "
+                "Plan 0028 / v7.3.0 made it unnecessary).",
+                legacy,
+            )
+        except OSError as e:
+            logger.debug("Could not remove obsolete %s: %s", legacy, e)
+
     def _maybe_patch_repo_config_for_rclone(self) -> None:
         """Self-heal existing repo configs that were created with the old 15s rclone timeout.
 
@@ -238,6 +265,7 @@ class KopiaRepository:
             timeout: Maximum seconds to wait. None means no timeout (use for snapshots/restore).
         """
         self._maybe_patch_repo_config_for_rclone()
+        self._maybe_cleanup_legacy_state_files()
 
         cfg = config_file or self._get_config_file()
         if "--config-file" not in args:

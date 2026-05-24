@@ -399,46 +399,43 @@ Retention policies control **how many snapshots to keep** for each backup target
 **Recipe and network backups:**
 - Same as Direct Mode (stable staging paths)
 
-### Critical Fix in v5.3.0
+### Historical: Path-Mismatch Fix (v5.3.0)
 
-Prior to v5.3.0, there was a critical bug where:
-- ❌ Direct Mode: Retention policies were applied to virtual paths (`volumes/myproject`)
-- ❌ But snapshots were created with actual mountpoints (`/var/lib/docker/volumes/...`)
-- ❌ Result: **Path mismatch** → retention never triggered → repositories grew unbounded
-
-**Fixed in v5.3.0:**
-- ✅ Direct Mode retention policies now correctly applied to actual mountpoints
-- ✅ Recipe/network metadata uses stable staging paths (no more random temp dirs)
-- ✅ Retention policies work correctly in both modes
-- ✅ Old snapshots are automatically deleted per your settings
-
-### No Action Required
-
-**If you're using v5.3.0 or later:**
-- ✅ Retention policies work automatically
-- ✅ No configuration changes needed
-- ✅ Works correctly for both Direct Mode and TAR Mode
-- ✅ Mixed repositories (old TAR + new Direct backups) are handled correctly
-
-**Path matching happens automatically** based on your backup format setting. Just configure your desired retention values in the config file.
+A pre-v5.3.0 bug applied retention to virtual paths (`volumes/myproject`)
+while snapshots used actual mountpoints (`/var/lib/docker/volumes/...`),
+so retention never triggered and repositories grew unbounded. v5.3.0
+realigned both. Plan 0028 (v7.3.0) makes the path issue moot entirely:
+retention is global, so the per-path matching question never comes up.
 
 ---
 
-### Policy State Cache (since v7.2.0)
+### Global Retention Policy (since v7.3.0 / Plan 0028)
 
-`kopia policy set` is a metadata round-trip even when nothing changed — on slow remote backends (rclone/GDrive) every call costs 15–40s. To avoid that overhead, kopi-docka fingerprints the policy it *would* apply per volume and skips the kopia call when the previous run already applied an identical policy.
+Kopi-Docka writes **one** Kopia retention policy: the global one, applied at
+`kopia repository initialize()` and at every `kopia repository connect()`
+(idempotent — Kopia treats identical `--global` writes as a no-op). Every
+snapshot inherits that global policy via Kopia's policy tree
+(`--global` → `@host` → `user@host` → `user@host:/path`), so no per-path
+overrides are needed.
 
-**State file**: `~/.config/kopi-docka/policy_state.json` (under `/root/.config/...` for systemd-managed runs).
+**Why this matters on rclone/GDrive backends**: `kopia policy set` is a
+metadata round-trip that costs 15–40 s on a cold rclone start. Pre-v7.3.0
+kopi-docka wrote one per volume on every backup, which dominated runtime
+on multi-unit setups. v7.3.0 collapses all that to a single
+`apply_global_defaults()` call on connect.
 
-The state file is a performance cache, not backup data — losing it just causes the next run to be slower (one extra `kopia policy set` call per volume).
+**Changing retention**: edit the values in your `kopi-docka.json` config
+under `retention:` and re-run any kopi-docka command that opens the repo
+(e.g. `kopi-docka doctor`). The new values land on the next connect.
 
-**When does the smart-skip miss?**
-- Hash records `target` + `retention` fields only. Change any retention value in your config → hash changes → policy reapplied.
-- If you run `kopia policy set <target> ...` directly from the CLI, the local hash still matches → kopi-docka silently skips → your manual change persists undisturbed. Two workarounds: change the config (forces a reapply) or delete `policy_state.json` (full reapply next run).
+**Manual overrides**: `kopia policy set <path> ...` from the CLI keeps
+working — Kopia merges per-path on top of global. kopi-docka itself no
+longer writes per-path entries, so anything you set manually is yours.
 
-**Side effects**:
-- Auto-prune (`BackupManager.auto_prune_orphaned_policies`, runs at backup start) automatically removes the state entry when it deletes the corresponding policy — so a path that gets re-added later is reapplied rather than silently skipped.
-- Staging paths no longer get per-path policies at all (v7.2.0): the global policy covers them via Kopia's inheritance tree. If you ran older versions and have leftover staging policies, the auto-prune cleans them up on the next backup run.
+**Legacy cleanup**: upgrading from a pre-v7.3.0 install? Run
+`kopi-docka advanced policy prune` once. `kopi-docka doctor` flags any
+leftover per-path entries as "Legacy Per-Path Policies" with the same
+hint.
 
 ---
 
