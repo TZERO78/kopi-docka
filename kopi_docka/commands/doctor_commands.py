@@ -125,6 +125,184 @@ def _extract_storage_info(kopia_params: str, repo_type: str) -> dict:
 # -------------------------
 
 
+def _check_kopia_params_sanity(kopia_params: str) -> list:
+    """Detect broken kopia_params shapes that would silently break backups.
+
+    Returns a list of ``(code, severity, detail)`` tuples. Currently
+    targets the Tailscale/SFTP wizard bug shipped in v7.0.0 – v7.3.13,
+    where the wizard produced ``--path=HOST:PATH`` and forgot
+    ``--username`` / ``--keyfile``. Kopia accepts the broken form at
+    ``repository connect`` but then hangs on every snapshot.
+
+    Severity:
+      - ``error``    : config is broken; backups will not work
+      - ``warning``  : likely broken; user should verify
+
+    See: Plan 0029 (kopi-docka v7.4.0 changelog).
+    """
+    import re
+
+    issues = []
+    params = (kopia_params or "").strip()
+    if not params:
+        return issues
+
+    backend = params.split(None, 1)[0].lower()
+    if backend != "sftp":
+        return issues
+
+    path_match = re.search(r"--path=(\S+)", params)
+    if path_match:
+        path_value = path_match.group(1)
+        if ":" in path_value:
+            host_part = path_value.split(":", 1)[0]
+            # Hostname-shaped prefixes (not Windows drive letters etc.):
+            # contain a dot or are obviously a non-trivial label.
+            if re.match(r"^[a-zA-Z][a-zA-Z0-9.\-]+$", host_part) and (
+                "." in host_part or len(host_part) > 1
+            ):
+                issues.append((
+                    "broken_path_with_host_prefix",
+                    "error",
+                    f"--path={path_value} embeds the host. Kopia expects "
+                    f"--path=PATH and --host=HOST as separate flags. "
+                    f"Legacy v7.0–v7.3.13 wizard bug.",
+                ))
+
+    if "--username=" not in params and "--username " not in params:
+        issues.append((
+            "missing_username",
+            "error",
+            "--username=... is missing (required by Kopia's SFTP backend).",
+        ))
+
+    if (
+        "--keyfile=" not in params
+        and "--keyfile " not in params
+        and "--key-data=" not in params
+        and "--sftp-password=" not in params
+    ):
+        issues.append((
+            "missing_auth",
+            "error",
+            "No auth flag set (--keyfile / --key-data / --sftp-password).",
+        ))
+
+    return issues
+
+
+def _build_sftp_migration_command(cfg: Config, config_file: str) -> Optional[str]:
+    """Construct a copy/paste-ready ``sed`` command that rewrites a broken
+    SFTP kopia_params in-place to the v7.4.0 form.
+
+    Uses values from ``[credentials]`` so the user gets concrete paths
+    instead of placeholders. Returns ``None`` if we can't derive enough
+    to suggest a precise command (e.g. credentials section missing) —
+    the doctor falls back to a generic instruction in that case.
+    """
+    def _cred(key: str, default: str = "") -> str:
+        return cfg.get("credentials", key, fallback=default) or default
+
+    remote_path = _cred("remote_path", "<REMOTE_PATH>")
+    peer_fqdn = _cred("peer_fqdn") or _cred("peer_hostname", "<HOST>")
+    ssh_user = _cred("ssh_user", "root")
+    ssh_key = _cred("ssh_key", "<SSH_KEY_PATH>")
+    known_hosts = _cred("known_hosts", "")
+
+    new_params = (
+        f"sftp --path={remote_path} "
+        f"--host={peer_fqdn} "
+        f"--username={ssh_user} "
+        f"--keyfile={ssh_key}"
+    )
+    if known_hosts:
+        new_params += f" --known-hosts={known_hosts}"
+
+    # The sed expression rewrites the kopia_params JSON line. We avoid
+    # the standard `|` delimiter because paths likely contain slashes
+    # but rarely `#`.
+    return (
+        f"sudo sed -i 's#\"kopia_params\": .*#\"kopia_params\": \"{new_params}\",#' "
+        f"{config_file}"
+    )
+
+
+def _show_backend_sanity(cfg: Optional[Config], warnings: list, issues: list):
+    """Section 5.1 — surface broken kopia_params shapes (Plan 0029)."""
+    if not cfg:
+        return
+
+    kopia_params = cfg.get("kopia", "kopia_params", fallback="")
+    if not kopia_params:
+        return
+
+    backend = kopia_params.strip().split(None, 1)[0].lower()
+    if backend != "sftp":
+        # The check is SFTP-specific (Tailscale wizard bug). Skip silently
+        # for rclone/filesystem/s3/etc. so we don't add visual noise.
+        return
+
+    console.print("[bold]5.1 Backend Sanity[/bold]")
+    console.print("-" * 40)
+
+    sanity_issues = _check_kopia_params_sanity(kopia_params)
+
+    sanity_table = Table(box=box.SIMPLE, show_header=False)
+    sanity_table.add_column("Check", style="cyan", width=24)
+    sanity_table.add_column("Status", width=18)
+    sanity_table.add_column("Details", style="dim")
+
+    has_path_bug = any(code == "broken_path_with_host_prefix" for code, *_ in sanity_issues)
+    has_missing_user = any(code == "missing_username" for code, *_ in sanity_issues)
+    has_missing_auth = any(code == "missing_auth" for code, *_ in sanity_issues)
+
+    sanity_table.add_row(
+        "SFTP --path format",
+        "[red]✗ Broken[/red]" if has_path_bug else "[green]OK[/green]",
+        "Includes host prefix (legacy bug)" if has_path_bug else "Separate --path / --host",
+    )
+    sanity_table.add_row(
+        "SFTP --username",
+        "[red]✗ Missing[/red]" if has_missing_user else "[green]OK[/green]",
+        "Required by Kopia SFTP backend" if has_missing_user else "Present",
+    )
+    sanity_table.add_row(
+        "SFTP auth",
+        "[red]✗ Missing[/red]" if has_missing_auth else "[green]OK[/green]",
+        "--keyfile / --sftp-password" if has_missing_auth else "Present",
+    )
+
+    console.print(sanity_table)
+
+    if sanity_issues:
+        for _code, _severity, detail in sanity_issues:
+            issues.append(f"kopia_params: {detail}")
+
+        console.print()
+        console.print(
+            "[yellow]Migration:[/yellow] this config was likely written by the "
+            "v7.0.0–v7.3.13 Tailscale wizard (bug fixed in v7.4.0). To "
+            "rewrite kopia_params in place, run:"
+        )
+        config_file_str = str(getattr(cfg, "config_file", "/etc/kopi-docka.json"))
+        migration_cmd = _build_sftp_migration_command(cfg, config_file_str)
+        if migration_cmd:
+            console.print()
+            console.print(f"  [cyan]{migration_cmd}[/cyan]")
+            console.print()
+            console.print(
+                "[dim]Then run:[/dim] [cyan]sudo kopi-docka advanced repo init[/cyan] "
+                "[dim](reconnects to the existing repo with the corrected params)[/dim]"
+            )
+        else:
+            console.print(
+                "[dim](Could not derive a precise migration command from "
+                "credentials; consult docs/TROUBLESHOOTING.md.)[/dim]"
+            )
+
+    console.print()
+
+
 def _show_system_info():
     """Display simplified system information."""
     import kopi_docka
@@ -568,6 +746,15 @@ def cmd_doctor(ctx: typer.Context, verbose: bool = False):
 
     console.print(config_table)
     console.print()
+
+    # ═══════════════════════════════════════════
+    # Section 5.1: Backend Sanity (Plan 0029)
+    # Catches broken kopia_params shapes — e.g. the v7.0.0–v7.3.13
+    # Tailscale wizard that shipped --path=HOST:PATH and forgot
+    # --username / --keyfile. Backups would otherwise silently hang
+    # on first connect.
+    # ═══════════════════════════════════════════
+    _show_backend_sanity(cfg, warnings, issues)
 
     # ═══════════════════════════════════════════
     # Section 6: Repository Status
