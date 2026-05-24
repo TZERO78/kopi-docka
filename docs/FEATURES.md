@@ -177,7 +177,7 @@ docker compose up -d
 
 **Clarity:**
 ```bash
-kopi-docka admin snapshot list
+kopi-docka advanced snapshot list
 
 Backup Units:
   - wordpress (Stack, 3 containers, 2 volumes)
@@ -425,7 +425,7 @@ Kopi-Docka integrates Tailscale discovery directly into the setup process and au
 #### How It Works
 
 ```bash
-sudo kopi-docka admin config new
+sudo kopi-docka advanced config new
 # → Select backend: Tailscale
 # → Automatic peer discovery
 # → Displays disk space, latency, online status
@@ -538,7 +538,7 @@ Kopi-Docka is designed from the ground up for production use as a systemd servic
 
 **Systemd Daemon Mode:**
 ```bash
-sudo kopi-docka admin service daemon
+sudo kopi-docka advanced service daemon
 ```
 
 The daemon uses systemd-specific features:
@@ -552,7 +552,7 @@ The daemon uses systemd-specific features:
 **Generate unit files:**
 ```bash
 # Creates service + timer in /etc/systemd/system/
-sudo kopi-docka admin service write-units
+sudo kopi-docka advanced service write-units
 
 # Generates:
 # - kopi-docka.service (daemon)
@@ -716,11 +716,11 @@ sudo systemctl enable --now kopi-docka.timer
 **Mode 2: Internal Interval (Simple, less flexible)**
 ```bash
 # Daemon runs and backs up every N minutes
-sudo kopi-docka admin service daemon --interval-minutes 1440  # Daily
+sudo kopi-docka advanced service daemon --interval-minutes 1440  # Daily
 
 # In systemd unit:
 [Service]
-ExecStart=/usr/bin/env kopi-docka admin service daemon --interval-minutes 1440
+ExecStart=/usr/bin/env kopi-docka advanced service daemon --interval-minutes 1440
 ```
 
 **Mode 3: One-Shot (For cron or manual triggers)**
@@ -756,7 +756,7 @@ sudo systemctl start kopi-docka-backup.service
 Kopi-Docka v3.9.0 introduces an interactive service management wizard that makes systemd service administration accessible to users without systemctl expertise:
 
 ```bash
-sudo kopi-docka admin service manage
+sudo kopi-docka advanced service manage
 ```
 
 The wizard provides a user-friendly menu for all service management tasks:
@@ -770,7 +770,7 @@ The wizard provides a user-friendly menu for all service management tasks:
 
 **Example Workflow:**
 ```bash
-sudo kopi-docka admin service manage
+sudo kopi-docka advanced service manage
 
 # Menu shows:
 # [1] Show Status
@@ -1263,14 +1263,14 @@ Kopi-Docka v3.9.1 enhances lock file handling with better diagnostics and automa
 
 **Example Usage:**
 ```bash
-sudo kopi-docka admin service manage
+sudo kopi-docka advanced service manage
 # → [1] Show Status (shows lock status if present)
 # → [4] Control Service
 #    → [6] Remove Stale Lock File (if needed)
 ```
 
 **Technical Details:**
-- Lock files are ONLY created by the daemon service (`kopi-docka admin service daemon`)
+- Lock files are ONLY created by the daemon service (`kopi-docka advanced service daemon`)
 - The wizard's `get_lock_status()` method is read-only and never creates locks
 - Comprehensive investigation documented in `INVESTIGATION_LOCK_FILE_CREATION.md`
 
@@ -1285,7 +1285,7 @@ Kopi-Docka v3.9.0 introduces a comprehensive interactive service management wiza
 
 **New Command:**
 ```bash
-sudo kopi-docka admin service manage
+sudo kopi-docka advanced service manage
 ```
 
 **Features:**
@@ -1308,7 +1308,7 @@ sudo kopi-docka admin service manage
 
 **Example Workflow:**
 ```bash
-sudo kopi-docka admin service manage
+sudo kopi-docka advanced service manage
 
 # Menu:
 # [1] Show Status        → Service/Timer status dashboard
@@ -1462,11 +1462,11 @@ kopi-docka version            # Show version
 
 **Admin Subcommands (Advanced):**
 ```bash
-kopi-docka admin config show|new|edit|reset
-kopi-docka admin repo init|status|change-password
-kopi-docka admin service daemon|write-units
-kopi-docka admin system install-deps|show-deps
-kopi-docka admin snapshot list|estimate-size|manage|maintenance|prune-empty|delete|pin|unpin|retention
+kopi-docka advanced config show|new|edit|reset
+kopi-docka advanced repo init|status|change-password
+kopi-docka advanced service daemon|write-units
+kopi-docka advanced system install-deps|show-deps
+kopi-docka advanced snapshot list|estimate-size|manage|maintenance|prune-empty|delete|pin|unpin|retention
 ```
 
 **Why This Change?**
@@ -1505,11 +1505,11 @@ Output includes:
 
 | Group | Commands | Purpose |
 |-------|----------|---------|
-| `admin config` | show, new, edit, reset | Configuration management |
-| `admin repo` | init, status, change-password, etc. | Repository management |
-| `admin service` | daemon, write-units | Systemd integration |
-| `admin system` | install-deps, show-deps | Dependency management |
-| `admin snapshot` | list, estimate-size, manage, maintenance, prune-empty, delete, pin, unpin, retention | Snapshot & unit management |
+| `advanced config` | show, new, edit, reset | Configuration management |
+| `advanced repo` | init, status, change-password, etc. | Repository management |
+| `advanced service` | daemon, write-units | Systemd integration |
+| `advanced system` | install-deps, show-deps | Dependency management |
+| `advanced snapshot` | list, estimate-size, manage, maintenance, prune-empty, delete, pin, unpin, retention | Snapshot & unit management |
 | `advanced notification` | test, status, enable, disable | Notification management |
 | `advanced policy` | prune [--dry-run] [--force] | Retention policy cleanup |
 
@@ -1521,13 +1521,13 @@ Most commands still work, just moved under `admin`:
 
 | Old (v3.3) | New (v3.4) |
 |------------|------------|
-| `new-config` | `admin config new` |
-| `show-config` | `admin config show` |
-| `init` | `admin repo init` |
-| `repo-status` | `admin repo status` |
+| `new-config` | `advanced config new` |
+| `show-config` | `advanced config show` |
+| `init` | `advanced repo init` |
+| `repo-status` | `advanced repo status` |
 | `check` | `doctor` |
-| `list` | `admin snapshot list` |
-| `write-units` | `admin service write-units` |
+| `list` | `advanced snapshot list` |
+| `write-units` | `advanced service write-units` |
 
 **Unchanged top-level commands:** `setup`, `backup`, `restore`, `disaster-recovery`, `dry-run`, `version`
 

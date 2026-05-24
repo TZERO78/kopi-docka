@@ -31,11 +31,11 @@ Top-Level Commands ("The Big 6"):
   version           - Show version
 
 Admin Commands (Advanced):
-  admin config      - Configuration management
-  admin repo        - Repository management
-  admin service     - Systemd service management
-  admin system      - System dependency management
-  admin snapshot    - Snapshot/unit management
+  advanced config      - Configuration management
+  advanced repo        - Repository management
+  advanced service     - Systemd service management
+  advanced system      - System dependency management
+  advanced snapshot    - Snapshot/unit management
 """
 
 from __future__ import annotations

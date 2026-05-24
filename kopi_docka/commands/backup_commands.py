@@ -401,7 +401,7 @@ def cmd_show_docker_config(
 def register(app: typer.Typer):
     """Register backup and restore commands (top-level).
 
-    Note: The 'list' command has been moved to 'admin snapshot list'.
+    Note: The 'list' command has been moved to 'advanced snapshot list'.
     """
 
     @app.command("list")
@@ -423,7 +423,7 @@ def register(app: typer.Typer):
             help="Path to configuration file",
         ),
     ):
-        """List backup units or snapshots (alias of 'admin snapshot list')."""
+        """List backup units or snapshots (alias of 'advanced snapshot list')."""
         cmd_list(ctx, units=units, snapshots=snapshots, config_path=config)
 
     @app.command("backup")

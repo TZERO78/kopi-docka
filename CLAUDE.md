@@ -6,7 +6,7 @@ Kopi-Docka is a Python CLI tool that wraps **Kopia** for encrypted, deduplicated
 
 **Important**: This project will always be a Kopia wrapper. No second backup engine planned.
 
-- **Version**: 7.3.4
+- **Version**: 7.3.5
 - **Python**: 3.10, 3.11, 3.12
 - **License**: MIT
 - **Author**: Markus F. (TZERO78)
@@ -89,11 +89,11 @@ Top-level commands ("The Big 6"): `setup`, `backup`, `restore`, `disaster-recove
 
 Admin/advanced subcommands: `config`, `repo`, `snapshot`, `service`, `system`, `notification`, `policy`
 
-`admin snapshot` subcommands: `list`, `estimate-size`, `manage`, `maintenance [--full]`, `prune-empty [--dry-run]`, `delete <id> [--force]`, `pin <id>`, `unpin <id>`, `retention show`, `retention set [options]`
+`advanced snapshot` subcommands: `list`, `estimate-size`, `manage`, `maintenance [--full]`, `prune-empty [--dry-run]`, `delete <id> [--force]`, `pin <id>`, `unpin <id>`, `retention show`, `retention set [options]`
 
-`admin policy` subcommands: `prune [--dry-run] [--force]`
+`advanced policy` subcommands: `prune [--dry-run] [--force]`
 
-Note: `admin repo maintenance` was moved to `admin snapshot maintenance` in v7.0.0.
+Note: `advanced repo maintenance` was moved to `advanced snapshot maintenance` in v7.0.0.
 
 ## Conventions
 

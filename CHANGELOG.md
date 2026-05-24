@@ -5,6 +5,33 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.3.5] - 2026-05-24
+
+### 📝 Documentation / UX
+
+- **All user-facing text now uses `advanced` instead of `admin`.** The
+  CLI itself had been registering both names for a while —
+  `advanced` as the documented top-level group and `admin` as a hidden
+  Typer alias — but help texts, docstrings, error hints, disaster
+  recovery scripts and the bundled systemd units were inconsistently
+  mixing both. A `kopi-docka --help` showed `advanced` but a typical
+  `kopi-docka advanced policy` user would still hit doc strings
+  saying "use `kopi-docka admin config edit` instead", and the
+  shipped `kopi-docka.service` template ran `kopi-docka admin service
+  daemon`. 134 references across 23 files unified to `advanced`.
+
+  **Back-compat**: the `admin` name remains as a `hidden=True` Typer
+  alias on the same Typer app, so every existing user script, systemd
+  unit, or cron entry that still says `admin` keeps working. The
+  rename is a documentation / display fix, not a CLI break.
+
+  Notably, the bundled systemd templates now use `advanced service
+  daemon` and `advanced service write-units` — old installs running
+  `admin service daemon` are unaffected, but freshly installed units
+  match the documentation.
+
+---
+
 ## [7.3.4] - 2026-05-24
 
 ### 🐛 Fixed
@@ -112,9 +139,9 @@ positives and a missing template field.
 Two pre-existing bugs uncovered by the post-v7.3.0 end-to-end testlab run.
 
 - **`KopiaRepository.connect()` now re-applies the global retention policy on every call**, even when the underlying repository is already connected. Before this fix, the `is_connected()` short-circuit meant `apply_global_defaults()` only ran on a *fresh* `kopia repository connect` — long-lived connections never picked up retention changes from `kopi-docka.json`, so the config file and Kopia's actual global policy drifted indefinitely. Plan 0028's "idempotent on every connect" promise wasn't actually delivered on existing installs. The reapply is still idempotent at the Kopia layer (`kopia policy set --global` with identical values is a no-op), so the only cost on slow remote backends is one extra metadata round-trip per `connect()` call.
-- **`admin snapshot retention show` no longer reports "Kopia policy unavailable" on healthy repos**. `_display_retention` looked up Kopia's global policy under the `retentionPolicy` JSON key, but Kopia's `policy show --global --json` puts retention under the top-level `retention` key. The wrong key always resolved to `None`, hiding the actual Kopia values behind a misleading "not connected?" hint. Now reads `retention` first and falls back to `retentionPolicy` for defensive compatibility.
+- **`advanced snapshot retention show` no longer reports "Kopia policy unavailable" on healthy repos**. `_display_retention` looked up Kopia's global policy under the `retentionPolicy` JSON key, but Kopia's `policy show --global --json` puts retention under the top-level `retention` key. The wrong key always resolved to `None`, hiding the actual Kopia values behind a misleading "not connected?" hint. Now reads `retention` first and falls back to `retentionPolicy` for defensive compatibility.
 
-Both fixes verified end-to-end on the rclone+GDrive testlab — after upgrade, `kopia policy show --global` and `kopi-docka admin snapshot retention show` agree on the same values from `kopi-docka.json`.
+Both fixes verified end-to-end on the rclone+GDrive testlab — after upgrade, `kopia policy show --global` and `kopi-docka advanced snapshot retention show` agree on the same values from `kopi-docka.json`.
 
 ---
 
@@ -344,7 +371,7 @@ the `kopi-docka` carve-out is only kept for legacy state files.)
 
 ### 🐛 Fixed
 
-- **`KopiaPolicyManager._run()`**: default timeout raised from 60s to 120s — `kopia policy set --global` against slow remote backends (rclone/GDrive) was timing out during `admin repo init`, causing the global retention policy to not be applied
+- **`KopiaPolicyManager._run()`**: default timeout raised from 60s to 120s — `kopia policy set --global` against slow remote backends (rclone/GDrive) was timing out during `advanced repo init`, causing the global retention policy to not be applied
 - **`KopiaRepository.initialize()` Step 3**: `_connected_cache` is now set to `True` after the post-connect status verification, so subsequent `is_connected()` calls in the same process are served from cache instead of hitting the backend again
 
 ---
@@ -375,20 +402,20 @@ the `kopi-docka` carve-out is only kept for legacy state files.)
 ### ✨ Added
 
 - **SnapshotManager** (`cores/snapshot_manager.py`): new interactive snapshot management wizard (analogous to RestoreManager)
-- **`admin snapshot manage`**: menu-driven wizard for delete, pin/unpin, retention, prune, and maintenance
-- **`admin snapshot delete <id> [--force]`**: delete a specific snapshot (with confirmation)
-- **`admin snapshot pin <id>`**: pin a snapshot to protect it from retention cleanup
-- **`admin snapshot unpin <id>`**: remove pin from a snapshot
-- **`admin snapshot maintenance [--full]`**: run Kopia repository maintenance (moved from `admin repo`)
-- **`admin snapshot prune-empty [--dry-run]`**: apply retention policy and expire old snapshots
-- **`admin snapshot retention show`**: display current retention policy from config and Kopia global policy
-- **`admin snapshot retention set [--latest N] [--hourly N] [--daily N] [--weekly N] [--monthly N] [--annual N]`**: update retention in both Kopia and config file
+- **`advanced snapshot manage`**: menu-driven wizard for delete, pin/unpin, retention, prune, and maintenance
+- **`advanced snapshot delete <id> [--force]`**: delete a specific snapshot (with confirmation)
+- **`advanced snapshot pin <id>`**: pin a snapshot to protect it from retention cleanup
+- **`advanced snapshot unpin <id>`**: remove pin from a snapshot
+- **`advanced snapshot maintenance [--full]`**: run Kopia repository maintenance (moved from `advanced repo`)
+- **`advanced snapshot prune-empty [--dry-run]`**: apply retention policy and expire old snapshots
+- **`advanced snapshot retention show`**: display current retention policy from config and Kopia global policy
+- **`advanced snapshot retention set [--latest N] [--hourly N] [--daily N] [--weekly N] [--monthly N] [--annual N]`**: update retention in both Kopia and config file
 - **`KopiaRepository`**: added `pin_snapshot()`, `unpin_snapshot()`, `expire_snapshots()`
 - **`KopiaPolicyManager`**: added `get_global_policy()`, `update_global_retention()`
 
 ### ⚠️ Breaking Changes
 
-- **`admin repo maintenance` removed** — use `admin snapshot maintenance` instead
+- **`advanced repo maintenance` removed** — use `advanced snapshot maintenance` instead
 
 ---
 
@@ -444,7 +471,7 @@ the `kopi-docka` carve-out is only kept for legacy state files.)
 
 - **No config changes required.** Existing configurations work as-is.
 - On the first backup after upgrading, retention policies will be applied to the correct paths automatically. Old recipe/network/docker-config snapshots that accumulated due to the bug will be cleaned up according to your retention settings.
-- You may notice increased storage reclamation after running `kopi-docka admin repo maintenance` — this is expected as Kopia removes previously orphaned snapshot data.
+- You may notice increased storage reclamation after running `kopi-docka advanced repo maintenance` — this is expected as Kopia removes previously orphaned snapshot data.
 - Run `kopi-docka doctor` to verify policy alignment on your installation (new Section 7).
 
 ---
@@ -481,7 +508,7 @@ the `kopi-docka` carve-out is only kept for legacy state files.)
 ## [6.2.2] - 2026-03-22
 
 ### 🐛 Fixed
-- **Issue #71:** Fixed TypeError in `admin config show` command - removed invalid `show=True` argument from `cmd_config()` calls
+- **Issue #71:** Fixed TypeError in `advanced config show` command - removed invalid `show=True` argument from `cmd_config()` calls
 - **Issue #70:** Fixed ImportError for `get_backend_class` - implemented missing function in `backends/__init__.py`
 - **Issue #69:** Added `rsync` as SOFT dependency in dependency manager and documentation (fallback to `cp` remains functional)
 
@@ -1147,7 +1174,7 @@ This release represents a major philosophical shift: **Kopi-Docka expects a prep
   - Staging directories are cleared and reused on each backup (idempotent)
   - Better debuggability (can inspect staging dir on errors)
 
-- **New Command: `kopi-docka admin repo prune-empty-sessions`** 🧹
+- **New Command: `kopi-docka advanced repo prune-empty-sessions`** 🧹
   - Clean up legacy "ghost sessions" from repositories created before v5.3.0
   - Identifies backup sessions with only recipe/network snapshots (no volumes)
   - **Dry-run mode by default** - preview what would be deleted without making changes
@@ -1230,7 +1257,7 @@ This release represents a major philosophical shift: **Kopi-Docka expects a prep
 - ✅ Old TAR-based backups remain fully restorable
 - ✅ Old Direct Mode backups remain restorable
 - ✅ Retention policies will start working automatically on next backup
-- 💡 **Optional**: Run `kopi-docka admin repo prune-empty-sessions` to clean up old ghost sessions
+- 💡 **Optional**: Run `kopi-docka advanced repo prune-empty-sessions` to clean up old ghost sessions
 
 ### Performance Impact
 

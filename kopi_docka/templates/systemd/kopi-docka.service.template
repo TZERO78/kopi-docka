@@ -20,13 +20,13 @@
 #   - No restart loops, no timeout issues
 #
 # INSTALLATION:
-#   Run: sudo kopi-docka admin service write-units
+#   Run: sudo kopi-docka advanced service write-units
 #   Then: sudo systemctl daemon-reload
 #   For timer mode: sudo systemctl enable --now kopi-docka.timer
 #   For daemon mode: sudo systemctl enable --now kopi-docka.service
 #
 # MANAGEMENT:
-#   - Interactive management: sudo kopi-docka admin service manage
+#   - Interactive management: sudo kopi-docka advanced service manage
 #   - Manual control: systemctl {start|stop|restart|status} kopi-docka.service
 #   - View logs: journalctl -u kopi-docka.service -f
 #
@@ -58,7 +58,7 @@ Type=notify
 
 # Command to execute when service starts
 # This runs the kopi-docka daemon which idles until triggered by timer
-ExecStart=/usr/bin/env kopi-docka admin service daemon
+ExecStart=/usr/bin/env kopi-docka advanced service daemon
 
 # Reload configuration via SIGHUP (currently a no-op, reserved for future use)
 ExecReload=/bin/kill -HUP $MAINPID

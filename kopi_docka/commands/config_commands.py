@@ -764,7 +764,7 @@ def cmd_reset_config(path: Optional[Path] = None):
             "  • You have backed up your old password elsewhere\n\n"
             "[red]✗ DO NOT proceed if:[/red]\n"
             "  • You have existing backups you want to keep\n"
-            "  • You just want to change a setting (use 'admin config edit' instead)",
+            "  • You just want to change a setting (use 'advanced config edit' instead)",
             title="[bold red]Warning[/bold red]",
             border_style="red",
         )

@@ -70,7 +70,7 @@ class SnapshotManager:
         self._show_main_menu()
 
     def cmd_delete(self, snapshot_id: str, force: bool = False) -> None:
-        """Non-interactive delete: used by 'admin snapshot delete <id>'."""
+        """Non-interactive delete: used by 'advanced snapshot delete <id>'."""
         if not force:
             confirm = input(f"Delete snapshot {snapshot_id}? (yes/no): ").strip().lower()
             if confirm != "yes":

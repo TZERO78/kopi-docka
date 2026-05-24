@@ -3,7 +3,7 @@
 #
 # @file:        snapshot_commands.py
 # @module:      kopi_docka.commands.advanced
-# @description: Snapshot management commands (admin snapshot subgroup)
+# @description: Snapshot management commands (advanced snapshot subgroup)
 # @author:      Markus F. (TZERO78) & KI-Assistenten
 # @repository:  https://github.com/TZERO78/kopi-docka
 # @version:     3.4.1
@@ -14,19 +14,19 @@
 ################################################################################
 
 """
-Snapshot management commands under 'admin snapshot'.
+Snapshot management commands under 'advanced snapshot'.
 
 Commands:
-- admin snapshot list              - List backup units or repository snapshots
-- admin snapshot estimate-size     - Estimate total backup size
-- admin snapshot manage            - Interactive management wizard
-- admin snapshot maintenance       - Run repository maintenance
-- admin snapshot prune-empty       - Expire snapshots per retention policy
-- admin snapshot delete <id>       - Delete a specific snapshot
-- admin snapshot pin <id>          - Pin a snapshot
-- admin snapshot unpin <id>        - Unpin a snapshot
-- admin snapshot retention show    - Show current retention policy
-- admin snapshot retention set     - Update retention policy
+- advanced snapshot list              - List backup units or repository snapshots
+- advanced snapshot estimate-size     - Estimate total backup size
+- advanced snapshot manage            - Interactive management wizard
+- advanced snapshot maintenance       - Run repository maintenance
+- advanced snapshot prune-empty       - Expire snapshots per retention policy
+- advanced snapshot delete <id>       - Delete a specific snapshot
+- advanced snapshot pin <id>          - Pin a snapshot
+- advanced snapshot unpin <id>        - Unpin a snapshot
+- advanced snapshot retention show    - Show current retention policy
+- advanced snapshot retention set     - Update retention policy
 """
 
 from pathlib import Path
@@ -407,7 +407,7 @@ def cmd_retention_set(
 
 
 def register(app: typer.Typer):
-    """Register snapshot commands under 'admin snapshot'."""
+    """Register snapshot commands under 'advanced snapshot'."""
 
     @snapshot_app.command("list")
     def _list_cmd(

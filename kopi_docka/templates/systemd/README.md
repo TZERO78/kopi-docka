@@ -37,7 +37,7 @@ One-shot service for single backup runs. This service:
 
 ```bash
 # 1. Install the unit files to /etc/systemd/system
-sudo kopi-docka admin service write-units
+sudo kopi-docka advanced service write-units
 
 # 2. Reload systemd to recognize new units
 sudo systemctl daemon-reload
@@ -54,7 +54,7 @@ systemctl list-timers kopi-docka.timer
 For easy service management without knowing systemctl commands:
 
 ```bash
-sudo kopi-docka admin service manage
+sudo kopi-docka advanced service manage
 ```
 
 This opens an interactive menu where you can:
@@ -97,7 +97,7 @@ Note: The first empty `OnCalendar=` clears the default value.
 ### Method 2: Using kopi-docka manage command
 
 ```bash
-sudo kopi-docka admin service manage
+sudo kopi-docka advanced service manage
 ```
 
 Select "Timer konfigurieren" and choose your preferred schedule.

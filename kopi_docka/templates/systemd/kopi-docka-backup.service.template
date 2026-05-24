@@ -17,7 +17,7 @@
 #   - Use kopi-docka-backup.service for manual or custom-scheduled backups
 #
 # INSTALLATION:
-#   Run: sudo kopi-docka admin service write-units
+#   Run: sudo kopi-docka advanced service write-units
 #   Then: sudo systemctl daemon-reload
 #
 # USAGE:
