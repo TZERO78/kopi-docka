@@ -5,6 +5,19 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.3.1] - 2026-05-24
+
+### 🐛 Fixed
+
+Two pre-existing bugs uncovered by the post-v7.3.0 end-to-end testlab run.
+
+- **`KopiaRepository.connect()` now re-applies the global retention policy on every call**, even when the underlying repository is already connected. Before this fix, the `is_connected()` short-circuit meant `apply_global_defaults()` only ran on a *fresh* `kopia repository connect` — long-lived connections never picked up retention changes from `kopi-docka.json`, so the config file and Kopia's actual global policy drifted indefinitely. Plan 0028's "idempotent on every connect" promise wasn't actually delivered on existing installs. The reapply is still idempotent at the Kopia layer (`kopia policy set --global` with identical values is a no-op), so the only cost on slow remote backends is one extra metadata round-trip per `connect()` call.
+- **`admin snapshot retention show` no longer reports "Kopia policy unavailable" on healthy repos**. `_display_retention` looked up Kopia's global policy under the `retentionPolicy` JSON key, but Kopia's `policy show --global --json` puts retention under the top-level `retention` key. The wrong key always resolved to `None`, hiding the actual Kopia values behind a misleading "not connected?" hint. Now reads `retention` first and falls back to `retentionPolicy` for defensive compatibility.
+
+Both fixes verified end-to-end on the rclone+GDrive testlab — after upgrade, `kopia policy show --global` and `kopi-docka admin snapshot retention show` agree on the same values from `kopi-docka.json`.
+
+---
+
 ## [7.3.0] - 2026-05-24 — Plan 0028: Global-Policy-Only
 
 Eliminates the entire per-path policy apparatus that v7.2.0 still relied on
