@@ -45,7 +45,7 @@ A wrapper around [Kopia](https://kopia.io), designed for Docker environments:
 
 ![Backup demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-backup.svg)
 
-**Restore** — non-interactive restore (`--yes` flag) of the latest snapshot, including network recreation and container restart:
+**Restore wizard** — pick a backup session from the list (each session groups recipe + networks + volumes via Kopia tags), decide per-network whether to recreate, get an automatic safety-backup of the existing volume before the restore overwrites it:
 
 ![Restore demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-restore.svg)
 
