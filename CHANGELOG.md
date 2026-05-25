@@ -5,6 +5,42 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.6.2] - 2026-05-25
+
+### 📚 Docs pass — PyPI link fix, plan-slug cleanup, CHANGELOG smoothing, ARCHITECTURE refresh
+
+**Why:** PyPI ships only the source tree from `pyproject.toml`; the
+relative links in README.md (`docs/CONFIGURATION.md`, `LICENSE`, …)
+all 404 on the PyPI project page. While doing the rewrite, also
+clean up internal "Plan 00XX" slug leakage in user-facing docs and
+catch ARCHITECTURE.md up with the helpers added since v7.3.0.
+
+**Changes:**
+- README: 31 relative links rewritten to absolute
+  `https://github.com/TZERO78/kopi-docka/blob/main/...` URLs;
+  `twine check` PASSED.
+- docs/: 8 "Plan 00XX" references replaced with version anchors
+  (`since v7.3.0`, etc.). Plan-slugs kept in CHANGELOG section
+  headers where they serve as release-notes shorthand.
+- CHANGELOG: entries v7.4.0–v7.6.1 tightened to release-notes style
+  (Headline / Why / Changes / Upgrade notes); 262 lines saved with
+  no information lost. Pre-v7.4.0 entries untouched.
+- ARCHITECTURE.md: documents 8 previously-undescribed helper modules
+  (`backend_helper`, `sudo_helper`, `metadata_reader`,
+  `docker_run_builder`, `file_operations`, `process_lock`,
+  `system_utils`, `logging`); new "Repair pattern
+  (rebuild_kopia_params)" section explains the v7.6.1 backend-dispatch
+  shape.
+- README: rclone backend now described as tested (with GDrive
+  upstream-perf caveat linked to #111) instead of "tested (Google
+  Drive)".
+
+**Upgrade notes:** Docs-only release; no code changes. The PyPI
+project page will re-render with working links after this tag's
+publish workflow completes.
+
+---
+
 ## [7.6.1] - 2026-05-25
 
 ### 🐛 SFTP wizard: canonical Kopia params + backend-dispatched repair
