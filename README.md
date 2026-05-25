@@ -435,7 +435,7 @@ backup cycle against them myself — community reports welcome.
 | Backend | Status | Notes |
 |---|:---:|---|
 | **Rclone** | ✅ tested | Live test lab. Google-Drive remote has known upstream perf limits — [#111](https://github.com/TZERO78/kopi-docka/issues/111) |
-| **Tailscale** | ✅ tested | NAS-over-tailnet; Plan 0029 + 0038 reproductions |
+| **Tailscale** | ✅ tested | NAS-over-tailnet; v7.4.0 + v7.6.1 regressions verified |
 | **SFTP** | ✅ tested | v7.6.1 E2E: wizard → `kopia repository create` → full `kopi-docka backup` → snapshot persistence |
 | Local Filesystem | ❓ untested | Should work — same code path as the others, no external auth |
 | AWS S3 | ❓ untested | — |
