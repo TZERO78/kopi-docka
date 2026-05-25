@@ -5,6 +5,43 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.6.4] - 2026-05-25
+
+### 📚 Windows DR-stream guidance + single combined demo SVG
+
+**Why:** A real user hit a confusing failure path on Windows:
+`ssh ... disaster-recovery export --stream > recovery.zip` from
+PowerShell produced a 14 KB file (twice the real size) that 7-Zip
+rejected as "not an archive". Root cause is PowerShell 5.1's `>`
+operator re-encoding stdout as UTF-16 LE — which corrupts the
+binary stream. The same code path works fine from cmd.exe, scp, or
+any Linux/macOS client. Separately, the seven demo SVGs added in
+v7.6.2 stacked vertically and made the README scroll-heavy.
+
+**Changes:**
+- `--stream` `--help` text now flags the PowerShell pitfall right at
+  command-line discovery time and points at the DR docs.
+- `README.md` gains an inline Windows note next to the SSH-stream
+  example and a stronger 7-Zip hint at the extraction step.
+- `docs/DISASTER_RECOVERY.md` gets two new subsections under "SSH
+  Stream Mode": **Windows clients** (scp-from-server-side-file pattern,
+  cmd.exe `>` pattern, post-transfer byte-magic verification) and
+  **Extracting on Windows** (Explorer's lack of AES-256 ZIP support,
+  recommended tools: 7-Zip / NanaZip / WinRAR).
+- README "What it looks like" replaces the 7 individual demo SVGs
+  with a single 113-second sequential animation
+  (`demo-combined.svg`, 743 KB) that plays all scenes back-to-back
+  with banner cards. The 7 individual SVGs are preserved and exposed
+  via a collapsible table for direct access.
+
+**Upgrade notes:** Docs / help-text only. No code path, config, or
+repository format changes — `pip install --upgrade kopi-docka` (or
+`pipx upgrade kopi-docka`) to pick up the new `--help` output.
+Windows users currently fighting PowerShell binary streams should
+switch to one of the patterns in the docs.
+
+---
+
 ## [7.6.3] - 2026-05-25
 
 ### 🐛 `disaster-recovery export --stream` no longer crashes on `Console.print(err=True)`

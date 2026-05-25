@@ -498,7 +498,11 @@ def register(app: typer.Typer):
         stream: bool = typer.Option(
             False,
             "--stream",
-            help="Stream ZIP to stdout (for SSH piping). Requires --passphrase.",
+            help=(
+                "Stream ZIP to stdout (for SSH piping). Requires --passphrase. "
+                "Windows: use cmd.exe or scp — PowerShell's `>` corrupts "
+                "binary streams (UTF-16 re-encoding). See docs/DISASTER_RECOVERY.md."
+            ),
         ),
         passphrase: Optional[str] = typer.Option(
             None,
