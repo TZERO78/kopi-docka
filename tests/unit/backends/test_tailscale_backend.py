@@ -247,7 +247,7 @@ def _run_setup_interactive(backend, *, known_hosts_return, ssh_user="root", remo
          patch.object(TailscaleBackend, '_list_peers', return_value=[peer]), \
          patch.object(TailscaleBackend, '_setup_ssh_key', return_value=True), \
          patch.object(TailscaleBackend, '_ensure_key_on_remote', return_value=None), \
-         patch.object(TailscaleBackend, '_ensure_known_hosts', return_value=known_hosts_return), \
+         patch('kopi_docka.backends.tailscale.ensure_known_hosts', return_value=known_hosts_return), \
          patch.object(_Path, 'exists', return_value=True), \
          patch('kopi_docka.helpers.ui_utils.prompt_select', return_value=peer), \
          patch('kopi_docka.helpers.ui_utils.prompt_text', side_effect=[remote_path, ssh_user]), \
@@ -324,43 +324,10 @@ class TestSetupInteractiveKopiaParams:
         assert "--username=backupuser" in result["kopia_params"]
 
 
-class TestEnsureKnownHosts:
-    """Plan 0029 / Phase 1 — _ensure_known_hosts() behaviour."""
-
-    def test_returns_existing_path_when_host_already_trusted(self, tailscale_backend, tmp_path):
-        kh = tmp_path / ".ssh" / "known_hosts"
-        kh.parent.mkdir(parents=True)
-        kh.write_text("peer.example.com ssh-ed25519 AAAA...\n")
-
-        with patch.object(Path, 'home', return_value=tmp_path):
-            result = tailscale_backend._ensure_known_hosts("peer.example.com")
-
-        assert result == kh
-
-    def test_runs_keyscan_and_appends_when_not_trusted(self, tailscale_backend, tmp_path):
-        kh = tmp_path / ".ssh" / "known_hosts"
-
-        fake_scan = Mock()
-        fake_scan.returncode = 0
-        fake_scan.stdout = "peer.example.com ssh-ed25519 AAAAFAKE\n"
-
-        with patch.object(Path, 'home', return_value=tmp_path), \
-             patch('kopi_docka.backends.tailscale.run_command', return_value=fake_scan):
-            result = tailscale_backend._ensure_known_hosts("peer.example.com")
-
-        assert result == kh
-        assert "AAAAFAKE" in kh.read_text()
-
-    def test_returns_none_when_keyscan_returns_empty(self, tailscale_backend, tmp_path):
-        fake_scan = Mock()
-        fake_scan.returncode = 1
-        fake_scan.stdout = ""
-
-        with patch.object(Path, 'home', return_value=tmp_path), \
-             patch('kopi_docka.backends.tailscale.run_command', return_value=fake_scan):
-            result = tailscale_backend._ensure_known_hosts("peer.example.com")
-
-        assert result is None
+# Tests for the (now-extracted) ensure_known_hosts() helper live in
+# tests/unit/test_helpers/test_backend_helper.py — the behaviour moved
+# from TailscaleBackend._ensure_known_hosts to kopi_docka.helpers.backend_helper
+# in v7.6.1 (Plan 0038) so the direct SFTP wizard can use it too.
 
 
 # ---------------------------------------------------------------------------

@@ -118,6 +118,33 @@ class TestKopiaParamsSanity:
         params = "filesystem --path /mnt/backup"
         assert _check_kopia_params_sanity(params) == []
 
+    def test_space_form_broken_path_also_detected(self):
+        """Plan 0038 — the pre-v7.6.1 SFTP wizard wrote ``--path user@host:path``
+        (with a space, not ``=``). The original Plan 0029 regex only matched
+        the ``=`` form, so direct-SFTP-broken configs slipped past doctor.
+        """
+        from kopi_docka.commands.doctor_commands import _check_kopia_params_sanity
+
+        params = "sftp --path root@nas.example.com:/backup"
+        codes = [c for c, *_ in _check_kopia_params_sanity(params)]
+        assert "broken_path_with_host_prefix" in codes
+        assert "missing_username" in codes
+        assert "missing_auth" in codes
+
+    def test_space_form_canonical_passes(self):
+        """``--path /backup`` (space form, but valid plain path) must not
+        be flagged as host-embedded."""
+        from kopi_docka.commands.doctor_commands import _check_kopia_params_sanity
+
+        params = (
+            "sftp --path /backup --host nas.example.com "
+            "--username root --keyfile /root/.ssh/id"
+        )
+        codes = [c for c, *_ in _check_kopia_params_sanity(params)]
+        assert "broken_path_with_host_prefix" not in codes
+        assert "missing_username" not in codes
+        assert "missing_auth" not in codes
+
     def test_empty_params_returns_no_issues(self):
         from kopi_docka.commands.doctor_commands import _check_kopia_params_sanity
 

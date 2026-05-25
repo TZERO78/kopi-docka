@@ -180,6 +180,32 @@ class BackendBase(ABC):
         """
         pass
 
+    def rebuild_kopia_params(
+        self, credentials: Dict[str, Any]
+    ) -> Optional[str]:
+        """Rebuild the canonical ``kopia_params`` string from ``[credentials]``.
+
+        Used by ``advanced config repair-kopia-params`` to repair configs
+        whose ``kopia_params`` were written by a buggy wizard but whose
+        ``[credentials]`` section is still source-of-truth (Plan 0029 /
+        Plan 0038).
+
+        Default implementation returns ``None`` — meaning this backend has
+        no credentials-based reconstruction path (e.g. its credentials
+        live in env vars, rclone.conf, or are simply not stored
+        separately). Backends that ship their own wizard bug should
+        override this method.
+
+        Args:
+            credentials: The full ``[credentials]`` section as a dict
+                (already lower-cased keys as written by the wizard).
+
+        Returns:
+            The canonical ``kopia_params`` string for this backend, or
+            ``None`` if no rebuild is possible.
+        """
+        return None
+
     def get_recovery_instructions(self) -> str:
         """
         Get backend-specific recovery instructions for DR bundles.
@@ -274,3 +300,17 @@ class BackendUnreachableError(ConnectionError):
         self.backend = backend
         self.reason = reason
         super().__init__(f"Backend '{backend}' unreachable: {reason}")
+
+
+class MissingCredentialsError(BackendError):
+    """Raised by ``rebuild_kopia_params`` when required credentials are absent.
+
+    Each backend owns the semantics of which credentials it needs; the
+    ``advanced config repair-kopia-params`` command catches this and
+    displays the missing list to the user without itself knowing which
+    keys belong to which backend (Plan 0038).
+    """
+
+    def __init__(self, missing: List[str]):
+        self.missing = list(missing)
+        super().__init__(f"Missing required credentials: {', '.join(self.missing)}")

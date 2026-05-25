@@ -5,6 +5,86 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.6.1] - 2026-05-25
+
+### 🐛 SFTP wizard: canonical Kopia params + backend-dispatched repair
+
+Plan 0038 — finishes the Plan 0029 story for the **direct** SFTP wizard.
+
+The Tailscale-wizard bug (broken `--path=HOST:PATH`, missing `--username`
+/ `--keyfile`) was fixed in v7.4.0, but the **direct SFTP wizard**
+(`backends/sftp.py`) shipped the exact same shape until now:
+
+```
+sftp --path user@host:path            ← Kopia connects, snapshots hang
+```
+
+Plus a latent bug: the wizard wrote `--sftp-port` for non-22 ports — a
+flag Kopia does not recognise (verified locally with
+`kopia repository create sftp --sftp-port=22 ...` → `unknown long flag`).
+Never tripped in practice because port `22` skipped the branch.
+
+**Fixed (this release):**
+
+- SFTP wizard now emits the canonical separate-flags shape via the new
+  shared `helpers/backend_helper.py::build_sftp_kopia_params()` (also
+  used by the Tailscale wizard — single source of truth).
+- `--sftp-port` → `--port` (Kopia's actual flag name).
+- SFTP wizard now writes a `[credentials]` block so
+  `advanced config repair-kopia-params` can rebuild kopia_params later.
+- `ensure_known_hosts()` (pre-populates `~/.ssh/known_hosts` via
+  `ssh-keyscan` so unattended cron/systemd connects don't hang) was
+  extracted from `TailscaleBackend._ensure_known_hosts` into the helper;
+  the SFTP wizard uses it too now.
+
+**Architecture cleanup — `repair-kopia-params` is now backend-dispatched.**
+
+Before this release the command had hardcoded SFTP logic. New shape:
+
+- `BackendBase.rebuild_kopia_params(credentials)` — optional method,
+  default returns `None` ("not supported").
+- `SFTPBackend` / `TailscaleBackend` override it. The command does not
+  know which backend uses what; it loads `BACKEND_MODULES[name]` and
+  dispatches.
+- New `MissingCredentialsError(missing: List[str])` lets each backend
+  declare which credential keys it needs, without the command ever
+  hardcoding key names.
+
+**Doctor sanity check** now also catches the space-form
+(`--path user@host:path`) that the direct SFTP wizard produced — the
+Plan 0029 regex only matched `--path=` (the Tailscale-bug shape).
+
+**Migration path for existing SFTP installs:** the v7.0–v7.6.0 SFTP
+wizard never wrote `[credentials]`, so `repair-kopia-params` has nothing
+to read from. Doctor now flags the broken shape; users either re-run
+`advanced config new` or hand-add a `[credentials]` block (see plan/active/plan_0038
+for the required keys: `remote_path`, `host` or `peer_fqdn`, `ssh_user`,
+`ssh_key`). Tailscale installs are not affected — they already had
+correct `kopia_params` since v7.4.0.
+
+### Files
+
+- **NEW:** `kopi_docka/helpers/backend_helper.py` — `build_sftp_kopia_params()`,
+  `ensure_known_hosts()`.
+- **NEW:** `tests/unit/test_helpers/test_backend_helper.py` — 13 tests.
+- `kopi_docka/backends/base.py` — `rebuild_kopia_params()` default,
+  `MissingCredentialsError` exception.
+- `kopi_docka/backends/sftp.py` — rewritten `configure()` (canonical
+  shape, `[credentials]` block), `rebuild_kopia_params()`, `get_status()`
+  parser updated, `--sftp-port` → `--port` bugfix.
+- `kopi_docka/backends/tailscale.py` — `setup_interactive()` calls
+  helper, `_ensure_known_hosts()` removed (replaced by import from
+  helper), `rebuild_kopia_params()` added.
+- `kopi_docka/commands/config_commands.py::cmd_repair_kopia_params` —
+  generic backend dispatch.
+- `kopi_docka/commands/doctor_commands.py::_check_kopia_params_sanity` —
+  regex extended to `--path[=\s]` (`--username`, `--keyfile` analogous);
+  `user@host:path` shape now recognised as broken.
+- Tests: `test_sftp_backend.py` extended (canonical shape, credentials
+  block, rebuild); `test_tailscale_backend.py` patch-path updated.
+
+---
+
 ## [7.6.0] - 2026-05-24
 
 ### ♻️ `sudo_helper` — central SUDO_USER handling, replaces 11 duplicated patterns
