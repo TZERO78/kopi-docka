@@ -6,7 +6,7 @@ Kopi-Docka is a Python-based backup wrapper for Docker containers and volumes. I
 
 [![PyPI](https://img.shields.io/pypi/v/kopi-docka)](https://pypi.org/project/kopi-docka/)
 [![Python Version](https://img.shields.io/pypi/pyversions/kopi-docka)](https://pypi.org/project/kopi-docka/)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/TZERO78/kopi-docka/blob/main/LICENSE)
 [![Downloads](https://img.shields.io/pypi/dm/kopi-docka)](https://pypi.org/project/kopi-docka/)
 
 ---
@@ -27,7 +27,7 @@ A wrapper around [Kopia](https://kopia.io), designed for Docker environments:
 - **🛡️ Graceful Shutdown** - SafeExitManager ensures containers restart after Ctrl+C
 - **🔔 Notifications** - Telegram, Discord, Email alerts via Apprise
 
-**[See detailed features →](docs/FEATURES.md)**
+**[See detailed features →](https://github.com/TZERO78/kopi-docka/blob/main/docs/FEATURES.md)**
 
 ---
 
@@ -65,7 +65,7 @@ pip install kopi-docka
 kopi-docka doctor
 ```
 
-**[Full installation guide →](docs/INSTALLATION.md)**
+**[Full installation guide →](https://github.com/TZERO78/kopi-docka/blob/main/docs/INSTALLATION.md)**
 
 ### Setup
 
@@ -80,7 +80,7 @@ The wizard guides you through:
 3. ✅ Repository initialization
 4. ✅ Connection test
 
-**[Configuration guide →](docs/CONFIGURATION.md)**
+**[Configuration guide →](https://github.com/TZERO78/kopi-docka/blob/main/docs/CONFIGURATION.md)**
 
 ### First Backup
 
@@ -102,7 +102,7 @@ sudo kopi-docka disaster-recovery export ~/recovery.zip
 # → Store bundle + passphrase off-site: USB/cloud/safe
 ```
 
-**[Usage guide →](docs/USAGE.md)**
+**[Usage guide →](https://github.com/TZERO78/kopi-docka/blob/main/docs/USAGE.md)**
 
 ### Automatic Backups
 
@@ -120,7 +120,7 @@ sudo systemctl status kopi-docka.timer
 sudo kopi-docka advanced service manage
 ```
 
-**[Systemd integration →](docs/FEATURES.md#4-systemd-integration)**
+**[Systemd integration →](https://github.com/TZERO78/kopi-docka/blob/main/docs/FEATURES.md#4-systemd-integration)**
 
 ---
 
@@ -159,7 +159,7 @@ ssh user@server "sudo kopi-docka disaster-recovery export --stream --passphrase 
 4. docker compose up -d
 ```
 
-**[Disaster Recovery guide →](docs/DISASTER_RECOVERY.md)**
+**[Disaster Recovery guide →](https://github.com/TZERO78/kopi-docka/blob/main/docs/DISASTER_RECOVERY.md)**
 
 ### 3. Tailscale Integration
 
@@ -182,7 +182,7 @@ Daemon implementation with:
 - PID locking (prevents parallel runs)
 - Structured logging to systemd journal
 
-**[See detailed features →](docs/FEATURES.md)**
+**[See detailed features →](https://github.com/TZERO78/kopi-docka/blob/main/docs/FEATURES.md)**
 
 ---
 
@@ -341,23 +341,23 @@ Step 6: Verify Docker is working
 
 📚 **Guides:**
 
-- **[Installation](docs/INSTALLATION.md)** - System requirements, installation options
-- **[Configuration](docs/CONFIGURATION.md)** - Wizards, config files, storage backends
-- **[Usage](docs/USAGE.md)** - CLI commands, workflows, how it works
-- **[Features](docs/FEATURES.md)** - Detailed feature documentation
-- **[Disaster Recovery](docs/DISASTER_RECOVERY.md)** - DR bundles, recovery workflow, SSH streaming
-- **[Hooks](docs/HOOKS.md)** - Pre/post backup hooks, examples
-- **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues, FAQ
-- **[Development](docs/DEVELOPMENT.md)** - Project structure, contributing
-- **[Architecture](docs/ARCHITECTURE.md)** - Code-driven architecture overview (authoritative)
+- **[Installation](https://github.com/TZERO78/kopi-docka/blob/main/docs/INSTALLATION.md)** - System requirements, installation options
+- **[Configuration](https://github.com/TZERO78/kopi-docka/blob/main/docs/CONFIGURATION.md)** - Wizards, config files, storage backends
+- **[Usage](https://github.com/TZERO78/kopi-docka/blob/main/docs/USAGE.md)** - CLI commands, workflows, how it works
+- **[Features](https://github.com/TZERO78/kopi-docka/blob/main/docs/FEATURES.md)** - Detailed feature documentation
+- **[Disaster Recovery](https://github.com/TZERO78/kopi-docka/blob/main/docs/DISASTER_RECOVERY.md)** - DR bundles, recovery workflow, SSH streaming
+- **[Hooks](https://github.com/TZERO78/kopi-docka/blob/main/docs/HOOKS.md)** - Pre/post backup hooks, examples
+- **[Troubleshooting](https://github.com/TZERO78/kopi-docka/blob/main/docs/TROUBLESHOOTING.md)** - Common issues, FAQ
+- **[Development](https://github.com/TZERO78/kopi-docka/blob/main/docs/DEVELOPMENT.md)** - Project structure, contributing
+- **[Architecture](https://github.com/TZERO78/kopi-docka/blob/main/docs/ARCHITECTURE.md)** - Code-driven architecture overview (authoritative)
 
 
 📁 **Examples:**
 
-- **[examples/config.json](examples/config.json)** - Sample configuration
-- **[examples/docker-compose.yml](examples/docker-compose.yml)** - Example stack
-- **[examples/hooks/](examples/hooks/)** - Hook script examples
-- **[examples/systemd/](examples/systemd/)** - Systemd setup guide
+- **[examples/config.json](https://github.com/TZERO78/kopi-docka/blob/main/examples/config.json)** - Sample configuration
+- **[examples/docker-compose.yml](https://github.com/TZERO78/kopi-docka/blob/main/examples/docker-compose.yml)** - Example stack
+- **[examples/hooks/](https://github.com/TZERO78/kopi-docka/tree/main/examples/hooks)** - Hook script examples
+- **[examples/systemd/](https://github.com/TZERO78/kopi-docka/tree/main/examples/systemd)** - Systemd setup guide
 
 ---
 
@@ -409,7 +409,7 @@ sudo kopi-docka advanced service write-units    # Generate systemd units
 sudo kopi-docka advanced service daemon         # Run as daemon
 ```
 
-**[Complete CLI reference →](docs/USAGE.md#cli-commands-reference)**
+**[Complete CLI reference →](https://github.com/TZERO78/kopi-docka/blob/main/docs/USAGE.md#cli-commands-reference)**
 
 ---
 
@@ -452,7 +452,7 @@ backup cycle against them myself — community reports welcome.
 > for measurements and recommended alternatives (any of the other 7
 > backends will be an order of magnitude faster).
 
-**[Storage configuration →](docs/CONFIGURATION.md#storage-backends)**
+**[Storage configuration →](https://github.com/TZERO78/kopi-docka/blob/main/docs/CONFIGURATION.md#storage-backends)**
 
 ---
 
@@ -463,7 +463,7 @@ backup cycle against them myself — community reports welcome.
 - **Docker:** Docker Engine 20.10+
 - **Kopia:** >= 0.13 (recommended; required for sparse-file support) (automatically checked)
 
-**[Detailed requirements →](docs/INSTALLATION.md#system-requirements)**
+**[Detailed requirements →](https://github.com/TZERO78/kopi-docka/blob/main/docs/INSTALLATION.md#system-requirements)**
 
 ---
 
@@ -487,7 +487,7 @@ backup cycle against them myself — community reports welcome.
 
 **Kopi-Docka's focus:** Stack-awareness, disaster recovery bundles, Tailscale P2P, and systemd hardening
 
-**[Full comparison →](docs/FEATURES.md#why-kopi-docka)**
+**[Full comparison →](https://github.com/TZERO78/kopi-docka/blob/main/docs/FEATURES.md#why-kopi-docka)**
 
 ---
 
@@ -510,12 +510,12 @@ The current release includes all planned core features:
 
 **Known Limitations:**
 - Single repository only (no parallel multi-cloud backup)
-- Hooks require careful configuration ([Safety Guide](docs/HOOKS.md#hook-safety-rules))
+- Hooks require careful configuration ([Safety Guide](https://github.com/TZERO78/kopi-docka/blob/main/docs/HOOKS.md#hook-safety-rules))
 - Restore edge-cases still being hardened
 
 **New major features:** Only after stable foundation
 
-[View Changelog](CHANGELOG.md) | [Development Roadmap](docs/DEVELOPMENT.md#planned-features)
+[View Changelog](https://github.com/TZERO78/kopi-docka/blob/main/CHANGELOG.md) | [Development Roadmap](https://github.com/TZERO78/kopi-docka/blob/main/docs/DEVELOPMENT.md#planned-features)
 
 ---
 
@@ -562,7 +562,7 @@ This project is built with deep respect for the open-source ecosystem.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT License - see [LICENSE](https://github.com/TZERO78/kopi-docka/blob/main/LICENSE) for details.
 
 Copyright (c) 2025 Markus F. (TZERO78)
 
@@ -579,7 +579,7 @@ If something doesn't work as expected, please open an **Issue** and include
 your environment details.
 
 - 📦 **PyPI:** [pypi.org/project/kopi-docka](https://pypi.org/project/kopi-docka/)
-- 📚 **Documentation:** [Complete docs](docs/)
+- 📚 **Documentation:** [Complete docs](https://github.com/TZERO78/kopi-docka/tree/main/docs)
 - 🐛 **Bug Reports:** [GitHub Issues](https://github.com/TZERO78/kopi-docka/issues)
 - 💬 **Discussions:** [GitHub Discussions](https://github.com/TZERO78/kopi-docka/discussions)
-- 🧑‍🤝‍🧑 **Code of Conduct:** [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- 🧑‍🤝‍🧑 **Code of Conduct:** [CODE_OF_CONDUCT.md](https://github.com/TZERO78/kopi-docka/blob/main/CODE_OF_CONDUCT.md)
