@@ -181,11 +181,13 @@ Single encrypted ZIP files containing repository connection data, configuration,
 # Create encrypted ZIP bundle (recommended, v6.2.0+)
 sudo kopi-docka disaster-recovery export ~/recovery.zip
 
-# Or stream via SSH (zero disk footprint on server)
+# Or stream via SSH (zero disk footprint on server — Linux/macOS clients)
 ssh user@server "sudo kopi-docka disaster-recovery export --stream --passphrase 'xxx'" > recovery.zip
+# Windows users: use cmd.exe or scp — PowerShell's `>` corrupts the binary stream
+# (see Disaster Recovery guide for details)
 
 # In emergency (on new server):
-1. Extract ZIP (7-Zip, unzip, WinZip)
+1. Extract ZIP (7-Zip on Windows — built-in Explorer does NOT support AES-256)
 2. Run sudo ./recover.sh
 3. kopi-docka restore
 4. docker compose up -d

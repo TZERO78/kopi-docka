@@ -169,6 +169,57 @@ ssh user@server "sudo kopi-docka disaster-recovery export --stream --passphrase 
 
 > ⚠️ `--stream` requires `--passphrase` because there is no interactive TTY for passphrase generation.
 
+### Windows clients
+
+Windows PowerShell 5.1's `>` operator re-encodes stdout as UTF-16 LE,
+which **corrupts binary streams**. The recovery ZIP arrives at roughly
+twice its actual size, fails the ZIP magic-byte check, and no extractor
+(including 7-Zip) will open it. PowerShell 7's `|`-pipe path is similarly
+unreliable for native-command binary output because the pipeline
+converts bytes to strings before they reach `Set-Content -AsByteStream`.
+
+**Use one of the three reliable patterns instead:**
+
+**1. `scp` from a server-side file (recommended)** — sidesteps the
+stream/pipe problem entirely:
+
+```powershell
+# 1) Generate the bundle on the server
+ssh user@server "sudo kopi-docka disaster-recovery export ~/recovery.zip --passphrase 'xxx' --yes"
+# 2) Copy via scp (binary-safe)
+scp user@server:~/recovery.zip $HOME\Downloads\
+# 3) Optionally clean up the server-side copy
+ssh user@server "rm ~/recovery.zip"
+```
+
+**2. cmd.exe `>` (also binary-safe)** — open a real cmd window, not
+`cmd /c` from inside PowerShell:
+
+```cmd
+ssh user@server "sudo kopi-docka disaster-recovery export --stream --passphrase 'xxx'" > %USERPROFILE%\Downloads\recovery.zip
+```
+
+**3. Verify after transfer.** Whatever path you take, the produced ZIP
+should start with the bytes `PK\x03\x04`:
+
+```powershell
+[System.IO.File]::ReadAllBytes("$HOME\Downloads\recovery.zip")[0..3] | ForEach-Object {[char]$_}
+# Expected: P, K, then two control characters
+```
+
+A doubled file size (e.g. ~14 KB instead of the expected ~7 KB) almost
+always means PowerShell UTF-16 corruption — regenerate via Option 1 or 2.
+
+### Extracting on Windows
+
+Windows Explorer's built-in ZIP support **does not handle AES-256-encrypted
+archives** — it will silently fail with "archive is corrupt" or similar.
+The recovery bundle uses AES-256 (industry standard); extract with one of:
+
+- **7-Zip** (recommended) — free, no telemetry: <https://www.7-zip.org/>
+- **NanaZip** — modern 7-Zip fork with native Explorer integration
+- **WinRAR** — commercial
+
 ---
 
 ## Automatic DR Bundles with Every Backup
