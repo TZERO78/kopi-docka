@@ -38,6 +38,23 @@ def _stream_env(tmp_path):
     return cfg_file
 
 
+def _patches():
+    """Common patches: pretend kopia is installed + stub the DR manager.
+
+    CI runners don't have kopia binaries, so the command's
+    dependency-check would exit before reaching the streaming branch.
+    """
+    return [
+        patch(
+            "kopi_docka.helpers.dependency_helper.DependencyHelper.exists",
+            return_value=True,
+        ),
+        patch(
+            "kopi_docka.commands.disaster_recovery_commands.DisasterRecoveryManager"
+        ),
+    ]
+
+
 @pytest.mark.unit
 class TestStreamErrorPath:
     """The --stream-without-passphrase path must exit 1 with a clear
@@ -46,11 +63,19 @@ class TestStreamErrorPath:
     def test_missing_passphrase_exits_one_cleanly(
         self, cli_runner, mock_root, _stream_env
     ):
-        result = cli_runner.invoke(
-            app,
-            ["--config", str(_stream_env),
-             "disaster-recovery", "export", "--stream"],
-        )
+        patches = _patches()
+        for p in patches:
+            p.start()
+        try:
+            result = cli_runner.invoke(
+                app,
+                ["--config", str(_stream_env),
+                 "disaster-recovery", "export", "--stream"],
+            )
+        finally:
+            for p in patches:
+                p.stop()
+
         assert result.exit_code == 1, result.output
         # The actual user-facing hint must be present
         assert "--stream requires --passphrase" in result.output
@@ -68,8 +93,10 @@ class TestStreamHappyPath:
     def test_stream_with_passphrase_does_not_crash_on_console_call(
         self, cli_runner, mock_root, _stream_env
     ):
-        # Stub the manager so we don't actually try to talk to Kopia
         with patch(
+            "kopi_docka.helpers.dependency_helper.DependencyHelper.exists",
+            return_value=True,
+        ), patch(
             "kopi_docka.commands.disaster_recovery_commands.DisasterRecoveryManager"
         ) as mock_mgr_cls:
             mock_mgr = mock_mgr_cls.return_value
