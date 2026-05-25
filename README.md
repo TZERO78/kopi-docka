@@ -31,6 +31,18 @@ A wrapper around [Kopia](https://kopia.io), designed for Docker environments:
 
 ---
 
+## What it looks like
+
+**Dry-run** — discover stacks, plan the backup, estimate size & time:
+
+![Dry-run demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-dry-run.svg)
+
+**Doctor** — system health check across dependencies, repository status, backend sanity, and disaster-recovery readiness:
+
+![Doctor demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-doctor.svg)
+
+---
+
 ## Quick Start
 
 ### Prerequisites
