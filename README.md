@@ -7,7 +7,7 @@ Kopi-Docka is a Python-based backup wrapper for Docker containers and volumes. I
 [![PyPI](https://img.shields.io/pypi/v/kopi-docka)](https://pypi.org/project/kopi-docka/)
 [![Python Version](https://img.shields.io/pypi/pyversions/kopi-docka)](https://pypi.org/project/kopi-docka/)
 [![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/TZERO78/kopi-docka/blob/main/LICENSE)
-[![Downloads](https://img.shields.io/pypi/dm/kopi-docka)](https://pypi.org/project/kopi-docka/)
+[![Downloads](https://static.pepy.tech/badge/kopi-docka/month)](https://pepy.tech/project/kopi-docka)
 
 ---
 
