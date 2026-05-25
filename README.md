@@ -33,33 +33,27 @@ A wrapper around [Kopia](https://kopia.io), designed for Docker environments:
 
 ## What it looks like
 
-**Doctor** — system health check across dependencies, repository status, backend sanity, and disaster-recovery readiness:
+Seven short scenes playing back-to-back — `doctor` → `dry-run` → `backup` →
+`history` → `snapshot list` → `restore wizard` → `disaster recovery`.
+About 110 seconds end-to-end; the animation loops, so you can pause on
+any segment by scrolling away and back.
 
-![Doctor demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-doctor.svg)
+![kopi-docka demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-combined.svg)
 
-**Dry-run** — discover stacks, plan the backup, estimate size & time, no changes:
+<details>
+<summary>Individual scenes (click to expand)</summary>
 
-![Dry-run demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-dry-run.svg)
+| # | Scene | SVG |
+|---|---|---|
+| 1 | Doctor — system health check (dependencies, repo, backend sanity, DR readiness) | [demo-doctor.svg](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-doctor.svg) |
+| 2 | Dry-run — plan the backup, no changes | [demo-dry-run.svg](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-dry-run.svg) |
+| 3 | Backup — real cold backup over SFTP, two stacks in ~7s | [demo-backup.svg](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-backup.svg) |
+| 4 | History — past backup runs with status, scope, snapshot IDs | [demo-history.svg](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-history.svg) |
+| 5 | Snapshot list — Kopia snapshots grouped by `backup_id` / `type` / `unit` tags | [demo-snapshot-list.svg](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-snapshot-list.svg) |
+| 6 | Restore wizard — interactive recovery with safety-backup before overwrite | [demo-restore.svg](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-restore.svg) |
+| 7 | Disaster recovery bundle — encrypted ZIP + deprecation guidance | [demo-dr-export.svg](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-dr-export.svg) |
 
-**Backup** — real cold backup: stops containers per stack, snapshots volumes + recipe + networks via Kopia, restarts containers. Both stacks done in ~7 seconds:
-
-![Backup demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-backup.svg)
-
-**History** — every backup run is recorded with timestamp, unit, duration, status, scope, volumes, and snapshot IDs:
-
-![History demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-history.svg)
-
-**Snapshot list** — all Kopia snapshots in the repository, grouped by unit via tags (`backup_id`, `type`, `unit` — every snapshot of a backup run is queryable as a unit):
-
-![Snapshot list demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-snapshot-list.svg)
-
-**Restore wizard** — pick a backup session from the list (each session groups recipe + networks + volumes via Kopia tags), decide per-network whether to recreate, get an automatic safety-backup of the existing volume before the restore overwrites it:
-
-![Restore demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-restore.svg)
-
-**Disaster recovery** — encrypted bundle with repository connection info + auto-reconnect script. Active deprecation guidance steers users from the legacy 3-file format toward the single-ZIP path; password and secrets storage explicitly called out:
-
-![DR export demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-dr-export.svg)
+</details>
 
 ---
 
