@@ -45,9 +45,21 @@ A wrapper around [Kopia](https://kopia.io), designed for Docker environments:
 
 ![Backup demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-backup.svg)
 
+**History** — every backup run is recorded with timestamp, unit, duration, status, scope, volumes, and snapshot IDs:
+
+![History demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-history.svg)
+
+**Snapshot list** — all Kopia snapshots in the repository, grouped by unit via tags (`backup_id`, `type`, `unit` — every snapshot of a backup run is queryable as a unit):
+
+![Snapshot list demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-snapshot-list.svg)
+
 **Restore wizard** — pick a backup session from the list (each session groups recipe + networks + volumes via Kopia tags), decide per-network whether to recreate, get an automatic safety-backup of the existing volume before the restore overwrites it:
 
 ![Restore demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-restore.svg)
+
+**Disaster recovery export** — encrypted ZIP bundle with repository connection info + auto-reconnect `recover.sh`. External secrets (SSH key, cloud credentials) stay separate by default — defense in depth:
+
+![DR export demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-dr-export.svg)
 
 ---
 
