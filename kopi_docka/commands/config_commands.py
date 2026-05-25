@@ -964,20 +964,22 @@ def cmd_repair_kopia_params(
     dry_run: bool = False,
     yes: bool = False,
 ):
-    """Rebuild ``kopia_params`` for SFTP-style backends from ``[credentials]``.
+    """Rebuild ``kopia_params`` from ``[credentials]`` via the backend.
 
-    Targets the v7.0.0 – v7.3.13 Tailscale-wizard bug (Plan 0029) — those
-    runs emitted ``--path=HOST:PATH`` and forgot ``--username`` /
-    ``--keyfile``. This command reads the still-correct values from
-    ``[credentials]`` (remote_path, peer_fqdn, ssh_user, ssh_key,
-    known_hosts) and writes a Kopia-correct ``kopia_params`` string
-    back atomically.
+    Dispatches generically: detects the backend from ``kopia_params``,
+    instantiates the matching backend class, and calls its
+    ``rebuild_kopia_params(credentials)`` method. Backends that don't
+    support credentials-based rebuild (most non-SFTP ones) inherit a
+    ``None`` default and the command reports that cleanly.
 
-    Behaves like a no-op if ``kopia_params`` already matches the
-    canonical shape, so it's safe to run repeatedly.
+    Originally introduced in v7.5.0 (Plan 0029) for the Tailscale-wizard
+    SFTP bug (v7.0–v7.3.13). Generalised in v7.6.1 (Plan 0038) so the
+    direct SFTP-wizard bug (same shape, fixed in v7.6.1) is repairable
+    through the same code path — without command-side branches per
+    backend.
     """
-    import shlex
     from rich.markup import escape
+    from ..backends.base import MissingCredentialsError
 
     cfg = ensure_config(ctx)
 
@@ -990,56 +992,46 @@ def cmd_repair_kopia_params(
         )
         raise typer.Exit(code=1)
 
-    backend = current.split(None, 1)[0].lower()
-    if backend != "sftp":
+    backend_name = detect_repository_type(current)
+    backend_cls = BACKEND_MODULES.get(backend_name)
+    if backend_cls is None:
         print_error_panel(
-            f"Backend [bold]{backend}[/bold] has no repair logic.\n\n"
-            f"[dim]This command targets the Tailscale-wizard SFTP shape "
-            f"(Plan 0029, v7.0.0–v7.3.13). Other backends use different "
-            f"flag conventions and don't need this fix.[/dim]"
+            f"Unknown backend [bold]{backend_name}[/bold] in kopia_params.\n\n"
+            f"[dim]The first token of kopia_params should be one of: "
+            f"{', '.join(sorted(BACKEND_MODULES))}.[/dim]"
         )
         raise typer.Exit(code=1)
 
     # Pull the source-of-truth values from [credentials]. The wizard
-    # writes these alongside kopia_params, and they were not affected by
-    # the v7.0–v7.3.13 bug.
-    remote_path = cfg.get("credentials", "remote_path", fallback="") or ""
-    peer_fqdn = (
-        cfg.get("credentials", "peer_fqdn", fallback="")
-        or cfg.get("credentials", "peer_hostname", fallback="")
-        or ""
-    )
-    ssh_user = cfg.get("credentials", "ssh_user", fallback="root") or "root"
-    ssh_key = cfg.get("credentials", "ssh_key", fallback="") or ""
-    known_hosts = cfg.get("credentials", "known_hosts", fallback="") or ""
+    # writes these alongside kopia_params; the backend's own
+    # ``rebuild_kopia_params`` knows which keys it needs.
+    credentials = cfg.get("credentials", "", fallback=None)
+    if not isinstance(credentials, dict):
+        # Config stores sections as nested dicts; fetch the whole section.
+        credentials = cfg._config.get("credentials", {}) if hasattr(cfg, "_config") else {}
 
-    missing = []
-    if not remote_path:
-        missing.append("remote_path")
-    if not peer_fqdn:
-        missing.append("peer_fqdn (or peer_hostname)")
-    if not ssh_key:
-        missing.append("ssh_key")
-    if missing:
+    backend = backend_cls({})
+    try:
+        new_params = backend.rebuild_kopia_params(credentials or {})
+    except MissingCredentialsError as e:
         print_error_panel(
             "Cannot rebuild [bold]kopia_params[/bold] — the following "
             "[credentials] keys are missing:\n\n"
-            + "\n".join(f"  • {m}" for m in missing)
+            + "\n".join(f"  • {m}" for m in e.missing)
             + "\n\n[dim]Re-run:[/dim] [cyan]kopi-docka advanced config new[/cyan] "
             "[dim]to recreate the credentials block.[/dim]"
         )
         raise typer.Exit(code=1)
 
-    params = [
-        "sftp",
-        f"--path={shlex.quote(remote_path)}",
-        f"--host={peer_fqdn}",
-        f"--username={ssh_user}",
-        f"--keyfile={shlex.quote(ssh_key)}",
-    ]
-    if known_hosts:
-        params.append(f"--known-hosts={shlex.quote(known_hosts)}")
-    new_params = " ".join(params)
+    if new_params is None:
+        print_error_panel(
+            f"Backend [bold]{backend_name}[/bold] has no repair logic.\n\n"
+            f"[dim]This command rebuilds kopia_params from a [credentials] "
+            f"section. Backends that store credentials externally "
+            f"(env vars, rclone.conf, service-account files) don't need "
+            f"and don't support this fix.[/dim]"
+        )
+        raise typer.Exit(code=1)
 
     if new_params == current:
         print_success(

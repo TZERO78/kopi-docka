@@ -153,37 +153,45 @@ def _check_kopia_params_sanity(kopia_params: str) -> list:
     if backend != "sftp":
         return issues
 
-    path_match = re.search(r"--path=(\S+)", params)
+    # Match both ``--path=VALUE`` (canonical / Tailscale wizard) and
+    # ``--path VALUE`` (pre-v7.6.1 direct SFTP wizard). Both forms shipped
+    # the broken HOST:PATH combination — Tailscale as ``HOST:PATH``,
+    # direct-SFTP as ``user@HOST:PATH``.
+    path_match = re.search(r"--path[=\s](\S+)", params)
     if path_match:
         path_value = path_match.group(1)
         if ":" in path_value:
             host_part = path_value.split(":", 1)[0]
-            # Hostname-shaped prefixes (not Windows drive letters etc.):
-            # contain a dot or are obviously a non-trivial label.
-            if re.match(r"^[a-zA-Z][a-zA-Z0-9.\-]+$", host_part) and (
-                "." in host_part or len(host_part) > 1
-            ):
+            is_hostname = (
+                bool(re.match(r"^[a-zA-Z][a-zA-Z0-9.\-]+$", host_part))
+                and ("." in host_part or len(host_part) > 1)
+            )
+            is_user_at_host = bool(
+                re.match(
+                    r"^[a-zA-Z][\w\-]*@[a-zA-Z][a-zA-Z0-9.\-]+$", host_part
+                )
+            )
+            if is_hostname or is_user_at_host:
                 issues.append((
                     "broken_path_with_host_prefix",
                     "error",
                     f"--path={path_value} embeds the host. Kopia expects "
                     f"--path=PATH and --host=HOST as separate flags. "
-                    f"Legacy v7.0–v7.3.13 wizard bug.",
+                    f"Legacy Tailscale (v7.0–v7.3.13) / SFTP (≤v7.6.0) "
+                    f"wizard bug.",
                 ))
 
-    if "--username=" not in params and "--username " not in params:
+    if not re.search(r"--username[=\s]\S+", params):
         issues.append((
             "missing_username",
             "error",
             "--username=... is missing (required by Kopia's SFTP backend).",
         ))
 
-    if (
-        "--keyfile=" not in params
-        and "--keyfile " not in params
-        and "--key-data=" not in params
-        and "--sftp-password=" not in params
-    ):
+    has_keyfile = re.search(r"--keyfile[=\s]\S+", params)
+    has_key_data = re.search(r"--key-data[=\s]\S+", params)
+    has_password = re.search(r"--sftp-password[=\s]\S+", params)
+    if not (has_keyfile or has_key_data or has_password):
         issues.append((
             "missing_auth",
             "error",

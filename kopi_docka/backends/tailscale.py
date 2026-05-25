@@ -18,8 +18,17 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from rich.markup import escape
 
-from .base import BackendBase, ConfigurationError, DependencyError
+from .base import (
+    BackendBase,
+    ConfigurationError,
+    DependencyError,
+    MissingCredentialsError,
+)
 from ..i18n import _
+from ..helpers.backend_helper import (
+    build_sftp_kopia_params,
+    ensure_known_hosts,
+)
 from ..helpers.dependency_helper import DependencyHelper, ToolInfo
 from ..helpers.logging import get_logger
 from ..helpers.ui_utils import run_command, SubprocessError
@@ -210,18 +219,15 @@ class TailscaleBackend(BackendBase):
         # Kopia's SFTP backend rejects unattended connects without
         # --known-hosts; populate it now so the wizard's first
         # `repository init`/`status` doesn't hang on a host-key prompt.
-        known_hosts_path = self._ensure_known_hosts(peer_fqdn)
+        known_hosts_path = ensure_known_hosts(peer_fqdn)
 
-        params = [
-            "sftp",
-            f"--path={shlex.quote(remote_path)}",
-            f"--host={peer_fqdn}",
-            f"--username={ssh_user}",
-            f"--keyfile={shlex.quote(str(ssh_key_path))}",
-        ]
-        if known_hosts_path is not None:
-            params.append(f"--known-hosts={shlex.quote(str(known_hosts_path))}")
-        kopia_params = " ".join(params)
+        kopia_params = build_sftp_kopia_params(
+            remote_path=remote_path,
+            host=peer_fqdn,
+            ssh_user=ssh_user,
+            ssh_key=str(ssh_key_path),
+            known_hosts=str(known_hosts_path) if known_hosts_path else None,
+        )
 
         utils.print_separator()
         utils.print_success(f"Kopia params: {escape(kopia_params)}")
@@ -239,6 +245,49 @@ class TailscaleBackend(BackendBase):
                 "known_hosts": str(known_hosts_path) if known_hosts_path else "",
             },
         }
+
+    def rebuild_kopia_params(
+        self, credentials: Dict[str, Any]
+    ) -> Optional[str]:
+        """Rebuild canonical kopia_params from a [credentials] block.
+
+        Tailscale-wizard credentials always use ``peer_fqdn`` (with a
+        legacy fallback to ``peer_hostname`` for pre-v7.3.12 configs).
+        Tailscale never sets a custom SSH port — the tailnet typically
+        targets default-port-22 sshd on NAS peers; power users with a
+        non-standard port edit ``[credentials]`` by hand.
+
+        Raises:
+            MissingCredentialsError: When ``remote_path``, ``peer_fqdn``
+                (or legacy ``peer_hostname``), or ``ssh_key`` is missing.
+        """
+        remote_path = credentials.get("remote_path", "") or ""
+        host = (
+            credentials.get("peer_fqdn")
+            or credentials.get("peer_hostname")
+            or ""
+        )
+        ssh_user = credentials.get("ssh_user", "root") or "root"
+        ssh_key = credentials.get("ssh_key", "") or ""
+        known_hosts = credentials.get("known_hosts", "") or ""
+
+        missing = []
+        if not remote_path:
+            missing.append("remote_path")
+        if not host:
+            missing.append("peer_fqdn (or peer_hostname)")
+        if not ssh_key:
+            missing.append("ssh_key")
+        if missing:
+            raise MissingCredentialsError(missing)
+
+        return build_sftp_kopia_params(
+            remote_path=remote_path,
+            host=host,
+            ssh_user=ssh_user,
+            ssh_key=ssh_key,
+            known_hosts=known_hosts or None,
+        )
 
     def validate_config(self) -> Tuple[bool, List[str]]:
         """Validate Tailscale configuration"""
@@ -315,8 +364,6 @@ class TailscaleBackend(BackendBase):
 
         Parses kopia_params to extract path. Falls back to default SSH key.
         """
-        import shlex
-
         ssh_key = str(Path.home() / ".ssh/kopi-docka_ed25519")
         repo_path = None
 
@@ -527,71 +574,6 @@ class TailscaleBackend(BackendBase):
         except (OSError, ValueError, SubprocessError) as e:
             logger.debug(f"Ping latency check failed: {e}")
         return None
-
-    def _ensure_known_hosts(self, host: str) -> Optional[Path]:
-        """Make sure ``~/.ssh/known_hosts`` carries a host key for ``host``.
-
-        Kopia's SFTP backend can't answer interactive host-key prompts —
-        when launched under systemd/cron it just hangs forever. We populate
-        ``known_hosts`` with ``ssh-keyscan`` up front so the very first
-        ``repository init`` connects unattended.
-
-        Returns the known_hosts path on success, or ``None`` if we can't
-        guarantee a usable entry (caller drops the ``--known-hosts`` flag
-        in that case; Kopia will then fall through to its prompt path,
-        which at least surfaces the failure rather than hanging).
-        """
-        from kopi_docka.helpers import ui_utils as utils
-
-        known_hosts = Path.home() / ".ssh" / "known_hosts"
-        known_hosts.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-
-        # Already trusted? Skip the scan.
-        if known_hosts.exists():
-            try:
-                content = known_hosts.read_text()
-                if host in content:
-                    logger.debug("known_hosts already trusts %s", host)
-                    return known_hosts
-            except OSError as e:
-                logger.debug("known_hosts read failed: %s", e)
-
-        try:
-            scan = run_command(
-                ["ssh-keyscan", "-t", "ed25519,rsa,ecdsa", host],
-                f"Fetching host key for {host}",
-                timeout=15,
-                check=False,
-            )
-        except SubprocessError as e:
-            utils.print_warning(
-                f"ssh-keyscan failed for {host}: {e}. "
-                f"Continuing without --known-hosts; Kopia may prompt on "
-                f"first connect, which won't work under systemd/cron."
-            )
-            return None
-
-        if scan.returncode != 0 or not (scan.stdout or "").strip():
-            utils.print_warning(
-                f"ssh-keyscan returned no host key for {host}. "
-                f"Continuing without --known-hosts; you may need to add "
-                f"the key manually if backups stall on connect."
-            )
-            return None
-
-        try:
-            with open(known_hosts, "a", encoding="utf-8") as fh:
-                fh.write(scan.stdout)
-            known_hosts.chmod(0o600)
-        except OSError as e:
-            utils.print_warning(
-                f"Could not update {known_hosts}: {e}. Continuing without "
-                f"--known-hosts."
-            )
-            return None
-
-        utils.print_info(f"Added host key for {host} to {known_hosts}")
-        return known_hosts
 
     def _setup_ssh_key(self, host: str, key_path: Path) -> bool:
         """Setup SSH key for passwordless access.

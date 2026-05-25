@@ -1,14 +1,17 @@
 """
-Unit tests for SFTP backend dependency checking.
+Unit tests for SFTP backend.
 
-Tests REQUIRED_TOOLS enforcement for SFTP/SSH remote storage backend.
+Covers dependency checking (REQUIRED_TOOLS) and — since v7.6.1 (Plan
+0038) — the canonical kopia_params shape produced by the wizard and the
+``rebuild_kopia_params`` repair hook.
 """
 
+import shlex
 from unittest.mock import patch, Mock
 import pytest
 
 from kopi_docka.backends.sftp import SFTPBackend
-from kopi_docka.backends.base import DependencyError
+from kopi_docka.backends.base import DependencyError, MissingCredentialsError
 from kopi_docka.helpers.dependency_helper import ToolInfo
 
 
@@ -227,3 +230,215 @@ class TestConfigureDependencyCheck:
 
         # Verify dependency check was called
         mock_missing.assert_called_once_with(["ssh", "ssh-keygen"])
+
+
+# ---------------------------------------------------------------------------
+# Plan 0038 (v7.6.1): wizard must emit canonical Kopia SFTP shape and
+# persist a [credentials] block. Pre-v7.6.1 the wizard shipped the broken
+# ``--path=user@host:path`` form and an invalid ``--sftp-port`` flag —
+# same family as the Plan 0029 Tailscale bug.
+# ---------------------------------------------------------------------------
+
+
+def _run_configure(
+    backend,
+    *,
+    user="root",
+    host="nas.example.com",
+    path="/backup/kopia",
+    port="22",
+    ssh_key="/root/.ssh/id_ed25519",
+    known_hosts_return=None,
+):
+    """Drive SFTPBackend.configure() with all side effects mocked."""
+    prompts = [user, host, path, port, ssh_key]
+    with patch('kopi_docka.helpers.dependency_helper.DependencyHelper.missing',
+               return_value=[]), \
+         patch('typer.prompt', side_effect=prompts), \
+         patch('kopi_docka.backends.sftp.ensure_known_hosts',
+               return_value=known_hosts_return):
+        return backend.configure()
+
+
+@pytest.mark.unit
+class TestConfigureCanonicalShape:
+    """The wizard's kopia_params must be Kopia-correct (Plan 0038)."""
+
+    def test_kopia_params_uses_separate_flags(self, sftp_backend):
+        result = _run_configure(sftp_backend)
+        params = result["kopia_params"]
+
+        assert params.startswith("sftp ")
+        assert "--path=/backup/kopia" in params
+        assert "--host=nas.example.com" in params
+        assert "--username=root" in params
+        assert "--keyfile=/root/.ssh/id_ed25519" in params
+
+    def test_path_does_not_embed_host(self, sftp_backend):
+        """Pre-v7.6.1 regression: the wizard wrote ``--path user@host:path``."""
+        result = _run_configure(sftp_backend, host="my-host.example.com")
+
+        for tok in shlex.split(result["kopia_params"]):
+            if tok.startswith("--path="):
+                assert ":" not in tok.split("=", 1)[1]
+                break
+        else:
+            pytest.fail("No --path= flag found")
+
+    def test_port_22_not_emitted(self, sftp_backend):
+        result = _run_configure(sftp_backend, port="22")
+        assert "--port" not in result["kopia_params"]
+
+    def test_custom_port_emits_port_flag_not_sftp_port(self, sftp_backend):
+        """Pre-v7.6.1 used ``--sftp-port`` — Kopia rejects that flag.
+        Verified locally with `kopia repository create sftp --sftp-port=22 ...`
+        → ``unknown long flag '--sftp-port'``.
+        """
+        result = _run_configure(sftp_backend, port="2222")
+        assert "--port=2222" in result["kopia_params"]
+        assert "--sftp-port" not in result["kopia_params"]
+
+    def test_known_hosts_flag_added_when_keyscan_succeeds(self, sftp_backend):
+        from pathlib import Path
+        result = _run_configure(
+            sftp_backend,
+            known_hosts_return=Path("/root/.ssh/known_hosts"),
+        )
+        assert "--known-hosts=/root/.ssh/known_hosts" in result["kopia_params"]
+
+    def test_known_hosts_flag_omitted_when_keyscan_fails(self, sftp_backend):
+        result = _run_configure(sftp_backend, known_hosts_return=None)
+        assert "--known-hosts" not in result["kopia_params"]
+
+
+@pytest.mark.unit
+class TestConfigureCredentialsBlock:
+    """The wizard must persist a [credentials] block so that
+    ``advanced config repair-kopia-params`` can rebuild kopia_params
+    later without the user having to re-run the full wizard."""
+
+    def test_credentials_block_present(self, sftp_backend):
+        result = _run_configure(sftp_backend)
+        assert "credentials" in result
+        assert isinstance(result["credentials"], dict)
+
+    def test_credentials_record_all_required_keys(self, sftp_backend):
+        from pathlib import Path
+        result = _run_configure(
+            sftp_backend,
+            user="backupuser",
+            host="nas.example.com",
+            path="/srv/backups",
+            ssh_key="/home/me/.ssh/sftp_ed25519",
+            known_hosts_return=Path("/home/me/.ssh/known_hosts"),
+        )
+        creds = result["credentials"]
+        assert creds["remote_path"] == "/srv/backups"
+        assert creds["host"] == "nas.example.com"
+        assert creds["ssh_user"] == "backupuser"
+        assert creds["ssh_key"] == "/home/me/.ssh/sftp_ed25519"
+        assert creds["known_hosts"] == "/home/me/.ssh/known_hosts"
+
+    def test_credentials_includes_peer_fqdn_alias(self, sftp_backend):
+        """``peer_fqdn`` alias keeps SFTP credentials compatible with
+        the existing repair-kopia-params fallback chain
+        (host → peer_fqdn → peer_hostname)."""
+        result = _run_configure(sftp_backend, host="nas.example.com")
+        creds = result["credentials"]
+        assert creds["peer_fqdn"] == "nas.example.com"
+
+
+@pytest.mark.unit
+class TestRebuildKopiaParams:
+    """SFTPBackend.rebuild_kopia_params — used by repair-kopia-params."""
+
+    def test_rebuilds_from_host_key(self, sftp_backend):
+        creds = {
+            "remote_path": "/backup",
+            "host": "nas",
+            "ssh_user": "root",
+            "ssh_key": "/root/.ssh/id",
+        }
+        params = sftp_backend.rebuild_kopia_params(creds)
+        assert "--path=/backup" in params
+        assert "--host=nas" in params
+
+    def test_falls_back_to_peer_fqdn(self, sftp_backend):
+        """Tailscale-shaped credentials use peer_fqdn — when repair-kopia-params
+        sees ``sftp`` as backend it dispatches to SFTPBackend regardless of
+        whether the install was Tailscale-flavoured or direct-SFTP."""
+        creds = {
+            "remote_path": "/backup",
+            "peer_fqdn": "tzero.ts.net",
+            "ssh_user": "root",
+            "ssh_key": "/root/.ssh/id",
+        }
+        params = sftp_backend.rebuild_kopia_params(creds)
+        assert "--host=tzero.ts.net" in params
+
+    def test_falls_back_to_peer_hostname(self, sftp_backend):
+        creds = {
+            "remote_path": "/backup",
+            "peer_hostname": "legacy-peer",
+            "ssh_user": "root",
+            "ssh_key": "/root/.ssh/id",
+        }
+        params = sftp_backend.rebuild_kopia_params(creds)
+        assert "--host=legacy-peer" in params
+
+    def test_raises_when_credentials_missing(self, sftp_backend):
+        with pytest.raises(MissingCredentialsError) as exc_info:
+            sftp_backend.rebuild_kopia_params({"ssh_user": "root"})
+
+        missing = exc_info.value.missing
+        assert any("remote_path" in m for m in missing)
+        assert any("host" in m or "peer_fqdn" in m for m in missing)
+        assert any("ssh_key" in m for m in missing)
+
+    def test_default_ssh_user_is_root(self, sftp_backend):
+        creds = {
+            "remote_path": "/backup",
+            "host": "nas",
+            "ssh_key": "/root/.ssh/id",
+        }
+        params = sftp_backend.rebuild_kopia_params(creds)
+        assert "--username=root" in params
+
+
+@pytest.mark.unit
+class TestGetStatusParser:
+    """get_status() parses the canonical kopia_params shape."""
+
+    def test_parses_canonical_shape(self, sftp_backend):
+        sftp_backend.config = {
+            "kopia_params": (
+                "sftp --path=/backup --host=nas.example.com "
+                "--username=root --keyfile=/root/.ssh/id"
+            )
+        }
+        status = sftp_backend.get_status()
+        assert status["details"]["host"] == "nas.example.com"
+        assert status["details"]["user"] == "root"
+        assert status["details"]["path"] == "/backup"
+
+    def test_parses_legacy_combined_shape(self, sftp_backend):
+        """Old SFTP wizard wrote ``--path user@host:path`` — for installs
+        that pre-date v7.6.1 the parser should still extract something
+        sensible so doctor / status don't crash."""
+        sftp_backend.config = {
+            "kopia_params": "sftp --path root@nas.example.com:/backup"
+        }
+        status = sftp_backend.get_status()
+        assert status["details"]["host"] == "nas.example.com"
+        assert status["details"]["user"] == "root"
+        assert status["details"]["path"] == "/backup"
+
+    def test_picks_up_port(self, sftp_backend):
+        sftp_backend.config = {
+            "kopia_params": (
+                "sftp --path=/backup --host=nas --username=root "
+                "--keyfile=/root/.ssh/id --port=2222"
+            )
+        }
+        status = sftp_backend.get_status()
+        assert status["details"]["port"] == "2222"
