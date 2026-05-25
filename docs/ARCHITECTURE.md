@@ -154,7 +154,7 @@ graph LR
 
 - BackupManager
   - Public: `backup_unit(unit: BackupUnit, backup_scope, update_recovery_bundle)` ⇒ returns `BackupMetadata`.
-  - Steps inside (Plan 0028, v7.3.0): execute pre-hook → `_collect_backup_sources(unit, backup_id, scope)` (recipes + networks + docker_config + volume sources, **before** containers stop because docker inspect needs them alive) → stop containers → **one** sequential `repo.create_snapshots(sources)` call → start containers → execute post-hook → save metadata → optionally update DR bundle.
+  - Steps inside (since v7.3.0): execute pre-hook → `_collect_backup_sources(unit, backup_id, scope)` (recipes + networks + docker_config + volume sources, **before** containers stop because docker inspect needs them alive) → stop containers → **one** sequential `repo.create_snapshots(sources)` call → start containers → execute post-hook → save metadata → optionally update DR bundle.
   - Volume backup modes: `create_snapshot` (direct directory snapshot / best) or `create_snapshot_from_stdin` (tar stream, deprecated). TAR mode keeps a legacy per-volume path because stdin streams don't fit the `BackupSource` shape.
   - **Stable staging paths (v5.3.0+):** Recipe and network backups use fixed staging directories (`/var/cache/kopi-docka/staging/recipes/<unit>/` and `/var/cache/kopi-docka/staging/networks/<unit>/`) instead of random temp dirs.
   - **Retention is global only (v7.3.0+):** No per-path policies are written during a backup run. The global policy applied at `KopiaRepository.connect()` / `initialize()` covers every snapshot via Kopia's policy inheritance tree.
@@ -211,7 +211,7 @@ graph LR
 - Core: `kopi_docka/__main__.py`, `kopi_docka/types.py`
 - Managers: `kopi_docka/cores/*.py` (especially `backup_manager.py`, `restore_manager.py`, `repository_manager.py`, `docker_discovery.py`, `hooks_manager.py`)
 - Backends: `kopi_docka/backends/*.py` (see `BackendBase` for contract)
-- Helpers: `kopi_docka/helpers/*.py` (notably `config.py`, `ui_utils.py`, `file_operations.py`)
+- Helpers: `kopi_docka/helpers/*.py` (config, ui_utils, file_operations, sudo_helper, backend_helper, repo_helper, metadata_reader, docker_run_builder, dependency_helper, process_lock, system_utils, logging, constants)
 
 ---
 
@@ -764,9 +764,45 @@ High-level wrapper for systemctl and journalctl operations to manage kopi-docka 
 
 ## Additional Helpers 🔧
 
+Cross-cutting utilities under `kopi_docka/helpers/`. Each helper is
+small, side-effect-aware where named (`backend_helper.ensure_known_hosts`
+runs `ssh-keyscan`; `sudo_helper.chown_to_sudo_user` mutates ownership),
+and consumed from cores/commands/backends without further wrapping.
+
+### backend_helper (kopi_docka.helpers.backend_helper)
+
+Single source of truth for the canonical Kopia SFTP CLI shape — shared
+by the direct SFTP wizard, the Tailscale wizard, and
+`rebuild_kopia_params()`. Introduced in v7.6.1 to retire duplicated
+construction logic across backends.
+
+| Function | Signature | Purpose |
+|---|---|---|
+| build_sftp_kopia_params | (remote_path, host, ssh_user, ssh_key, known_hosts=None, port=None) -> str | Canonical Kopia SFTP params (`--path` / `--host` / `--username` / `--keyfile` / `--known-hosts` / `--port`). Verified against `kopia repository create sftp --help`. |
+| ensure_known_hosts | (host: str) -> Optional[Path] | Pre-populate `~/.ssh/known_hosts` via `ssh-keyscan` so unattended (systemd/cron) connects don't hang on host-key prompts. Returns `None` on scan failure so caller can drop `--known-hosts`. |
+
+---
+
+### sudo_helper (kopi_docka.helpers.sudo_helper)
+
+Central `SUDO_USER` / `SUDO_UID` / `SUDO_GID` handling. Replaces 11
+duplicated inline patterns (v7.6.0). Validates `SUDO_USER` against a
+shell-injection regex before any path interpolation.
+
+| Function | Signature | Purpose |
+|---|---|---|
+| get_sudo_user_info | () -> SudoUserInfo | Validated name + uid + gid + home + `invoked_with_sudo` boolean |
+| chown_to_sudo_user | (path: Path) -> None | Chown a path to the invoking user (DR bundle, config-backup, etc.) |
+| find_in_sudo_user_home | (relative: str) -> Optional[Path] | Probe `~<invoker>/<relative>` (rclone.conf, ssh keys) |
+| sudo_user_home_path | (relative: str) -> Optional[Path] | Build a path without filesystem probe (for templates) |
+
+**Helper dataclass:** `SudoUserInfo` (`name`, `uid`, `gid`, `home`, `invoked_with_sudo`)
+
+---
+
 ### repo_helper (kopi_docka.helpers.repo_helper)
 
-Repository detection and validation for filesystem and cloud backends (S3, B2, Azure, GCS, SFTP).
+Repository detection and validation for filesystem and cloud backends.
 
 | Function | Signature | Purpose |
 |---|---|---|
@@ -774,6 +810,10 @@ Repository detection and validation for filesystem and cloud backends (S3, B2, A
 | detect_existing_cloud_repo | (kopia_params: Dict) -> bool | Detect if cloud-based Kopia repository exists |
 | get_backend_type | (kopia_params: Dict) -> str | Extract backend type from kopia_params |
 | is_cloud_backend | (backend_type: str) -> bool | Check if backend is a cloud/remote backend |
+
+Also contains the two intentional pre-init `kopia repository
+connect/disconnect` bypass points (no `KopiaRepository` instance
+available yet — chicken/egg before `__init__`).
 
 ---
 
@@ -790,7 +830,127 @@ Lightweight utility for CLI tool detection (existence, path, version).
 | check_all | (tools: List[str]) -> Dict[str, ToolInfo] | Check multiple tools at once |
 | missing | (tools: List[str]) -> List[str] | Return list of missing tools |
 
-**Helper Dataclass:** `ToolInfo` — Information about a CLI tool (name, installed, path, version)
+**Helper dataclass:** `ToolInfo` — Information about a CLI tool (`name`, `installed`, `path`, `version`)
+
+---
+
+### metadata_reader (kopi_docka.helpers.metadata_reader)
+
+Central read layer for backup-metadata JSONs under `<backup_base_path>/metadata/`. Used by the history command (`advanced snapshot history`) and the stale-detection pass during restore. Read-only; no root required.
+
+---
+
+### docker_run_builder (kopi_docka.helpers.docker_run_builder)
+
+Reconstructs `docker run` commands from container `docker inspect` JSON.
+Used by the restore wizard when the user opts to "restore container only"
+instead of running their original `docker-compose up` against the
+restored recipe.
+
+---
+
+### file_operations (kopi_docka.helpers.file_operations)
+
+Atomic file operations with backup-and-rollback semantics. Used by
+`Config.save()` (temp-file rename) and the config-backup mechanism that
+guards every `advanced config` mutation.
+
+---
+
+### process_lock (kopi_docka.helpers.process_lock)
+
+`fcntl`-based file lock under `/run/kopi-docka.lock` (or user-runtime
+equivalent) that prevents concurrent `backup` / `restore` invocations
+on the same machine. Blocks instead of failing so a cron tick that
+overlaps with an interactive run waits cleanly.
+
+---
+
+### system_utils (kopi_docka.helpers.system_utils)
+
+Resource probing for scheduling decisions: CPU count for `parallel_workers=auto`, free disk for the staging warning, OS/distro detection used by dependency hints. Pure read.
+
+---
+
+### logging (kopi_docka.helpers.logging)
+
+`get_logger(__name__)` factory + central log configuration: colourful
+console output via Rich, structured systemd-journal output when run
+under the kopi-docka systemd unit, file logging to the path set in
+`logging.file`.
+
+---
+
+### ui_utils (kopi_docka.helpers.ui_utils)
+
+Rich-based UI primitives shared across commands: `prompt_text`,
+`prompt_select`, `prompt_confirm`, `print_success` / `_error` / `_warning`
+panels, `run_command` subprocess wrapper with spinner + structured
+exit-code handling (`SubprocessError`). The main reason this isn't in
+`cores/` is that backends and helpers both import it.
+
+---
+
+### constants (kopi_docka.helpers.constants)
+
+Single-source values: `VERSION`, backup-scope identifiers
+(`BACKUP_SCOPE_MINIMAL` / `STANDARD` / `FULL`), tuning thresholds. The
+version bump in a release touches `VERSION` here in addition to
+`pyproject.toml`, `templates/config_template.json`, and `CLAUDE.md`.
+
+---
+
+## Repair pattern (rebuild_kopia_params) 🛠️
+
+Introduced in v7.5.0 for a single backend (SFTP), refactored to a
+generic dispatch pattern in v7.6.1. The command
+`advanced config repair-kopia-params` does not know which backend uses
+which credential keys — backends own that semantics through one
+optional method.
+
+```python
+# kopi_docka/backends/base.py
+class BackendBase(ABC):
+    def rebuild_kopia_params(
+        self, credentials: Dict[str, Any]
+    ) -> Optional[str]:
+        """Rebuild canonical kopia_params from a [credentials] block.
+        Returns None when this backend has no credentials-based
+        rebuild path (default). Override + raise
+        MissingCredentialsError when the keys are insufficient."""
+        return None
+
+
+class MissingCredentialsError(BackendError):
+    """Surfaces backend-specific 'which keys are missing' to the
+    command without the command knowing those key names."""
+    def __init__(self, missing: List[str]):
+        self.missing = list(missing)
+```
+
+The command path:
+
+```
+cmd_repair_kopia_params(ctx)
+├─ detect_repository_type(kopia_params)        # → "sftp" / "tailscale" / …
+├─ BACKEND_MODULES[name]({})                   # load backend class
+├─ backend.rebuild_kopia_params(credentials)
+│   ├─ returns str   → preview + atomic save
+│   ├─ returns None  → "backend has no repair logic" (cloud creds extern)
+│   └─ raises Missing→ list keys to user, exit 1
+└─ Config.save()                               # atomic, temp-file rename
+```
+
+Currently implemented by `SFTPBackend` and `TailscaleBackend` (both
+share the `build_sftp_kopia_params` helper). Other backends inherit the
+`None` default — their credentials live externally (env vars,
+`rclone.conf`, GCS service-account JSON), so nothing to repair from
+the `[credentials]` block.
+
+**Extension point:** when a future wizard for any backend produces a
+broken `kopia_params` shape, add `rebuild_kopia_params()` to that
+backend and write a `[credentials]` block during setup. No changes to
+the command, no `if backend == "x"` branches anywhere.
 
 ---
 
@@ -812,7 +972,7 @@ sequenceDiagram
   CLI->>Backup: backup_unit(unit)
   Backup->>Hooks: execute_pre_backup(unit)
   Backup->>Backup: _collect_backup_sources(unit, backup_id, scope)
-  Note over Backup: Stable staging dirs created here, docker inspect runs<br/>while containers are still alive (Plan 0028)
+  Note over Backup: Stable staging dirs created here, docker inspect runs<br/>while containers are still alive (since v7.3.0)
   Backup->>Docker: stop containers
   Backup->>Repo: create_snapshots(sources) — sequential, one call
   Note over Repo: Global retention policy already covers every snapshot<br/>via Kopia's inheritance tree (set on connect)

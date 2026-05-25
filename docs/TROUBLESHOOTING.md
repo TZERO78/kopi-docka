@@ -115,9 +115,9 @@ The script's output groups changes into three buckets:
 
 - **Missing** — added from template defaults.
 - **Unknown** — present in your config but no longer in the template
-  (`backup.parallel_workers`, `backup.task_timeout` after Plan 0028 /
-  v7.3.0 are the common ones). **Kept by default** to avoid deleting
-  your own custom keys. Add `--prune-unknown` to remove them.
+  (`backup.parallel_workers`, `backup.task_timeout` after v7.3.0 are
+  the common ones). **Kept by default** to avoid deleting your own
+  custom keys. Add `--prune-unknown` to remove them.
 - **Type mismatch** — same path, different JSON type. Never touched
   automatically; review and fix manually.
 

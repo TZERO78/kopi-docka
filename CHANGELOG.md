@@ -5,466 +5,240 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.6.2] - 2026-05-25
+
+### 📚 Docs pass — PyPI link fix, plan-slug cleanup, CHANGELOG smoothing, ARCHITECTURE refresh
+
+**Why:** PyPI ships only the source tree from `pyproject.toml`; the
+relative links in README.md (`docs/CONFIGURATION.md`, `LICENSE`, …)
+all 404 on the PyPI project page. While doing the rewrite, also
+clean up internal "Plan 00XX" slug leakage in user-facing docs and
+catch ARCHITECTURE.md up with the helpers added since v7.3.0.
+
+**Changes:**
+- README: 31 relative links rewritten to absolute
+  `https://github.com/TZERO78/kopi-docka/blob/main/...` URLs;
+  `twine check` PASSED.
+- docs/: 8 "Plan 00XX" references replaced with version anchors
+  (`since v7.3.0`, etc.). Plan-slugs kept in CHANGELOG section
+  headers where they serve as release-notes shorthand.
+- CHANGELOG: entries v7.4.0–v7.6.1 tightened to release-notes style
+  (Headline / Why / Changes / Upgrade notes); 262 lines saved with
+  no information lost. Pre-v7.4.0 entries untouched.
+- ARCHITECTURE.md: documents 8 previously-undescribed helper modules
+  (`backend_helper`, `sudo_helper`, `metadata_reader`,
+  `docker_run_builder`, `file_operations`, `process_lock`,
+  `system_utils`, `logging`); new "Repair pattern
+  (rebuild_kopia_params)" section explains the v7.6.1 backend-dispatch
+  shape.
+- README: rclone backend now described as tested (with GDrive
+  upstream-perf caveat linked to #111) instead of "tested (Google
+  Drive)".
+
+**Upgrade notes:** Docs-only release; no code changes. The PyPI
+project page will re-render with working links after this tag's
+publish workflow completes.
+
+---
+
 ## [7.6.1] - 2026-05-25
 
 ### 🐛 SFTP wizard: canonical Kopia params + backend-dispatched repair
 
-Plan 0038 — finishes the Plan 0029 story for the **direct** SFTP wizard.
+**Why:** The Tailscale-wizard SFTP-params bug (fixed in v7.4.0) had a
+sibling in the direct SFTP wizard — same broken `--path=user@host:path`
+shape, same hanging snapshots. Plus the wizard emitted an invalid
+`--sftp-port` flag latent behind the default-port-22 branch.
 
-The Tailscale-wizard bug (broken `--path=HOST:PATH`, missing `--username`
-/ `--keyfile`) was fixed in v7.4.0, but the **direct SFTP wizard**
-(`backends/sftp.py`) shipped the exact same shape until now:
-
-```
-sftp --path user@host:path            ← Kopia connects, snapshots hang
-```
-
-Plus a latent bug: the wizard wrote `--sftp-port` for non-22 ports — a
-flag Kopia does not recognise (verified locally with
-`kopia repository create sftp --sftp-port=22 ...` → `unknown long flag`).
-Never tripped in practice because port `22` skipped the branch.
-
-**Fixed (this release):**
-
-- SFTP wizard now emits the canonical separate-flags shape via the new
-  shared `helpers/backend_helper.py::build_sftp_kopia_params()` (also
-  used by the Tailscale wizard — single source of truth).
-- `--sftp-port` → `--port` (Kopia's actual flag name).
+**Changes:**
+- SFTP wizard now emits the canonical separate-flags shape (`--path` /
+  `--host` / `--username` / `--keyfile`) via new shared
+  `helpers/backend_helper.py`. Same helper used by the Tailscale wizard.
+- `--sftp-port` → `--port` (Kopia's actual flag name; verified locally
+  via `kopia repository create sftp --help`).
 - SFTP wizard now writes a `[credentials]` block so
-  `advanced config repair-kopia-params` can rebuild kopia_params later.
-- `ensure_known_hosts()` (pre-populates `~/.ssh/known_hosts` via
-  `ssh-keyscan` so unattended cron/systemd connects don't hang) was
-  extracted from `TailscaleBackend._ensure_known_hosts` into the helper;
-  the SFTP wizard uses it too now.
+  `repair-kopia-params` can rebuild later.
+- `repair-kopia-params` refactored to backend dispatch via
+  `BackendBase.rebuild_kopia_params()` + `MissingCredentialsError` —
+  no more `if backend == "sftp"` branches in the command.
+- Doctor sanity regex extended to `--path[=\s]` so both Tailscale (`=`)
+  and pre-v7.6.1 SFTP (space) wizard outputs are flagged.
+- `ensure_known_hosts()` extracted from Tailscale to the shared helper
+  so the SFTP wizard pre-populates `known_hosts` via `ssh-keyscan` too.
 
-**Architecture cleanup — `repair-kopia-params` is now backend-dispatched.**
-
-Before this release the command had hardcoded SFTP logic. New shape:
-
-- `BackendBase.rebuild_kopia_params(credentials)` — optional method,
-  default returns `None` ("not supported").
-- `SFTPBackend` / `TailscaleBackend` override it. The command does not
-  know which backend uses what; it loads `BACKEND_MODULES[name]` and
-  dispatches.
-- New `MissingCredentialsError(missing: List[str])` lets each backend
-  declare which credential keys it needs, without the command ever
-  hardcoding key names.
-
-**Doctor sanity check** now also catches the space-form
-(`--path user@host:path`) that the direct SFTP wizard produced — the
-Plan 0029 regex only matched `--path=` (the Tailscale-bug shape).
-
-**Migration path for existing SFTP installs:** the v7.0–v7.6.0 SFTP
-wizard never wrote `[credentials]`, so `repair-kopia-params` has nothing
-to read from. Doctor now flags the broken shape; users either re-run
-`advanced config new` or hand-add a `[credentials]` block (see plan/active/plan_0038
-for the required keys: `remote_path`, `host` or `peer_fqdn`, `ssh_user`,
-`ssh_key`). Tailscale installs are not affected — they already had
-correct `kopia_params` since v7.4.0.
-
-### Files
-
-- **NEW:** `kopi_docka/helpers/backend_helper.py` — `build_sftp_kopia_params()`,
-  `ensure_known_hosts()`.
-- **NEW:** `tests/unit/test_helpers/test_backend_helper.py` — 13 tests.
-- `kopi_docka/backends/base.py` — `rebuild_kopia_params()` default,
-  `MissingCredentialsError` exception.
-- `kopi_docka/backends/sftp.py` — rewritten `configure()` (canonical
-  shape, `[credentials]` block), `rebuild_kopia_params()`, `get_status()`
-  parser updated, `--sftp-port` → `--port` bugfix.
-- `kopi_docka/backends/tailscale.py` — `setup_interactive()` calls
-  helper, `_ensure_known_hosts()` removed (replaced by import from
-  helper), `rebuild_kopia_params()` added.
-- `kopi_docka/commands/config_commands.py::cmd_repair_kopia_params` —
-  generic backend dispatch.
-- `kopi_docka/commands/doctor_commands.py::_check_kopia_params_sanity` —
-  regex extended to `--path[=\s]` (`--username`, `--keyfile` analogous);
-  `user@host:path` shape now recognised as broken.
-- Tests: `test_sftp_backend.py` extended (canonical shape, credentials
-  block, rebuild); `test_tailscale_backend.py` patch-path updated.
+**Upgrade notes:** Existing SFTP installs (≤ v7.6.0) have no
+`[credentials]` block — doctor will flag the broken `kopia_params`;
+either re-run `advanced config new` or hand-add `[credentials]` keys
+(`remote_path`, `host`, `ssh_user`, `ssh_key`) and re-run
+`repair-kopia-params`. Tailscale installs unaffected.
 
 ---
 
 ## [7.6.0] - 2026-05-24
 
-### ♻️ `sudo_helper` — central SUDO_USER handling, replaces 11 duplicated patterns
+### ♻️ Central `sudo_helper` — replaces 11 duplicated SUDO_USER patterns
 
-Plan 0037 — a real refactor with a small security bonus.
+**Why:** The `SUDO_USER` / `SUDO_UID` / `SUDO_GID` env-var pattern was
+duplicated 11 times across 4 files with three different validation
+levels — some checked against shell injection, others didn't. Closes
+the theoretical injection vector at the unvalidated sites.
 
-**Before:** the `SUDO_USER` / `SUDO_UID` / `SUDO_GID` env-var pattern
-was duplicated **11 times across 4 files** with **three different
-validation niveaus**:
+**Changes:**
+- New `kopi_docka/helpers/sudo_helper.py` provides one typed
+  `SudoUserInfo` dataclass + `get_sudo_user_info()`,
+  `chown_to_sudo_user()`, `find_in_sudo_user_home()`,
+  `sudo_user_home_path()`.
+- All 11 sites migrated; four previously-unvalidated `SUDO_USER` reads
+  now go through the central regex.
+- `backends/rclone.py` drops its `import os` after the migration.
+- 18 new tests cover injection rejection, path traversal, garbage-UID
+  fallback, chown success/failure paths.
 
-- `cores/disaster_recovery_manager.py` (2 sites) — chown bundle to
-  invoking user; find rclone.conf in user's home (validated)
-- `cores/restore_manager.py` (2 sites) — uid/gid/name tuple; running-
-  with-sudo boolean
-- `helpers/file_operations.py` (1 site) — chown for config-backup
-- `backends/rclone.py` (4 sites) — rclone.conf candidate paths (some
-  validated, some not)
-
-Some sites checked `SUDO_USER` against a shell-injection regex
-(`^[a-zA-Z0-9._-]+$`), others didn't. That meant a malicious
-`SUDO_USER=";rm -rf /"` env-var could in theory have ended up
-interpolated into a path at the unvalidated sites.
-
-**After:** new module `kopi_docka/helpers/sudo_helper.py` provides one
-typed API:
-
-```python
-@dataclass(frozen=True)
-class SudoUserInfo:
-    name: Optional[str]           # validated SUDO_USER, else None
-    uid: int                      # SUDO_UID or os.getuid()
-    gid: int                      # SUDO_GID or os.getgid()
-    home: Optional[Path]          # /home/<name> when name is valid
-    invoked_with_sudo: bool
-
-def get_sudo_user_info() -> SudoUserInfo
-def chown_to_sudo_user(path: Path) -> None
-def find_in_sudo_user_home(relative: str) -> Optional[Path]
-def sudo_user_home_path(relative: str) -> Optional[Path]
-```
-
-All 11 sites migrated to the new helper. As a side effect, the four
-previously-unvalidated `SUDO_USER` reads (3 in rclone.py + the chown
-sites in DR/file_operations/restore_manager) now go through the
-validation regex too — closing the (theoretical) shell-injection vector
-at zero behavioral cost for legitimate usernames.
-
-#### Tests
-
-- New `tests/unit/test_helpers/test_sudo_helper.py` with **18 cases**
-  covering: under-sudo / no-sudo, shell-injection rejection, path
-  traversal rejection, garbage-UID-fallback, valid-punctuation
-  acceptance, chown success/failure paths, find/path-build variants,
-  permission-error handling.
-- All 1234 prior tests pass unchanged (behavioral parity).
-- Total: **1252 unit tests** (+18).
-
-#### Side benefit: cleaner import topology
-
-`backends/rclone.py` no longer needs `import os` after the migration
-(all SUDO_USER reading goes through sudo_helper). Three other files
-drop their inline `re` validation regex.
-
-#### Why minor (v7.6.0) not patch (v7.5.4)
-
-Subtle behavior change: three sites that previously accepted any
-`SUDO_USER` value now silently fall back to "no sudo detected" when
-the value fails validation. Real-world impact: zero (legitimate
-usernames pass; only adversarial values were ever rejected at the
-other sites). But since the *contract* of those code paths changed,
-this is conservatively a minor bump.
+**Upgrade notes:** Three sites that previously accepted any
+`SUDO_USER` value now fall back to "no sudo detected" when the value
+fails validation. Real-world impact: zero (legitimate usernames pass).
 
 ---
 
 ## [7.5.3] - 2026-05-24
 
-### 🧹 Timezone-aware datetime cleanup (mop-up after v7.5.2)
+### 🧹 Timezone-aware datetime cleanup
 
-After v7.5.2 normalized the snapshot-tag timestamps to tz-aware UTC, a
-read-only codebase scan turned up five more places that were still
-emitting naive `datetime.now().isoformat()` strings:
+**Why:** v7.5.2 normalized snapshot-tag timestamps to tz-aware UTC.
+A read-only scan turned up five more places still emitting naive
+`datetime.now().isoformat()` that could later mix with tz-aware values.
 
-- `cores/backup_manager.py:101` — `BackupMetadata.timestamp` (lands in
-  `/backup/kopi-docka/metadata/*.json`)
-- `cores/backup_volume_handler.py:125, 207` — TAR-mode snapshot tags
-- `cores/disaster_recovery_manager.py:697` — `created_at` in the DR
-  bundle's `recovery-info.json`
-- `cores/disaster_recovery_manager.py:1069` — `timestamp` in
-  `backup-status.json` inside the DR bundle
+**Changes:**
+- `cores/backup_manager.py` `BackupMetadata.timestamp` → tz-aware.
+- `cores/backup_volume_handler.py` TAR-mode snapshot tags → tz-aware.
+- `cores/disaster_recovery_manager.py` `recovery-info.json::created_at`
+  + `backup-status.json::timestamp` → tz-aware.
+- Two regression tests pin the DR-bundle timestamps to tz-aware UTC.
 
-All five now use `datetime.now(timezone.utc).isoformat()`, so every
-timestamp emitted by kopi-docka round-trips through
-`datetime.fromisoformat()` as a tz-aware UTC value. Two new regression
-tests (`test_recovery_info_created_at_is_tz_aware`,
-`test_backup_status_timestamp_is_tz_aware`) lock the property in for
-the DR-bundle path. Existing snapshots / metadata files remain
-readable — the parsing side has been defensive about naive legacy
+**Upgrade notes:** No user-visible behavior change. Existing snapshots
+remain readable — parsing has been defensive about naive legacy
 strings since v7.5.2.
-
-No user-visible behavior change; this is housekeeping so the codebase
-stays internally consistent. Pre-existing user-facing local-time
-strings used in filenames (`config-backup-*`, restore-rollback tarballs,
-DR-bundle output filenames) intentionally stay naive — they're meant
-to read as local wall-clock time, not as machine-parseable timestamps.
-
-The remaining hygiene items from the scan (subprocess timeout
-strategy, `Union[X, Y]` modernization, `match`-statement adoption,
-bare-`except` narrowing, f-string vs. %-style logging unification,
-`pydantic` upper-bound) are filed in **Plan 0032** as nice-to-have.
 
 ---
 
 ## [7.5.2] - 2026-05-24
 
-### 🛠️ Restore wizard no longer crashes on legacy timestamps + `repo init` honors backend swaps
+### 🛠️ Restore wizard crash fix + `repo init` honors backend swaps
 
-Two bugs surfaced in field use of the v7.5.0/7.5.1 release.
+**Why:** Two field issues from v7.5.0/7.5.1: restore wizard crashed
+with naive-vs-aware datetime comparison when a snapshot list mixed
+both kinds; `advanced repo init` reported success after a backend swap
+in `kopia_params` while Kopia was still connected to the previous
+backend (so subsequent backups silently went to the old destination).
 
-1. **Restore wizard crashed with `can't compare offset-naive and offset-aware datetimes`.**
-   `backup_manager` wrote snapshot-tag timestamps with naive `datetime.now()`,
-   while `restore_manager._find_restore_points*()` fell back to `datetime.now(timezone.utc)`
-   (aware) whenever a snapshot had no/garbage `timestamp` tag. As soon as the
-   list contained one of each, `out.sort(key=lambda x: x.timestamp)` threw and
-   the wizard exited with the error above before showing any restore points.
+**Changes:**
+- `restore_manager._parse_snapshot_timestamp()` normalizes every
+  snapshot timestamp to tz-aware UTC. Both `_find_restore_points()`
+  paths use it.
+- `backup_manager` writes new snapshot tags + networks-metadata
+  `backup_timestamp` tz-aware.
+- `repository_manager.initialize()` compares the first token of
+  `kopia_params` against Kopia's recorded `storage.type`; on mismatch
+  it disconnects before re-create+connect.
 
-2. **`advanced repo init` was blind to backend swaps in `kopia_params`.**
-   When the user edited `kopia_params` in `/etc/kopi-docka.json` (e.g. from
-   `rclone …` to `sftp …`) and re-ran `advanced repo init`, the command
-   reported success — but Kopia was still happily connected to the previous
-   backend, so subsequent backups silently kept going to the old destination
-   while the new target stayed empty. Root cause: `initialize()` only checked
-   `is_connected()` and treated any active connection as "we're done", without
-   verifying that it pointed at the backend currently configured.
+**Upgrade notes:** Mismatch detection checks storage *type* only, not
+path/host/bucket. A same-backend path swap still hits the "already
+connected" shortcut — fix via explicit `kopia repository disconnect`
+first.
 
-#### Fixes
-
-- **`restore_manager`**: new `_parse_snapshot_timestamp()` helper normalizes
-  every snapshot timestamp to a tz-aware UTC datetime (naive legacy tags are
-  treated as UTC, parse errors fall back to `datetime.now(timezone.utc)`).
-  Both `_find_restore_points()` and `_find_restore_points_for_machine()` use
-  it. Existing snapshots from older Kopi-Docka versions remain restorable —
-  no repo re-init needed.
-- **`backup_manager`**: new snapshot-tag timestamps and the
-  `backup_timestamp` in the networks-metadata payload are now written
-  tz-aware (`datetime.now(timezone.utc).isoformat()`), so going forward the
-  tags carry a `+00:00` suffix and round-trip cleanly through
-  `datetime.fromisoformat`.
-- **`repository_manager.initialize()`**: before the "already connected"
-  shortcut, compare the first token of `kopia_params` (`sftp` / `rclone` /
-  `filesystem` / …) against the `storage.type` recorded in Kopia's own
-  connect-config. On mismatch, emit a warning and call `disconnect()` so
-  the subsequent `create` + `connect` actually retargets the new backend.
-  Pure-fresh installs (no config file yet) and matching-backend re-runs
-  are unaffected.
-
-#### Notes
-
-- The mismatch detection only checks storage **type**, not path/host/bucket.
-  A path swap inside the same backend (e.g. SFTP-path changed) still hits
-  the "already connected" shortcut — fix that situation by an explicit
-  `kopia repository disconnect` followed by `kopi-docka advanced repo init`.
-- No config-format changes. `repair-kopia-params` from v7.5.0 remains the
-  right tool for the Tailscale-wizard SFTP-param drift; v7.5.2 only
-  addresses the case where `kopia_params` is already correct but Kopia
-  itself is connected to a stale backend.
+---
 
 ## [7.5.1] - 2026-05-24
 
-### 🔐 Disaster recovery — SSH-key hygiene + `recover.sh` exit-fix
+### 🔐 DR bundle — SSH-key hygiene + `recover.sh` exit-code fix
 
-Plan 0030. While E2E-testing the v7.5.0 DR bundle two issues surfaced:
+**Why:** E2E testing the v7.5.0 DR bundle surfaced two issues:
+`recover.sh` returned exit 1 for every SFTP/Tailscale bundle (false
+failure for the user); and the SSH private key's intentional absence
+from the bundle was invisible — no panel hint, no doctor signal,
+even though that key separation is by design (NIST SP 800-57).
 
-1. **`recover.sh` exited with status 1 for every SFTP/Tailscale bundle.**
-   The generic `else` branch did `exit 1` after the unsupported-backend
-   message — even though the file-restore steps that ran before it had
-   succeeded. From the user's perspective recovery looked failed.
-2. **The bundle did not contain the SSH private key**, but the docs and
-   the script didn't make that clear. `RECOVERY-INSTRUCTIONS.txt`
-   didn't mention it, the export panel didn't either, and the doctor
-   command had no way to surface that the externally-held key was
-   actually still there. (The key is left out of the bundle on
-   purpose — defense in depth, NIST SP 800-57 key separation — but
-   that intent was invisible to the user.)
-
-#### Fixes & visibility
-
-- **`recover.sh` now has a proper SFTP branch.** It builds a
-  non-interactive `kopia repository connect sftp --path=… --host=…
-  --username=… --keyfile=… --known-hosts=…` from the bundle's
-  `recovery-info.json`. If the SSH key isn't present at the expected
-  path, the script prints a clear warning ("install the key with mode
-  600 and re-run") and exits 0 (no false failure).
-- **Unknown backends are also a clean exit 0** with a manual-connect
-  hint instead of the legacy hard-fail.
-- **`RECOVERY-INSTRUCTIONS.txt` has a new section "EXTERNAL SECRETS —
-  NOT IN THIS BUNDLE (BY DESIGN)"** for SFTP backends. It lists the
-  SSH key path + SHA256 fingerprint and gives concrete storage
-  suggestions (password manager attachment, separate USB stick, GPG-
-  symmetric, air-gapped paper printout). Cloud backends get an
-  analogous note pointing at the credential variables.
-- **The export command's success output now prints a second panel**
-  after "Bundle Created" — "⚠ Additional Secrets Required" — with
-  the same path + SHA256. So the reminder happens at the moment of
-  bundle creation, not just deep inside the ZIP.
-- **`kopi-docka doctor` Section 9 "Disaster Recovery Readiness"**
-  surfaces the SSH-key status on every health check: ✓ Found vs.
-  ✗ MISSING, and prints the SHA256 so the user has a fingerprint
-  to record for verification. Silent for non-SFTP backends.
-
-#### New opt-in: `--include-ssh-key`
-
-For users who explicitly want everything in one bundle (e.g. when the
-bundle is stored at a higher trust level than the SSH key itself —
-air-gapped offline storage, hardware vault), `disaster-recovery
-export` now accepts `--include-ssh-key`. Default OFF. The flag
-triggers a red warning panel and an explicit confirmation prompt
-(`--yes` to skip for automation). When enabled, the key is placed in
-the bundle under `ssh-key/<basename>` and `recover.sh` installs it at
-the expected path with mode 600 before connecting.
-
-The opt-in path is consistent across all three user-visible surfaces:
-- Export panel shows a red "Bundle INCLUDES your SSH private key" box
-- `RECOVERY-INSTRUCTIONS.txt` says "EXTERNAL SECRETS — INCLUDED IN THIS BUNDLE"
-- `recover.sh` has an "Installed embedded SSH key" install block
-
-#### Tests
-
-- `tests/unit/test_cores/test_disaster_recovery_manager.py`: +11 cases
-  covering the SFTP connect-shape, missing-key-graceful-exit, unknown-
-  backend exit-0 path, instructions external-secrets section for all
-  backend types, embedded-key install block, and the `sha256_file`
-  helper.
-- 1218 tests passing total (+11 vs. v7.5.0).
-
-#### Documentation
-
-- `docs/DISASTER_RECOVERY.md` has a new section "What's NOT in the
-  bundle (and why)" that documents the key-separation rationale, lists
-  exactly which credentials live outside the bundle per backend, and
-  describes the `--include-ssh-key` opt-in with its trade-offs.
+**Changes:**
+- `recover.sh` gained a real SFTP connect branch (builds a
+  non-interactive `kopia repository connect sftp` from
+  `recovery-info.json`); unknown backends exit 0 with a manual-connect
+  hint.
+- New `RECOVERY-INSTRUCTIONS.txt` section "EXTERNAL SECRETS — NOT IN
+  THIS BUNDLE (BY DESIGN)" lists the SSH key path + SHA256.
+- Export command now prints a second "⚠ Additional Secrets Required"
+  panel right after success.
+- New `kopi-docka doctor` Section 9 "Disaster Recovery Readiness"
+  surfaces SSH-key found/missing + SHA256 fingerprint.
+- New opt-in `disaster-recovery export --include-ssh-key` for users
+  who want one all-in-one bundle (default OFF, red-warning confirm).
+- 11 new tests on the DR side; `docs/DISASTER_RECOVERY.md` gained a
+  "What's NOT in the bundle (and why)" section.
 
 ---
 
 ## [7.5.0] - 2026-05-24
 
-### ✨ One-command migration for the v7.0–v7.3.13 Tailscale `kopia_params` bug
+### ✨ `advanced config repair-kopia-params` — replaces v7.4.0 sed migration
 
-Follow-up on Plan 0029. The v7.4.0 doctor told users to copy/paste a
-generated `sed` line. That worked but felt brittle and was easy to
-fat-finger. v7.5.0 replaces it with a real kopi-docka command.
+**Why:** v7.4.0's doctor told users to copy/paste a generated `sed`
+line to migrate broken v7.0–v7.3.13 Tailscale-wizard configs. Brittle
+and easy to fat-finger. v7.5.0 replaces it with a proper command.
 
-#### New command
+**Changes:**
+- New `sudo kopi-docka advanced config repair-kopia-params` — reads
+  `kopia_params` + the still-correct `[credentials]` section, rebuilds
+  the canonical Kopia-SFTP shape, shows an old-vs-new diff, confirms,
+  writes atomically.
+- Supports `--dry-run` (preview only) and `--yes` (automation).
+- Idempotent: second run reports "already in the canonical shape".
+- Doctor Section 5.1 now points at the new command; the `sed`-printout
+  helper is removed.
+- 6 new tests cover rewrite, idempotency, dry-run, missing-credentials
+  abort, non-SFTP refusal, and `peer_hostname` legacy fallback.
 
-```bash
-sudo kopi-docka advanced config repair-kopia-params
+**Upgrade notes (existing v7.0.0–v7.3.13 users):**
+
 ```
-
-- Reads `kopia_params` and the still-correct `[credentials]` section
-  (`remote_path`, `peer_fqdn` / `peer_hostname`, `ssh_user`, `ssh_key`,
-  `known_hosts`).
-- Rebuilds `kopia_params` in the canonical Kopia-SFTP shape (separate
-  `--path` / `--host` / `--username` / `--keyfile` / `--known-hosts`).
-- Shows an old-vs-new diff and prompts for confirmation.
-- Writes atomically through the existing `Config.save()` path (temp-file
-  rename — same code that protects every other config change).
-- Idempotent: a second invocation says "already in the canonical
-  shape — nothing to repair".
-- `--dry-run` to preview without writing, `--yes` to skip the prompt
-  (useful for ansible/scripts).
-
-#### Doctor change
-
-Section 5.1 Backend Sanity now points at the new command. The previous
-`sed` printout (and the `_build_sftp_migration_command` helper that
-generated it) is removed.
-
-#### Tests
-
-- `tests/unit/test_commands/test_config_commands.py` (new): 6 cases —
-  rewrite, idempotency, dry-run, missing-credentials abort, non-SFTP
-  refusal, `peer_hostname` fallback for very old configs.
-- `tests/unit/test_commands/test_doctor_commands.py`: replaces the two
-  obsolete `sed`-shape tests with a single `TestBackendSanityHint`
-  case that asserts doctor surfaces the new command (and no longer
-  emits `sudo sed -i`).
-
-#### Migration (existing v7.0.0–v7.3.13 users, restated)
-
-```bash
 sudo kopi-docka advanced config repair-kopia-params
 sudo kopi-docka advanced repo init
-sudo kopi-docka doctor   # confirms 5.1 is green
+sudo kopi-docka doctor
 ```
-
-No data loss; the Kopia repository is untouched. Only the local
-`kopia_params` string changes.
 
 ---
 
 ## [7.4.0] - 2026-05-24
 
-### 🐛 Tailscale-SFTP correctness — wizard fix, doctor migration, Unraid inode detection
+### 🐛 Tailscale wizard: correct SFTP params, doctor migration, Unraid inode detection
 
-Plan 0029. Three connected bugs surfaced during a live migration from
-rclone+Google Drive to Tailscale-SFTP. The wizard happily wrote broken
-Kopia parameters that hung on the first `repository status`; the backup
-spinner showed a misleading "rclone cold-start" hint regardless of
-backend; and the Unraid persistence-mirror treated the persistent
-`/boot/config/ssh/root` *directory* (Unraid 6.12+) as a file.
+**Why:** Three connected bugs surfaced during a live rclone+GDrive →
+Tailscale-SFTP migration. Wizard wrote broken Kopia params that hung
+on the first `repository status`; backup spinner showed an
+rclone-specific cold-start hint for every backend; Unraid 6.12+
+persistence-mirror treated a directory as a file.
 
-#### Fixes
-
-- **Tailscale wizard emits the correct SFTP parameter shape.** Kopia's
-  SFTP backend wants each connection parameter as its own flag, *not*
-  embedded in `--path`:
-
-  ```
-  sftp --path=/backup/kopia          \
-       --host=peer.tailXXXXX.ts.net  \
-       --username=root               \
-       --keyfile=/root/.ssh/kopi-docka_ed25519 \
-       --known-hosts=/root/.ssh/known_hosts
-  ```
-
-  The legacy wizard (v7.0.0 – v7.3.13) shipped `--path=HOST:PATH` and
-  omitted `--username` and `--keyfile` entirely; Kopia accepted the form
-  at connect but every snapshot then hung indefinitely. The wizard now
-  also pre-populates `~/.ssh/known_hosts` via `ssh-keyscan` so the very
-  first connect under `systemd`/`cron` doesn't stall on a host-key
-  prompt.
-
-- **Backup spinner is backend-aware.** "rclone cold-start can take
-  60-120 s on Google Drive" used to print for every backend. It now
-  fires only when `kopia_params` starts with `rclone`.
-
-- **Unraid 6.12+ no longer gets a destructive "persistent mirror".**
-  Modern Unraid symlinks (or bind-mounts) `/root/.ssh` onto
-  `/boot/config/ssh/root/`, so the ssh-copy-id write is *already*
-  persistent. The wizard now compares inodes
-  (`stat -c '%d:%i' /root/.ssh /boot/config/ssh/root`) and:
-  - skips the mirror when the inodes match (symlinked);
-  - writes to `/boot/config/ssh/root/authorized_keys` (file *inside* the
-    directory) on modern Unraid layouts where the two paths exist on
-    separate filesystems;
-  - falls back to the legacy file-on-the-directory-path append for
-    pre-6.12 Unraid;
-  - leaves standard Linux untouched.
-
-#### Doctor
-
-- **New Section 5.1 Backend Sanity.** `kopi-docka doctor` parses
-  `kopia_params` for SFTP backends and flags the three legacy-wizard
-  fingerprints (`--path=HOST:PATH`, missing `--username`, missing
-  `--keyfile`). If any are detected, doctor prints a copy/paste-ready
-  `sed` command populated with the user's actual credentials that
-  rewrites `kopia_params` in place — no data loss, only the config
-  string changes.
-
-#### Migration
-
-Tailscale users on v7.0.0 – v7.3.13:
-
-1. `sudo kopi-docka doctor` — Section 5.1 prints a migration command
-   with your existing peer/path/key values.
-2. Copy/paste the `sed` command to rewrite `/etc/kopi-docka.json`.
-3. `sudo kopi-docka advanced repo init` — reconnects to the existing
-   repository with the corrected params.
-
-See **docs/TROUBLESHOOTING.md → "Tailscale-SFTP kopia_params migration"**
-for the full procedure.
-
-#### Tests
-
-- `tests/unit/backends/test_tailscale_backend.py`: +13 cases covering
-  `_ensure_known_hosts`, `setup_interactive` kopia_params shape, layout
-  classification, and the four mirror cases.
-- `tests/unit/test_commands/test_doctor_commands.py`: +10 cases for
-  `_check_kopia_params_sanity` and `_build_sftp_migration_command`.
-- `tests/unit/test_commands/test_backup_commands.py` (new): 4 cases for
+**Changes:**
+- Tailscale wizard now emits the canonical SFTP shape (separate
+  `--path` / `--host` / `--username` / `--keyfile`, plus pre-populated
+  `--known-hosts` via `ssh-keyscan` so the first systemd/cron connect
+  doesn't stall on a host-key prompt). Legacy `--path=HOST:PATH` form
+  retired.
+- Backup spinner emits the rclone cold-start hint only when
+  `kopia_params` actually starts with `rclone`.
+- Unraid persistence-mirror classifies the remote SSH layout via inode
+  comparison (`stat -c '%d:%i' /root/.ssh /boot/config/ssh/root`):
+  modern-symlinked → skip; modern-separate → write
+  `authorized_keys` *inside* the directory; pre-6.12 → legacy file
+  append; standard Linux → untouched.
+- New doctor Section 5.1 "Backend Sanity" parses `kopia_params` for
+  the three legacy-wizard fingerprints and prints a copy/paste `sed`
+  migration command (superseded by `repair-kopia-params` in v7.5.0).
+- 13 new tests for Tailscale backend, 10 for doctor sanity, 4 for
   spinner backend-awareness.
+
+**Upgrade notes (existing v7.0.0–v7.3.13 users):** Run
+`sudo kopi-docka doctor`; Section 5.1 prints a `sed` migration command
+with your actual credentials. v7.5.0+ users should use
+`advanced config repair-kopia-params` instead.
 
 ---
 

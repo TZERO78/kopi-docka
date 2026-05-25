@@ -365,8 +365,8 @@ automatically (it has no opinions about your data), but you can
 | `retention.yearly`           | `retention.annual`         | very early — value semantics identical |
 | `backup.pre_backup_hook`     | `backup.hooks.pre_backup`  | 5.x |
 | `backup.post_backup_hook`    | `backup.hooks.post_backup` | 5.x |
-| `backup.parallel_workers`    | *(removed)*                | v7.3.0 / Plan 0028 — sequential loop |
-| `backup.task_timeout`        | *(removed)*                | v7.3.0 / Plan 0028 — sequential loop |
+| `backup.parallel_workers`    | *(removed)*                | v7.3.0 — sequential loop |
+| `backup.task_timeout`        | *(removed)*                | v7.3.0 — sequential loop |
 
 **Important properties**
 
@@ -526,12 +526,12 @@ Retention policies control **how many snapshots to keep** for each backup target
 A pre-v5.3.0 bug applied retention to virtual paths (`volumes/myproject`)
 while snapshots used actual mountpoints (`/var/lib/docker/volumes/...`),
 so retention never triggered and repositories grew unbounded. v5.3.0
-realigned both. Plan 0028 (v7.3.0) makes the path issue moot entirely:
-retention is global, so the per-path matching question never comes up.
+realigned both. v7.3.0 makes the path issue moot entirely: retention is
+global, so the per-path matching question never comes up.
 
 ---
 
-### Global Retention Policy (since v7.3.0 / Plan 0028)
+### Global Retention Policy (since v7.3.0)
 
 Kopi-Docka writes **one** Kopia retention policy: the global one, applied at
 `kopia repository initialize()` and at every `kopia repository connect()`
