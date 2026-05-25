@@ -1,13 +1,22 @@
-# Kopi-Docka
+<p align="center">
+  <a href="https://github.com/TZERO78/kopi-docka">
+    <img src="https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/kopi-docka-800x200.png"
+         alt="Kopi-Docka — Cold Backup Tool for Docker Environments using Kopia"
+         width="800">
+  </a>
+</p>
 
-> **Cold Backup Tool for Docker Environments using Kopia**
+<p align="center">
+  <a href="https://pypi.org/project/kopi-docka/"><img src="https://img.shields.io/pypi/v/kopi-docka" alt="PyPI"></a>
+  <a href="https://pypi.org/project/kopi-docka/"><img src="https://img.shields.io/pypi/pyversions/kopi-docka" alt="Python"></a>
+  <a href="https://github.com/TZERO78/kopi-docka/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License"></a>
+  <a href="https://pepy.tech/project/kopi-docka"><img src="https://static.pepy.tech/badge/kopi-docka/month" alt="Downloads"></a>
+</p>
 
-Kopi-Docka is a Python-based backup wrapper for Docker containers and volumes. It uses Kopia for encryption and deduplication, with specific focus on Docker Compose stack awareness.
-
-[![PyPI](https://img.shields.io/pypi/v/kopi-docka)](https://pypi.org/project/kopi-docka/)
-[![Python Version](https://img.shields.io/pypi/pyversions/kopi-docka)](https://pypi.org/project/kopi-docka/)
-[![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/TZERO78/kopi-docka/blob/main/LICENSE)
-[![Downloads](https://static.pepy.tech/badge/kopi-docka/month)](https://pepy.tech/project/kopi-docka)
+<p align="center">
+  <strong>Cold backup tool for Docker environments — encrypted, deduplicated, restore-ready.</strong><br>
+  <sub>Python wrapper around <a href="https://kopia.io">Kopia</a> with Docker Compose stack awareness.</sub>
+</p>
 
 ---
 
