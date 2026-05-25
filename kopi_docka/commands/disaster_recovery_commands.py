@@ -324,21 +324,26 @@ def cmd_disaster_recovery_export(
 
     if stream:
         # ── Stream mode: ZIP → stdout (for SSH piping) ──
+        # Module-level ``console`` writes to stdout, which here carries the
+        # ZIP payload. All informational/error output must go to a separate
+        # stderr-bound console so it doesn't corrupt the byte stream.
+        # (Rich's Console.print() has no ``err=`` kwarg; you bind the file
+        # at Console construction time.)
+        stderr_console = Console(stderr=True)
+
         if not passphrase:
-            console.print(
+            stderr_console.print(
                 "[red]✗ --stream requires --passphrase[/red]\n"
                 "  (no TTY available for interactive passphrase generation)\n\n"
                 "Example:\n"
                 '  ssh user@server "sudo kopi-docka disaster-recovery export '
-                "--stream --passphrase 'my-secret'\" > recovery.zip",
-                err=True,
+                "--stream --passphrase 'my-secret'\" > recovery.zip"
             )
             raise typer.Exit(code=1)
 
-        # All informational output goes to stderr; ZIP goes to stdout
-        console.print("[cyan]Creating encrypted DR bundle (streaming)...[/cyan]", err=True)
+        stderr_console.print("[cyan]Creating encrypted DR bundle (streaming)...[/cyan]")
         manager.export_to_stream(passphrase, include_ssh_key=include_ssh_key)
-        console.print("[green]✓ Bundle streamed successfully[/green]", err=True)
+        stderr_console.print("[green]✓ Bundle streamed successfully[/green]")
 
     else:
         # ── File mode: interactive passphrase handling ──
