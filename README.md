@@ -57,7 +57,7 @@ A wrapper around [Kopia](https://kopia.io), designed for Docker environments:
 
 ![Restore demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-restore.svg)
 
-**Disaster recovery export** — encrypted ZIP bundle with repository connection info + auto-reconnect `recover.sh`. External secrets (SSH key, cloud credentials) stay separate by default — defense in depth:
+**Disaster recovery** — encrypted bundle with repository connection info + auto-reconnect script. Active deprecation guidance steers users from the legacy 3-file format toward the single-ZIP path; password and secrets storage explicitly called out:
 
 ![DR export demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-dr-export.svg)
 
