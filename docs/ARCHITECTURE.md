@@ -154,7 +154,7 @@ graph LR
 
 - BackupManager
   - Public: `backup_unit(unit: BackupUnit, backup_scope, update_recovery_bundle)` ⇒ returns `BackupMetadata`.
-  - Steps inside (Plan 0028, v7.3.0): execute pre-hook → `_collect_backup_sources(unit, backup_id, scope)` (recipes + networks + docker_config + volume sources, **before** containers stop because docker inspect needs them alive) → stop containers → **one** sequential `repo.create_snapshots(sources)` call → start containers → execute post-hook → save metadata → optionally update DR bundle.
+  - Steps inside (since v7.3.0): execute pre-hook → `_collect_backup_sources(unit, backup_id, scope)` (recipes + networks + docker_config + volume sources, **before** containers stop because docker inspect needs them alive) → stop containers → **one** sequential `repo.create_snapshots(sources)` call → start containers → execute post-hook → save metadata → optionally update DR bundle.
   - Volume backup modes: `create_snapshot` (direct directory snapshot / best) or `create_snapshot_from_stdin` (tar stream, deprecated). TAR mode keeps a legacy per-volume path because stdin streams don't fit the `BackupSource` shape.
   - **Stable staging paths (v5.3.0+):** Recipe and network backups use fixed staging directories (`/var/cache/kopi-docka/staging/recipes/<unit>/` and `/var/cache/kopi-docka/staging/networks/<unit>/`) instead of random temp dirs.
   - **Retention is global only (v7.3.0+):** No per-path policies are written during a backup run. The global policy applied at `KopiaRepository.connect()` / `initialize()` covers every snapshot via Kopia's policy inheritance tree.
@@ -812,7 +812,7 @@ sequenceDiagram
   CLI->>Backup: backup_unit(unit)
   Backup->>Hooks: execute_pre_backup(unit)
   Backup->>Backup: _collect_backup_sources(unit, backup_id, scope)
-  Note over Backup: Stable staging dirs created here, docker inspect runs<br/>while containers are still alive (Plan 0028)
+  Note over Backup: Stable staging dirs created here, docker inspect runs<br/>while containers are still alive (since v7.3.0)
   Backup->>Docker: stop containers
   Backup->>Repo: create_snapshots(sources) — sequential, one call
   Note over Repo: Global retention policy already covers every snapshot<br/>via Kopia's inheritance tree (set on connect)

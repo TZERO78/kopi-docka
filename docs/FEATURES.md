@@ -833,7 +833,7 @@ Kopi-Docka v6.3.0 introduces the `history` command to browse backup metadata sto
 - **Detail view**: `--detail` shows all fields per backup as Rich Panels
 - **ID lookup**: `--id BACKUP_ID` for a specific backup's details
 - **No root required**: reads local metadata JSON files only
-- **Reusable MetadataReader**: `helpers/metadata_reader.py` — central read layer for metadata JSONs, also used by stale-detection (Plan 0022)
+- **Reusable MetadataReader**: `helpers/metadata_reader.py` — central read layer for metadata JSONs, also used by stale-detection (since v6.3.0)
 
 ---
 
