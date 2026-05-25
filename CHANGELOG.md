@@ -5,6 +5,38 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.6.3] - 2026-05-25
+
+### 🐛 `disaster-recovery export --stream` no longer crashes on `Console.print(err=True)`
+
+**Why:** The streaming path tried to send progress messages to stderr
+via `console.print(..., err=True)`, but Rich's `Console.print()` does
+not accept an `err=` kwarg — every invocation of
+`disaster-recovery export --stream` blew up with `TypeError:
+Console.print() got an unexpected keyword argument 'err'` before any
+ZIP content was emitted. Reproduced over SSH against the testlab.
+
+**Changes:**
+- `commands/disaster_recovery_commands.py::cmd_disaster_recovery_export`
+  now creates a `Console(stderr=True)` for the streaming-path messages
+  (3 call sites) instead of passing the invalid `err=True` kwarg.
+- New `tests/unit/test_commands/test_disaster_recovery_commands.py`
+  with 2 regression cases: (1) `--stream` without `--passphrase` exits 1
+  with the help hint (and explicitly no `TypeError`); (2) `--stream
+  --passphrase X` flows through to the manager without crashing on the
+  surrounding console calls.
+
+**Upgrade notes:** Direct fix; no config or repo-format changes. Users
+hitting the bug should `pip install --upgrade kopi-docka` and re-try
+the SSH-streaming command:
+
+```
+ssh user@server "sudo kopi-docka disaster-recovery export \
+  --stream --passphrase 'xxx'" > recovery.zip
+```
+
+---
+
 ## [7.6.2] - 2026-05-25
 
 ### 📚 Docs pass — PyPI link fix, plan-slug cleanup, CHANGELOG smoothing, ARCHITECTURE refresh
