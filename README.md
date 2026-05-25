@@ -33,13 +33,21 @@ A wrapper around [Kopia](https://kopia.io), designed for Docker environments:
 
 ## What it looks like
 
-**Dry-run** — discover stacks, plan the backup, estimate size & time:
-
-![Dry-run demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-dry-run.svg)
-
 **Doctor** — system health check across dependencies, repository status, backend sanity, and disaster-recovery readiness:
 
 ![Doctor demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-doctor.svg)
+
+**Dry-run** — discover stacks, plan the backup, estimate size & time, no changes:
+
+![Dry-run demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-dry-run.svg)
+
+**Backup** — real cold backup: stops containers per stack, snapshots volumes + recipe + networks via Kopia, restarts containers. Both stacks done in ~7 seconds:
+
+![Backup demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-backup.svg)
+
+**Restore** — non-interactive restore (`--yes` flag) of the latest snapshot, including network recreation and container restart:
+
+![Restore demo](https://raw.githubusercontent.com/TZERO78/kopi-docka/main/docs/media/demo-restore.svg)
 
 ---
 
