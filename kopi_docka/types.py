@@ -129,6 +129,11 @@ class BackupSource:
     kind: str
     tags: Dict[str, str] = field(default_factory=dict)
     description: Optional[str] = None
+    # Glob patterns passed to `kopia snapshot create --ignore`. Only set for
+    # data sources (volumes, binds) where the operator's `exclude_patterns`
+    # config should apply; metadata staging (recipes/networks/config) leaves
+    # this None so nothing is trimmed from the backup recipe.
+    exclude_patterns: Optional[List[str]] = None
 
 
 @dataclass

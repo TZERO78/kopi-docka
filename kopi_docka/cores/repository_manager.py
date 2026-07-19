@@ -731,7 +731,11 @@ class KopiaRepository:
         results: List[str] = []
         for src in sources:
             try:
-                snap_id = self.create_snapshot(src.path, tags=src.tags)
+                snap_id = self.create_snapshot(
+                    src.path,
+                    tags=src.tags,
+                    exclude_patterns=getattr(src, "exclude_patterns", None),
+                )
             except Exception as e:
                 logger.error(
                     "Snapshot create failed for source",

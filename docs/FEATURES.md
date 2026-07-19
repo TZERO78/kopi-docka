@@ -88,6 +88,9 @@ services:
      confidentiality comes from the encrypted repository and DR bundle, not from
      skipping paths. Only runtime-only host internals (sockets, `/proc`, `/sys`,
      `/dev`, `/run`, `/var/run`) are excluded — those are not data.
+   - `exclude_patterns` (see CONFIGURATION.md) is an explicit operator opt-in to
+     trim sub-paths such as logs or caches; it applies to both named volumes and
+     bind mounts. Empty by default — nothing is trimmed unless you ask.
 
 4. **Tags (Kopia)**
    ```json

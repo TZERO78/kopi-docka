@@ -239,6 +239,7 @@ def make_backup_manager() -> BackupManager:
     manager.repo = Mock()
     manager.stop_timeout = 30
     manager.start_timeout = 60
+    manager.exclude_patterns = []
     return manager
 
 
@@ -280,6 +281,45 @@ class TestCollectBindMountSources:
         sources = manager._collect_backup_sources(unit, "bid", BACKUP_SCOPE_MINIMAL)
         kinds = [s.kind for s in sources]
         assert "bind" in kinds
+
+
+@pytest.mark.unit
+class TestExcludePatterns:
+    def test_bind_sources_carry_exclude_patterns(self):
+        manager = make_backup_manager()
+        manager.exclude_patterns = ["*.log", "cache/*"]
+        unit = BackupUnit(
+            name="vault", type="stack",
+            bind_mounts=[BindMountInfo(source="/opt/vw", destination="/data",
+                                       container_ids=["c1"])],
+        )
+        sources = manager._collect_bind_mount_sources(unit, "bid", "standard")
+        assert sources[0].exclude_patterns == ["*.log", "cache/*"]
+
+    def test_empty_exclude_patterns_become_none(self):
+        manager = make_backup_manager()
+        manager.exclude_patterns = []
+        unit = BackupUnit(
+            name="vault", type="stack",
+            bind_mounts=[BindMountInfo(source="/opt/vw", destination="/data",
+                                       container_ids=["c1"])],
+        )
+        sources = manager._collect_bind_mount_sources(unit, "bid", "standard")
+        assert sources[0].exclude_patterns is None
+
+    def test_create_snapshots_forwards_exclude_patterns(self):
+        from kopi_docka.cores.repository_manager import KopiaRepository
+        from kopi_docka.types import BackupSource
+
+        repo = KopiaRepository.__new__(KopiaRepository)
+        repo.create_snapshot = Mock(return_value="snap1")
+        src = BackupSource(path="/opt/vw", kind="bind", tags={"type": "bind"},
+                           exclude_patterns=["*.log"])
+
+        repo.create_snapshots([src])
+
+        repo.create_snapshot.assert_called_once()
+        assert repo.create_snapshot.call_args.kwargs["exclude_patterns"] == ["*.log"]
 
 
 @pytest.mark.unit

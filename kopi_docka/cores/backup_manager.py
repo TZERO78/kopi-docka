@@ -809,6 +809,7 @@ class BackupManager:
                         "backup_format": BACKUP_FORMAT_DIRECT,
                         "size_bytes": str(getattr(volume, "size_bytes", 0) or "0"),
                     },
+                    exclude_patterns=self.exclude_patterns or None,
                 )
             )
         return sources
@@ -842,6 +843,7 @@ class BackupManager:
                         "backup_scope": backup_scope,
                         "size_bytes": str(getattr(bind, "size_bytes", 0) or "0"),
                     },
+                    exclude_patterns=self.exclude_patterns or None,
                 )
             )
         return sources

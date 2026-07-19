@@ -44,6 +44,11 @@ project — and its volumes — was skipped entirely.
 - Bind mounts are surfaced in `dry-run`, the backup summary, and
   success notifications; a new `bind_mounts_backed_up` counter is
   recorded in backup metadata.
+- **`exclude_patterns` now actually apply** to Direct-mode volume and
+  bind-mount snapshots (forwarded through `create_snapshots()` to
+  `kopia --ignore`). Previously the Direct-mode default path silently
+  ignored the setting; it now works as an explicit operator opt-in to
+  trim logs/caches. Metadata recipes are never trimmed.
 
 **Upgrade notes:** No config or repository-format changes. Backups will
 now include bind-mounted directories that were previously missed, so the
