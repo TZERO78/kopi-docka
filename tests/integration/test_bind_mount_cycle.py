@@ -16,10 +16,11 @@ import json
 import os
 import subprocess
 import pytest
-from pathlib import Path
 
 from kopi_docka.cores.docker_discovery import DockerDiscovery
+from kopi_docka.cores.backup_manager import BackupManager
 from kopi_docka.cores.restore.bind_restore import BindRestoreEngine
+from kopi_docka.types import BackupUnit
 
 
 def docker_available() -> bool:
@@ -124,11 +125,27 @@ def test_bind_mount_backup_restore_cycle(bind_container, ephemeral_repo):
     assert str(host_dir) in binds, f"bind mount not discovered: {info.bind_mounts}"
     assert binds[str(host_dir)].destination == "/data"
 
-    # 2) Real Kopia snapshot of the bind source
+    # 2) Real backup-side code: aggregate into a unit and build the BackupSource
+    #    (tags + path) through BackupManager — not a hand-rolled snapshot call.
+    unit = BackupUnit(name="e2e-vault", type="stack", containers=[info])
+    unit.bind_mounts = discovery._aggregate_bind_mounts([info])
+
+    manager = BackupManager.__new__(BackupManager)
+    manager.exclude_patterns = []
+    sources = manager._collect_bind_mount_sources(unit, "backup-id-e2e", "standard")
+    assert len(sources) == 1
+    src = sources[0]
+    assert src.path == str(host_dir)
+    assert src.tags["bind_source"] == str(host_dir)
+    assert src.tags["bind_destination"] == "/data"
+
+    # Snapshot exactly what the backup path would: src.path with src.tags
+    snap_cmd = ["kopia", "snapshot", "create", src.path,
+                "--config-file", ephemeral_repo["config_file"], "--json"]
+    for k, v in src.tags.items():
+        snap_cmd += ["--tags", f"{k}:{v}"]
     snap = subprocess.run(
-        ["kopia", "snapshot", "create", str(host_dir),
-         "--config-file", ephemeral_repo["config_file"], "--json"],
-        check=True, capture_output=True, text=True, env=ephemeral_repo["env"],
+        snap_cmd, check=True, capture_output=True, text=True, env=ephemeral_repo["env"]
     )
     out = json.loads(snap.stdout)
     snap_id = out.get("id") or out.get("snapshotID")
@@ -145,10 +162,7 @@ def test_bind_mount_backup_restore_cycle(bind_container, ephemeral_repo):
         _KopiaAdapter(ephemeral_repo["config_file"], ephemeral_repo["env"]),
         non_interactive=True,
     )
-    bind_snapshot = {
-        "id": snap_id,
-        "tags": {"type": "bind", "bind_source": str(host_dir), "bind_destination": "/data"},
-    }
+    bind_snapshot = {"id": snap_id, "tags": src.tags}  # tags built by real backup code
     restored = engine.restore_all([bind_snapshot], "e2e-vault")
     assert restored == 1
 
