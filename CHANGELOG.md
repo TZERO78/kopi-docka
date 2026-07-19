@@ -5,6 +5,29 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.8.1] - 2026-07-19
+
+### 🐛 Hotfix: broken wheel — `cores.restore` package was missing (7.7.0 & 7.8.0)
+
+**Why:** `pyproject.toml` used a hand-maintained `[tool.setuptools] packages`
+list. The `kopi_docka.cores.restore` subpackage added in 7.7.0 was never
+added to that list, so the built wheel/sdist omitted it. Installing 7.7.0 or
+7.8.0 from PyPI failed at import:
+`ModuleNotFoundError: No module named 'kopi_docka.cores.restore'`.
+Source-tree tests passed because they never exercised the packaged artifact.
+
+**Changes:**
+- Switch to automatic package discovery
+  (`[tool.setuptools.packages.find] include = ["kopi_docka*"]`) so every
+  current and future subpackage is shipped — no hand-maintained list to drift.
+- CI now builds the wheel, installs it into a clean venv, and imports the CLI
+  (`kopi-docka version`) so a packaging regression fails before release, not
+  on the user's machine.
+
+**Upgrade notes:** `pip install --upgrade kopi-docka` (or
+`pipx upgrade kopi-docka`) to get a working 7.8.1. Versions 7.7.0 and 7.8.0
+are broken on install and should be skipped.
+
 ## [7.8.0] - 2026-07-19
 
 ### 🧾 Backup coverage manifest: gaps are now explicit, not silent
