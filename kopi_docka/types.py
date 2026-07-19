@@ -86,8 +86,9 @@ class BindMountInfo:
 
     Persistent bind mounts (e.g. ``./vw-data:/data``) are first-class backup
     targets — their host ``source`` path is snapshotted just like a named volume.
-    Runtime-only host internals (docker socket, /proc, /sys, /dev) are classified
-    via :func:`is_runtime_only` and never archived.
+    Host internals (host root ``/``, docker socket, /proc, /sys, /dev, /etc and
+    other OS-owned trees) are classified via :func:`is_host_internal` and never
+    archived.
     """
 
     source: str  # Host path (absolute)
@@ -97,17 +98,25 @@ class BindMountInfo:
     size_bytes: Optional[int] = None
 
     @property
-    def is_runtime_only(self) -> bool:
-        """True when the source is a host internal that must not be archived."""
-        from .helpers.constants import (
-            RUNTIME_ONLY_BIND_PREFIXES,
-            RUNTIME_ONLY_BIND_BASENAMES,
-        )
+    def is_host_internal(self) -> bool:
+        """True when the source is a host internal that must not be archived.
+
+        Host root ``/`` is always host-internal (hardcoded, non-removable):
+        snapshotting it walks the entire host tree (including the backup
+        destination — infinite recursion) and never completes. Beyond that, any
+        source at or under a host-OS tree, or a known socket basename, is a host
+        observer/controller mount, not application data. Those lists are the
+        user-editable filter loaded via :func:`kopi_docka.helpers.bind_filter`.
+        """
+        from .helpers.bind_filter import get_host_internal_filter
 
         src = (self.source or "").rstrip("/") or "/"
-        if any(src == p or src.startswith(p + "/") for p in RUNTIME_ONLY_BIND_PREFIXES):
+        if src == "/":
             return True
-        return any(src.endswith("/" + b) or src == b for b in RUNTIME_ONLY_BIND_BASENAMES)
+        prefixes, basenames = get_host_internal_filter()
+        if any(src == p or src.startswith(p + "/") for p in prefixes):
+            return True
+        return any(src.endswith("/" + b) or src == b for b in basenames)
 
 
 @dataclass

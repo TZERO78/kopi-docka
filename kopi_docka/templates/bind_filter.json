@@ -1,0 +1,24 @@
+{
+  "_comment": "Host-internal bind-mount filter for kopi-docka (Plan 0041). A container bind mount whose HOST source matches one of these prefixes or basenames is treated as a host observer/controller mount (monitoring, log-shipper, control-plane) and is NEVER backed up — the container's real data lives in its named volumes. Edit to add or remove entries.",
+  "_how_to_customize": "Copy this file to /etc/kopi-docka.filter.json (next to /etc/kopi-docka.json) or ~/.config/kopi-docka/filter.json, or set KOPI_DOCKA_BIND_FILTER=/path/to/filter.json. When a user file is found it REPLACES the shipped defaults for whichever keys it defines, so you can both add and remove entries.",
+  "_safety_note": "Host root '/' is ALWAYS blocked in code and cannot be re-enabled here: a '/' bind source (e.g. netdata's / -> /host/root:ro) makes Kopia walk the entire host tree, including the backup destination itself (infinite recursion), and never completes.",
+  "prefixes": [
+    "/proc",
+    "/sys",
+    "/dev",
+    "/run",
+    "/var/run",
+    "/etc",
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/lib",
+    "/lib64",
+    "/boot",
+    "/var/lib/docker",
+    "/var/log"
+  ],
+  "basenames": [
+    "docker.sock"
+  ]
+}
