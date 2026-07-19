@@ -58,6 +58,7 @@ from ..helpers.ui_utils import (
 )
 from ..types import RestorePoint
 from ..helpers.config import Config
+from .restore.bind_restore import BindRestoreEngine
 from ..cores.repository_manager import KopiaRepository
 from ..cores.hooks_manager import HooksManager
 from ..cores.safe_exit_manager import SafeExitManager, DataSafetyHandler
@@ -301,6 +302,8 @@ class RestoreManager:
         if sel.network_snapshots:
             print(f"  - {len(sel.network_snapshots)} network(s)")
         print(f"  - {len(sel.volume_snapshots)} volumes")
+        if sel.bind_snapshots:
+            print(f"  - {len(sel.bind_snapshots)} bind mount(s)")
 
         if self.non_interactive:
             print("\n✓ Auto-confirming restore (--yes mode)")
@@ -558,6 +561,8 @@ class RestoreManager:
         if sel.network_snapshots:
             print(f"  - {len(sel.network_snapshots)} network(s)")
         print(f"  - {len(sel.volume_snapshots)} volumes")
+        if sel.bind_snapshots:
+            print(f"  - {len(sel.bind_snapshots)} bind mount(s)")
 
         if not self.non_interactive:
             confirm = input("\n⚠️ Proceed with restore? (yes/no/q): ").strip().lower()
@@ -616,6 +621,8 @@ class RestoreManager:
                     groups[key].recipe_snapshots.append(s)
                 elif snap_type == "volume":
                     groups[key].volume_snapshots.append(s)
+                elif snap_type == "bind":
+                    groups[key].bind_snapshots.append(s)
                 elif snap_type == "networks":
                     groups[key].network_snapshots.append(s)
                 elif snap_type == "docker_config":
@@ -666,6 +673,8 @@ class RestoreManager:
                     groups[key].recipe_snapshots.append(s)
                 elif snap_type == "volume":
                     groups[key].volume_snapshots.append(s)
+                elif snap_type == "bind":
+                    groups[key].bind_snapshots.append(s)
                 elif snap_type == "networks":
                     groups[key].network_snapshots.append(s)
                 elif snap_type == "docker_config":
@@ -695,6 +704,7 @@ class RestoreManager:
         all_snapshots = (
             restore_point.recipe_snapshots
             + restore_point.volume_snapshots
+            + restore_point.bind_snapshots
             + restore_point.network_snapshots
             + restore_point.docker_config_snapshots
         )
@@ -797,6 +807,16 @@ class RestoreManager:
             if rp.volume_snapshots:
                 print("\n3️⃣ Volume restoration:")
                 self._display_volume_restore_instructions(rp, restore_dir, data_safety_handler)
+
+            # 3b) Bind-mount restoration (Plan 0040 / #129)
+            if rp.bind_snapshots:
+                print("\n3️⃣.b Bind-mount restoration:")
+                bind_engine = BindRestoreEngine(self.repo, non_interactive=self.non_interactive)
+                restored_binds = bind_engine.restore_all(
+                    rp.bind_snapshots, rp.unit_name, data_safety_handler
+                )
+                if restored_binds:
+                    print(f"   ✅ Restored {restored_binds} bind mount(s)")
 
             # 4) Interactive config copy (NEW in v3.1.0)
             if recipe_dir.exists():

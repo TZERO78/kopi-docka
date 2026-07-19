@@ -217,9 +217,11 @@ class TestDiscoverContainers:
         """Should discover containers and parse inspect JSON."""
         discovery = make_discovery()
 
-        # Mock docker ps -q
+        # Mock docker ps -q, then docker ps -aq --filter label=compose (no
+        # stopped compose containers → empty), then the inspects.
         mock_run.side_effect = [
             CompletedProcess([], 0, stdout="abc123\nxyz789\n", stderr=""),
+            CompletedProcess([], 0, stdout="", stderr=""),
             # docker inspect abc123
             CompletedProcess(
                 [],
@@ -282,6 +284,7 @@ class TestDiscoverContainers:
 
         mock_run.side_effect = [
             CompletedProcess([], 0, stdout="abc123\nxyz789\n", stderr=""),
+            CompletedProcess([], 0, stdout="", stderr=""),  # ps -aq --filter (none)
             # First inspect fails
             Exception("Container not found"),
             # Second inspect succeeds
@@ -621,6 +624,9 @@ class TestDiscoverBackupUnits:
         # Setup mock responses
         mock_run.side_effect = [
             # docker ps -q
+            CompletedProcess([], 0, stdout="c1\nc2\n", stderr=""),
+            # docker ps -aq --filter label=compose — same compose containers,
+            # already seen via ps -q, so dedup drops them (no extra inspects).
             CompletedProcess([], 0, stdout="c1\nc2\n", stderr=""),
             # docker inspect c1
             CompletedProcess(

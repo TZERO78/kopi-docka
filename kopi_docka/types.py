@@ -40,6 +40,7 @@ class ContainerInfo:
     labels: Dict[str, str] = field(default_factory=dict)
     environment: Dict[str, str] = field(default_factory=dict)
     volumes: List[str] = field(default_factory=list)
+    bind_mounts: List["BindMountInfo"] = field(default_factory=list)  # Persistent host binds
     compose_files: List[Path] = field(default_factory=list)  # All compose files (incl. overrides)
     inspect_data: Optional[Dict[str, Any]] = None
     database_type: Optional[str] = None
@@ -80,6 +81,36 @@ class VolumeInfo:
 
 
 @dataclass
+class BindMountInfo:
+    """A host-directory bind mount discovered on a container (Plan 0040 / #129).
+
+    Persistent bind mounts (e.g. ``./vw-data:/data``) are first-class backup
+    targets — their host ``source`` path is snapshotted just like a named volume.
+    Runtime-only host internals (docker socket, /proc, /sys, /dev) are classified
+    via :func:`is_runtime_only` and never archived.
+    """
+
+    source: str  # Host path (absolute)
+    destination: str  # Path inside the container
+    read_only: bool = False
+    container_ids: List[str] = field(default_factory=list)
+    size_bytes: Optional[int] = None
+
+    @property
+    def is_runtime_only(self) -> bool:
+        """True when the source is a host internal that must not be archived."""
+        from .helpers.constants import (
+            RUNTIME_ONLY_BIND_PREFIXES,
+            RUNTIME_ONLY_BIND_BASENAMES,
+        )
+
+        src = (self.source or "").rstrip("/") or "/"
+        if any(src == p or src.startswith(p + "/") for p in RUNTIME_ONLY_BIND_PREFIXES):
+            return True
+        return any(src.endswith("/" + b) or src == b for b in RUNTIME_ONLY_BIND_BASENAMES)
+
+
+@dataclass
 class BackupSource:
     """One source to snapshot in a single backup run (Plan 0028).
 
@@ -98,6 +129,11 @@ class BackupSource:
     kind: str
     tags: Dict[str, str] = field(default_factory=dict)
     description: Optional[str] = None
+    # Glob patterns passed to `kopia snapshot create --ignore`. Only set for
+    # data sources (volumes, binds) where the operator's `exclude_patterns`
+    # config should apply; metadata staging (recipes/networks/config) leaves
+    # this None so nothing is trimmed from the backup recipe.
+    exclude_patterns: Optional[List[str]] = None
 
 
 @dataclass
@@ -121,6 +157,7 @@ class BackupUnit:
     type: str  # ← WICHTIG: "stack" oder "standalone"
     containers: List[ContainerInfo] = field(default_factory=list)
     volumes: List[VolumeInfo] = field(default_factory=list)
+    bind_mounts: List[BindMountInfo] = field(default_factory=list)  # Persistent host binds
     compose_files: List[Path] = field(default_factory=list)  # All compose files (incl. overrides)
 
     @property
@@ -171,6 +208,7 @@ class BackupMetadata:
     error_message: Optional[str] = None
     kopia_snapshot_ids: List[str] = field(default_factory=list)
     volumes_backed_up: int = 0
+    bind_mounts_backed_up: int = 0
     databases_backed_up: int = 0
     errors: List[str] = field(default_factory=list)
     backup_scope: str = "standard"  # minimal, standard, full
@@ -190,6 +228,7 @@ class BackupMetadata:
             "error_message": self.error_message,
             "kopia_snapshot_ids": self.kopia_snapshot_ids,
             "volumes_backed_up": self.volumes_backed_up,
+            "bind_mounts_backed_up": self.bind_mounts_backed_up,
             "databases_backed_up": self.databases_backed_up,
             "errors": self.errors,
             "backup_scope": self.backup_scope,
@@ -242,6 +281,7 @@ class BackupMetadata:
             error_message=data.get("error_message"),
             kopia_snapshot_ids=data.get("kopia_snapshot_ids", []),
             volumes_backed_up=int(data.get("volumes_backed_up", 0)),
+            bind_mounts_backed_up=int(data.get("bind_mounts_backed_up", 0)),
             databases_backed_up=int(data.get("databases_backed_up", 0)),
             errors=data.get("errors", []),
             backup_scope=data.get("backup_scope", "standard"),
@@ -260,6 +300,7 @@ class RestorePoint:
     backup_id: str  # REQUIRED
     recipe_snapshots: List[Dict[str, Any]] = field(default_factory=list)
     volume_snapshots: List[Dict[str, Any]] = field(default_factory=list)
+    bind_snapshots: List[Dict[str, Any]] = field(default_factory=list)
     database_snapshots: List[Dict[str, Any]] = field(default_factory=list)
     network_snapshots: List[Dict[str, Any]] = field(default_factory=list)
     docker_config_snapshots: List[Dict[str, Any]] = field(default_factory=list)

@@ -32,7 +32,7 @@ Notes:
 from pathlib import Path
 
 # Version information
-VERSION = "7.6.4"
+VERSION = "7.7.0"
 
 # Backup Scope Levels
 BACKUP_SCOPE_MINIMAL = "minimal"  # Only volumes
@@ -120,6 +120,22 @@ STAGING_BASE_DIR = Path("/var/cache/kopi-docka/staging")
 BACKUP_FORMAT_TAR = "tar"  # Legacy: tar stream → Kopia stdin
 BACKUP_FORMAT_DIRECT = "direct"  # New: direct Kopia snapshot of volume path
 BACKUP_FORMAT_DEFAULT = BACKUP_FORMAT_DIRECT  # Default for new backups
+
+# Bind-mount classification (Plan 0040 / issue #129)
+# ==================================================
+# Persistent bind mounts (host-directory volume mappings such as
+# `./vw-data:/data`) are discovered as first-class backup targets. A small set
+# of bind sources are runtime-only host internals that must be classified and
+# skipped — never archived as ordinary files. tmpfs, devices and named volumes
+# arrive as their own Docker Mount `Type` and never reach the bind path.
+#
+# - RUNTIME_ONLY_BIND_PREFIXES: source paths at or under these trees are host
+#   internals (kernel/pseudo filesystems and the tmpfs runtime dirs, which hold
+#   sockets and pid files, not persistent data).
+# - RUNTIME_ONLY_BIND_BASENAMES: sockets identified by their file name
+#   (e.g. /var/run/docker.sock, /run/docker.sock).
+RUNTIME_ONLY_BIND_PREFIXES = ("/proc", "/sys", "/dev", "/run", "/var/run")
+RUNTIME_ONLY_BIND_BASENAMES = ("docker.sock",)
 
 # Backup hooks
 HOOK_PRE_BACKUP = "pre_backup"

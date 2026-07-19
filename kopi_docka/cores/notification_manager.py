@@ -54,6 +54,7 @@ class BackupStats:
     timestamp: datetime = field(default_factory=datetime.now)
     backup_id: str = ""
     networks_backed_up: int = 0
+    bind_mounts_backed_up: int = 0
     hooks_executed: List[str] = field(default_factory=list)
     error_details: List[BackupErrorDetail] = field(default_factory=list)
 
@@ -69,6 +70,7 @@ class BackupStats:
             timestamp=metadata.timestamp,
             backup_id=metadata.backup_id,
             networks_backed_up=metadata.networks_backed_up,
+            bind_mounts_backed_up=metadata.bind_mounts_backed_up,
             hooks_executed=metadata.hooks_executed.copy(),
             error_details=metadata.error_details.copy(),
         )
@@ -244,6 +246,7 @@ class NotificationManager:
             f"**Unit:** {stats.unit_name}\n"
             f"**Status:** SUCCESS\n"
             f"**Volumes:** {stats.volumes_backed_up}\n"
+            f"**Bind mounts:** {stats.bind_mounts_backed_up}\n"
             f"**Networks:** {stats.networks_backed_up}\n"
             f"**Duration:** {stats.duration_seconds:.1f}s\n"
             f"**Backup-ID:** {stats.backup_id[:8]}..."
