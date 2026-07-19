@@ -5,6 +5,29 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### ✨ Portainer-managed stacks: compose files are now captured per unit (Plan 0042)
+
+**Why:** Stacks deployed by Portainer (and similar managers) carry a
+`com.docker.compose.project.config_files` label pointing *inside the manager
+container* — e.g. `/data/compose/6/docker-compose.yml`, where Portainer's
+`/data` is a named volume. That path does not exist on the host, so each unit's
+`docker-compose.yml` was reported `not_protected` and omitted from the unit
+recipe. The file was only backed up indirectly, buried inside the Portainer
+volume — a chicken-and-egg restore blindspot (restore Portainer first, then dig
+into its volume).
+
+**Changes:**
+- Discovery now translates an in-container compose path to its host location
+  through the manager container's mounts (generic — any manager that stores
+  compose in a volume, not Portainer-specific), and captures the file into each
+  unit's own recipe. Per-unit restore is now self-contained.
+- A free side benefit: adjacent config (`.env*`, `*.conf`, …) next to the
+  resolved compose file is now collected too.
+- If the manager container is fully removed (not just stopped) the mapping is
+  unknown → falls back to the existing `not_protected` warning (no regression).
+
 ## [7.8.2] - 2026-07-19
 
 ### 🐛 Fix: backup no longer tries to snapshot the entire host filesystem (Plan 0041)

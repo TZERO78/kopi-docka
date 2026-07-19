@@ -43,6 +43,66 @@ from ..helpers.constants import (
 logger = get_logger(__name__)
 
 
+# --------------------------------------------------------------------------- #
+# In-container → host path resolution (Plan 0042)
+#
+# Stack managers such as Portainer deploy stacks via `docker compose`, so each
+# container carries `com.docker.compose.project.config_files` pointing at a path
+# *inside the manager container* (e.g. `/data/compose/6/docker-compose.yml`,
+# where Portainer's `/data` is a named volume). That path does not exist on the
+# host, so the compose file would be silently omitted from the unit recipe. We
+# translate it back to its host location through the manager container's mounts,
+# making each unit's backup self-contained (no need to restore the manager first).
+# --------------------------------------------------------------------------- #
+
+
+def build_mount_index(containers: List[ContainerInfo]) -> List[tuple[str, str]]:
+    """Return ``(destination, host_source)`` pairs from all container mounts.
+
+    Both ``bind`` and ``volume`` mounts are included — for a named volume
+    ``docker inspect`` reports ``Source`` as the host path
+    (``/var/lib/docker/volumes/<name>/_data``). Sorted longest-destination-first
+    so the most specific mount wins during resolution.
+    """
+    index: List[tuple[str, str]] = []
+    seen: set = set()
+    for c in containers:
+        for m in (c.inspect_data or {}).get("Mounts", []) or []:
+            dest = (m.get("Destination") or "").rstrip("/")
+            src = (m.get("Source") or "").rstrip("/")
+            if not dest or not src:
+                continue
+            key = (dest, src)
+            if key in seen:
+                continue
+            seen.add(key)
+            index.append(key)
+    index.sort(key=lambda pair: len(pair[0]), reverse=True)
+    return index
+
+
+def resolve_container_path_to_host(
+    path: Path, mount_index: List[tuple[str, str]]
+) -> Optional[Path]:
+    """Translate an in-container ``path`` to its host location via a mount.
+
+    Finds the longest mount destination that is a prefix of ``path`` and rebuilds
+    the host path as ``source + (path - destination)``. Returns the host path only
+    if it actually exists (the guard against a wrong prefix match); otherwise None.
+    """
+    p = str(path).rstrip("/")
+    for dest, src in mount_index:  # already longest-first
+        if p == dest or p.startswith(dest + "/"):
+            remainder = p[len(dest):]
+            host = Path(src + remainder)
+            try:
+                if host.exists():
+                    return host
+            except OSError:
+                continue
+    return None
+
+
 class DockerDiscovery:
     """
     Entdeckt Docker-Container und -Volumes und gruppiert sie in BackupUnits.
@@ -106,6 +166,7 @@ class DockerDiscovery:
         volumes = self._discover_volumes()
 
         units = self._group_into_units(containers, volumes)
+        self._resolve_compose_paths(units, containers)
 
         logger.info(
             f"Discovered {len(units)} backup units",
@@ -372,6 +433,38 @@ class DockerDiscovery:
         # Sortierung: DB-lastige Einheiten zuerst, dann Name
         units.sort(key=lambda u: (0 if u.has_databases else 1, u.name.lower()))
         return units
+
+    def _resolve_compose_paths(
+        self, units: List[BackupUnit], containers: List[ContainerInfo]
+    ) -> None:
+        """Rewrite in-container compose paths to their host location (Plan 0042).
+
+        A compose file whose labeled path does not exist on the host (Portainer &
+        co. store it inside the manager's volume) is translated through the
+        manager container's mounts, so the file is captured into this unit's own
+        recipe instead of being stranded inside another container's volume.
+        """
+        mount_index = build_mount_index(containers)
+        if not mount_index:
+            return
+        for unit in units:
+            if not unit.compose_files:
+                continue
+            resolved: List[Path] = []
+            for cf in unit.compose_files:
+                if cf.exists():
+                    resolved.append(cf)
+                    continue
+                host = resolve_container_path_to_host(cf, mount_index)
+                if host is not None:
+                    logger.info(
+                        f"Resolved in-container compose path {cf} → {host}",
+                        extra={"operation": "discover", "unit_name": unit.name},
+                    )
+                    resolved.append(host)
+                else:
+                    resolved.append(cf)  # unresolved → stays, reported as a gap
+            unit.compose_files = resolved
 
     def _aggregate_bind_mounts(self, containers: List[ContainerInfo]) -> List[BindMountInfo]:
         """Dedupliziert persistente Bind-Mounts über eine Container-Liste.
