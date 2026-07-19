@@ -537,6 +537,37 @@ class BackupManager:
                         data[0]["Config"]["Env"] = red
                 (staging_dir / f"{c.name}_inspect.json").write_text(_json.dumps(data, indent=2))
 
+            # Coverage manifest (Plan 0040 Phase 2 / #129): a receipt of every
+            # discovered dependency and its status. Written into the recipe so it
+            # is snapshotted alongside the compose/inspect data. Never fails the
+            # backup — gaps are reported, not gated (completeness over exclusion).
+            try:
+                from ..cores.coverage_manifest import build_manifest, render_summary
+
+                manifest = build_manifest(unit)
+                manifest_doc = manifest.to_dict()
+                manifest_doc["backup_id"] = backup_id
+                manifest_doc["backup_scope"] = backup_scope
+                manifest_doc["timestamp"] = datetime.now(timezone.utc).isoformat()
+                (staging_dir / "coverage-manifest.json").write_text(
+                    _json.dumps(manifest_doc, indent=2)
+                )
+                for line in render_summary(manifest):
+                    logger.info(line, extra={"unit_name": unit.name})
+                if manifest.has_gaps:
+                    logger.warning(
+                        f"Backup coverage gaps for {unit.name}: "
+                        f"{manifest.summary['not_protected']} unprotected, "
+                        f"{manifest.summary['not_supported']} unsupported "
+                        "(see coverage-manifest.json)",
+                        extra={"unit_name": unit.name},
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"Could not build coverage manifest for {unit.name}: {e}",
+                    extra={"unit_name": unit.name},
+                )
+
             return [
                 BackupSource(
                     path=str(staging_dir),
