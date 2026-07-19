@@ -124,18 +124,39 @@ BACKUP_FORMAT_DEFAULT = BACKUP_FORMAT_DIRECT  # Default for new backups
 # Bind-mount classification (Plan 0040 / issue #129)
 # ==================================================
 # Persistent bind mounts (host-directory volume mappings such as
-# `./vw-data:/data`) are discovered as first-class backup targets. A small set
-# of bind sources are runtime-only host internals that must be classified and
-# skipped — never archived as ordinary files. tmpfs, devices and named volumes
-# arrive as their own Docker Mount `Type` and never reach the bind path.
+# `./vw-data:/data`) are discovered as first-class backup targets. A set of bind
+# sources are host internals that must be classified and skipped — never archived
+# as ordinary files. tmpfs, devices and named volumes arrive as their own Docker
+# Mount `Type` and never reach the bind path.
 #
-# - RUNTIME_ONLY_BIND_PREFIXES: source paths at or under these trees are host
-#   internals (kernel/pseudo filesystems and the tmpfs runtime dirs, which hold
-#   sockets and pid files, not persistent data).
-# - RUNTIME_ONLY_BIND_BASENAMES: sockets identified by their file name
+# A bind mount into a host-OS tree is the fingerprint of a host observer/controller
+# container (monitoring, log-shipper, control-plane) — its real persistent data
+# lives in named volumes, not in these mounts. netdata is the canonical example:
+# it mounts `/ → /host/root:ro` for monitoring; snapshotting that walks the entire
+# host tree (including the backup destination — infinite recursion) and never
+# completes. Host root `/` is therefore never a valid backup source.
+#
+# - HOST_INTERNAL_BIND_PREFIXES: source paths at or under these trees are host
+#   internals — kernel/pseudo filesystems, the tmpfs runtime dirs (sockets/pid
+#   files), and OS-owned trees (system config, binaries, libraries, boot, docker's
+#   own state, host logs) that belong to the host, not to any application.
+# - HOST_INTERNAL_BIND_BASENAMES: sockets identified by their file name
 #   (e.g. /var/run/docker.sock, /run/docker.sock).
-RUNTIME_ONLY_BIND_PREFIXES = ("/proc", "/sys", "/dev", "/run", "/var/run")
-RUNTIME_ONLY_BIND_BASENAMES = ("docker.sock",)
+# Host root `/` is handled explicitly in BindMountInfo.is_host_internal.
+#
+# These are the built-in FALLBACK defaults. The effective, user-editable lists
+# ship in templates/bind_filter.json and are loaded via helpers/bind_filter.py;
+# these tuples are only used if that shipped JSON is unreadable (packaging safety
+# net). Keep the two in sync.
+HOST_INTERNAL_BIND_PREFIXES = (
+    "/proc", "/sys", "/dev", "/run", "/var/run",   # kernel/pseudo-fs + tmpfs runtime dirs
+    "/etc",                                         # host system config (passwd, group, os-release)
+    "/usr", "/bin", "/sbin", "/lib", "/lib64",      # OS binaries and libraries
+    "/boot",                                        # kernel / bootloader
+    "/var/lib/docker",                              # docker's own state (recursion risk)
+    "/var/log",                                     # host logs (observed by log-shippers, not owned)
+)
+HOST_INTERNAL_BIND_BASENAMES = ("docker.sock",)
 
 # Backup hooks
 HOOK_PRE_BACKUP = "pre_backup"

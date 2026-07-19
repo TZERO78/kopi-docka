@@ -136,8 +136,8 @@ def _classify_mounts(unit: BackupUnit, m: CoverageManifest) -> None:
                 if not source or ("bind", source) in seen:
                     continue
                 seen.add(("bind", source))
-                if BindMountInfo(source=source, destination=mount.get("Destination", "")).is_runtime_only:
-                    m.add("runtime_mount", source, STATUS_SKIPPED_RUNTIME, "runtime host internal (socket/pseudo-fs)")
+                if BindMountInfo(source=source, destination=mount.get("Destination", "")).is_host_internal:
+                    m.add("runtime_mount", source, STATUS_SKIPPED_RUNTIME, "host internal (OS path / socket / pseudo-fs)")
                 else:
                     m.add("bind", source, STATUS_BACKED_UP,
                           f"→ {mount.get('Destination', '')}" + (" (ro)" if mount.get("RW") is False else ""))

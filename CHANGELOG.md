@@ -5,6 +5,37 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🐛 Fix: backup no longer tries to snapshot the entire host filesystem (Plan 0041)
+
+**Why:** A container that bind-mounts host root — e.g. netdata's
+`/ → /host/root:ro` for monitoring — was discovered as a normal bind-mount
+backup target. Kopia then walked the entire host tree (including the backup
+destination itself → infinite recursion) and the run never completed. The old
+`is_runtime_only` filter only skipped `/proc`, `/sys`, `/dev`, `/run`,
+`/var/run` and `docker.sock`; host root `/` and OS trees like `/etc` fell
+through.
+
+**Changes:**
+- Host root `/` is now **always** blocked as a backup source — hardcoded and
+  non-removable (`BindMountInfo.is_host_internal`).
+- Host-OS trees are skipped by default: `/etc`, `/usr`, `/bin`, `/sbin`,
+  `/lib`, `/lib64`, `/boot`, `/var/lib/docker`, `/var/log` (in addition to the
+  existing pseudo-filesystems and `docker.sock`).
+- The skip list is now **user-editable** via a `bind_filter.json`: copy the
+  shipped `templates/bind_filter.json` to `/etc/kopi-docka.filter.json` (or
+  `~/.config/kopi-docka/filter.json`), or point `KOPI_DOCKA_BIND_FILTER` at a
+  custom path, to add or remove entries. A malformed file falls back to the
+  built-in defaults (never fails open). Host root `/` cannot be re-enabled.
+- Host-internal mounts continue to be classified as runtime-skipped in
+  `coverage-manifest.json`, so nothing is dropped silently.
+
+**Note:** A container that bind-mounts host internals is a host observer /
+controller (monitoring, log-shipper, control-plane) — its real data lives in
+its named volumes, which are backed up as before. netdata's
+`netdatalib` / `netdataconfig` / `netdatacache` volumes are unaffected.
+
 ## [7.8.1] - 2026-07-19
 
 ### 🐛 Hotfix: broken wheel — `cores.restore` package was missing (7.7.0 & 7.8.0)

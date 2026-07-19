@@ -2,7 +2,7 @@
 Unit tests for persistent bind-mount discovery and backup (Plan 0040 / #129).
 
 Covers:
-- BindMountInfo.is_runtime_only classification
+- BindMountInfo.is_host_internal classification
 - DockerDiscovery._parse_container_info bind-mount extraction + runtime skip
 - DockerDiscovery._aggregate_bind_mounts dedup across containers
 - DockerDiscovery._group_into_units attaches bind mounts to units
@@ -38,7 +38,7 @@ def _container_inspect(cid, name, labels=None, mounts=None, status="running"):
 
 
 # =============================================================================
-# Runtime-only classification
+# Host-internal classification
 # =============================================================================
 
 
@@ -47,6 +47,10 @@ class TestBindMountClassification:
     @pytest.mark.parametrize(
         "source",
         [
+            # host root — the netdata `/ -> /host/root:ro` crash (never a source)
+            "/",
+            "//",  # normalizes to /
+            # kernel / pseudo-fs + tmpfs runtime dirs
             "/var/run/docker.sock",
             "/run/docker.sock",
             "/proc",
@@ -58,24 +62,40 @@ class TestBindMountClassification:
             "/run/systemd",
             "/var/run",
             "/var/run/dbus",
+            # OS-owned trees (Level B)
+            "/etc",
+            "/etc/passwd",
+            "/etc/group",
+            "/usr/bin",
+            "/bin",
+            "/lib",
+            "/lib64/foo",
+            "/boot",
+            "/var/lib/docker",
+            "/var/lib/docker/volumes/x/_data",
+            "/var/log",
+            "/var/log/journal",
         ],
     )
-    def test_runtime_only_sources(self, source):
-        assert BindMountInfo(source=source, destination="/x").is_runtime_only is True
+    def test_host_internal_sources(self, source):
+        assert BindMountInfo(source=source, destination="/x").is_host_internal is True
 
     @pytest.mark.parametrize(
         "source",
         [
             "/home/user/vw-data",
             "/opt/app/config",
-            "/etc/myapp/app.conf",
+            "/opt/docker/vaultwarden/vw-data",
             "/srv/data",
-            "/devops/data",  # must NOT match /dev prefix
-            "/procurement",  # must NOT match /proc prefix
+            "/devops/data",   # must NOT match /dev prefix
+            "/procurement",   # must NOT match /proc prefix
+            "/etcetera/data",  # must NOT match /etc prefix
+            "/usranon/data",   # must NOT match /usr prefix
+            "/booted/data",    # must NOT match /boot prefix
         ],
     )
     def test_persistent_sources(self, source):
-        assert BindMountInfo(source=source, destination="/x").is_runtime_only is False
+        assert BindMountInfo(source=source, destination="/x").is_host_internal is False
 
 
 # =============================================================================
@@ -112,10 +132,28 @@ class TestParseBindMounts:
         discovery = make_discovery()
         data = _container_inspect(
             "c1", "app",
-            mounts=[{"Type": "bind", "Source": "/etc/app", "Destination": "/etc/app", "RW": False}],
+            mounts=[{"Type": "bind", "Source": "/opt/app", "Destination": "/etc/app", "RW": False}],
         )
         info = discovery._parse_container_info(data)
         assert info.bind_mounts[0].read_only is True
+
+    def test_skips_host_root_mount(self):
+        """Regression: netdata `/ -> /host/root:ro` must never become a backup target."""
+        discovery = make_discovery()
+        data = _container_inspect(
+            "netdata",
+            "netdata",
+            mounts=[
+                {"Type": "bind", "Source": "/", "Destination": "/host/root", "RW": False},
+                {"Type": "bind", "Source": "/etc/passwd",
+                 "Destination": "/host/etc/passwd", "RW": False},
+                {"Type": "bind", "Source": "/proc", "Destination": "/host/proc", "RW": False},
+                {"Type": "volume", "Name": "netdata_netdatalib", "Destination": "/var/lib/netdata"},
+            ],
+        )
+        info = discovery._parse_container_info(data)
+        assert info.bind_mounts == []
+        assert info.volumes == ["netdata_netdatalib"]
 
 
 # =============================================================================

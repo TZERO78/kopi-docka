@@ -196,8 +196,9 @@ class DockerDiscovery:
                 env_map[k] = v
 
         # Mounts: named volumes + persistente Bind-Mounts (Plan 0040 / #129).
-        # Runtime-only Binds (docker.sock, /proc, /sys, /dev) werden klassifiziert
-        # und übersprungen — nie als gewöhnliche Dateien archiviert.
+        # Host-interne Binds (host root /, docker.sock, /proc, /sys, /dev, /etc und
+        # weitere OS-Bäume) werden klassifiziert und übersprungen — nie als
+        # gewöhnliche Dateien archiviert.
         vol_names: List[str] = []
         bind_mounts: List[BindMountInfo] = []
         for m in d.get("Mounts", []) or []:
@@ -211,9 +212,9 @@ class DockerDiscovery:
                     read_only=(m.get("RW") is False),
                     container_ids=[cid],
                 )
-                if bind.is_runtime_only:
+                if bind.is_host_internal:
                     logger.debug(
-                        f"Skipping runtime-only bind mount {bind.source} on {name}",
+                        f"Skipping host-internal bind mount {bind.source} on {name}",
                         extra={"operation": "discover", "container": name},
                     )
                     continue
