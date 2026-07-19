@@ -52,10 +52,16 @@ services:
 ```
 
 **Discovery Process:**
-1. Scans all running containers
+1. Scans all running containers, **plus stopped containers that belong to a
+   Compose project** (`docker ps -aq --filter label=com.docker.compose.project`)
+   so a stopped stack member and its data are not silently omitted. Stopped
+   standalone throwaway containers are ignored.
 2. Groups by `com.docker.compose.project`
 3. Finds docker-compose.yml via `com.docker.compose.project.working_dir` label
-4. Recognizes all associated volumes
+4. Recognizes all associated named volumes **and persistent bind mounts**
+   (host-directory mappings such as `./vw-data:/data`). Only genuine runtime
+   host internals (`/proc`, `/sys`, `/dev`, `/run`, `/var/run`, `docker.sock`)
+   are classified as runtime-only and skipped.
 
 #### What Gets Backed Up
 
@@ -69,19 +75,31 @@ services:
    - Network configuration
 
 2. **Volumes (Data)**
-   - All volumes of the stack
+   - All named volumes of the stack
    - With owners and permissions
    - Extended attributes (xattrs)
    - ACLs if present
 
-3. **Tags (Kopia)**
+3. **Persistent bind mounts (Data)**
+   - Host-directory mappings such as `./vw-data:/data` — snapshotted from their
+     host source path, just like a named volume.
+   - **All persistent bind data is captured, including secrets and sensitive
+     config.** A backup that omits secrets makes the restore worthless;
+     confidentiality comes from the encrypted repository and DR bundle, not from
+     skipping paths. Only runtime-only host internals (sockets, `/proc`, `/sys`,
+     `/dev`, `/run`, `/var/run`) are excluded — those are not data.
+
+4. **Tags (Kopia)**
    ```json
    {
-     "type": "recipe",  // or "volume"
+     "type": "recipe",  // or "volume", "bind", "networks", "docker_config"
      "unit": "wordpress",
      "backup_id": "2025-01-31T23-59-59Z",
      "timestamp": "2025-01-31T23:59:59Z",
-     "volume": "wordpress_data"  // volumes only
+     "volume": "wordpress_data",        // volumes only
+     "bind_source": "/opt/vw-data",     // bind mounts only
+     "bind_destination": "/data",       // bind mounts only
+     "read_only": "false"               // bind mounts only
    }
    ```
 
@@ -137,7 +155,9 @@ Available Restore Points:
 # Wizard restores:
 # 1. docker-compose.yml → /tmp/kopia-restore-abc/recipes/wordpress/
 # 2. All volumes → /tmp/kopia-restore-abc/volumes/wordpress/
-# 3. Generate volume restore scripts
+# 3. Persistent bind mounts → back to their original host path
+#    (e.g. /opt/vw-data), with a safety backup of existing content first
+# 4. Generate volume restore scripts
 
 # You start (Compose):
 cd /tmp/kopia-restore-abc/recipes/wordpress/
