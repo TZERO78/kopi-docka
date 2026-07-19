@@ -41,3 +41,48 @@ jobs:
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         skip-existing: true  # Verhindert Fehler bei Tag-Updates (PyPI erlaubt kein Überschreiben)
+
+  # Legt automatisch ein GitHub-Release zum Tag an (Titel + Notes aus CHANGELOG),
+  # damit die Releases-Seite nicht mehr manuell gepflegt werden muss.
+  github-release:
+    name: Create GitHub Release
+    needs: build-and-publish
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write  # Release anlegen/bearbeiten
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # Notes = CHANGELOG-Abschnitt der getaggten Version; Titel = "vX.Y.Z — <erste ### Überschrift>"
+    - name: Prepare release notes from CHANGELOG
+      run: |
+        set -euo pipefail
+        VERSION="${GITHUB_REF_NAME#v}"
+        awk -v v="$VERSION" '
+          $0 ~ "^## \\[" v "\\]" {f=1; next}
+          /^## \[/ && f {exit}
+          f {print}
+        ' CHANGELOG.md > release-notes.md
+        if [ ! -s release-notes.md ]; then
+          printf 'Release %s\n' "$GITHUB_REF_NAME" > release-notes.md
+          printf '%s\n' "$GITHUB_REF_NAME" > release-title.txt
+        else
+          SUFFIX="$(grep -m1 '^### ' release-notes.md | sed 's/^### //' || true)"
+          printf '%s%s\n' "$GITHUB_REF_NAME" "${SUFFIX:+ — $SUFFIX}" > release-title.txt
+        fi
+        echo "Title: $(cat release-title.txt)"
+
+    - name: Create or update GitHub Release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        TITLE="$(cat release-title.txt)"
+        if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+          gh release edit "$GITHUB_REF_NAME" --title "$TITLE" --notes-file release-notes.md --latest
+        else
+          gh release create "$GITHUB_REF_NAME" --title "$TITLE" --notes-file release-notes.md --latest
+        fi
