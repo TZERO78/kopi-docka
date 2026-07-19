@@ -329,6 +329,9 @@ def _run_backup(
                 print_success(f"{u.name} completed in {int(meta.duration_seconds)}s")
                 volumes_backed_up = getattr(meta, "volumes_backed_up", 0)
                 console.print(f"   [dim]Volumes:[/dim] {volumes_backed_up}")
+                bind_mounts_backed_up = getattr(meta, "bind_mounts_backed_up", 0)
+                if bind_mounts_backed_up:
+                    console.print(f"   [dim]Bind mounts:[/dim] {bind_mounts_backed_up}")
 
                 try:
                     networks_backed_up = int(getattr(meta, "networks_backed_up", 0) or 0)

@@ -156,6 +156,8 @@ class BackupManager:
                 metadata.kopia_snapshot_ids.append(snap_id)
                 if src.kind == "volume":
                     metadata.volumes_backed_up += 1
+                elif src.kind == "bind":
+                    metadata.bind_mounts_backed_up += 1
                 elif src.kind == "network":
                     metadata.networks_backed_up = int(src.tags.get("network_count", "0"))
                 elif src.kind == "docker_config":
@@ -342,8 +344,16 @@ class BackupManager:
                     )
 
     def _start_containers(self, containers: List[ContainerInfo], service_handler: ServiceContinuityHandler):
-        """Start containers in original order and wait (healthcheck if present)."""
+        """Start containers in original order and wait (healthcheck if present).
+
+        Only restarts containers that were running at discovery time. Since
+        discovery now includes stopped compose containers (Plan 0040 / #129),
+        an unconditional start would revive containers the operator had
+        deliberately stopped — ``_stop_containers`` skips them, so must this.
+        """
         for c in containers:
+            if not c.is_running:
+                continue
             try:
                 run_command(
                     ["docker", "start", c.id],
@@ -799,6 +809,41 @@ class BackupManager:
                         "backup_format": BACKUP_FORMAT_DIRECT,
                         "size_bytes": str(getattr(volume, "size_bytes", 0) or "0"),
                     },
+                    exclude_patterns=self.exclude_patterns or None,
+                )
+            )
+        return sources
+
+    def _collect_bind_mount_sources(
+        self, unit: BackupUnit, backup_id: str, backup_scope: str
+    ) -> List[BackupSource]:
+        """Return one BackupSource per persistent bind mount in the unit
+        (Plan 0040 / #129).
+
+        Bind mounts are host-directory volume mappings such as
+        ``./vw-data:/data`` — previously omitted from backups entirely. Their
+        host ``source`` path is snapshotted just like a Direct-mode volume;
+        runtime-only binds were already filtered out during discovery. The
+        ``destination`` (path inside the container) and ``read_only`` flag are
+        carried as tags so restore can reconstruct the mapping.
+        """
+        sources: List[BackupSource] = []
+        for bind in unit.bind_mounts:
+            sources.append(
+                BackupSource(
+                    path=bind.source,
+                    kind="bind",
+                    tags={
+                        "type": "bind",
+                        "unit": unit.name,
+                        "bind_source": bind.source,
+                        "bind_destination": bind.destination,
+                        "read_only": "true" if bind.read_only else "false",
+                        "backup_id": backup_id,
+                        "backup_scope": backup_scope,
+                        "size_bytes": str(getattr(bind, "size_bytes", 0) or "0"),
+                    },
+                    exclude_patterns=self.exclude_patterns or None,
                 )
             )
         return sources
@@ -827,6 +872,7 @@ class BackupManager:
         if backup_scope == BACKUP_SCOPE_FULL:
             sources.extend(self._collect_docker_config_sources(unit, backup_id, backup_scope))
         sources.extend(self._collect_volume_sources(unit, backup_id, backup_scope))
+        sources.extend(self._collect_bind_mount_sources(unit, backup_id, backup_scope))
         return sources
 
     def _save_metadata(self, metadata: BackupMetadata):

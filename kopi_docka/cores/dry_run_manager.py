@@ -158,9 +158,11 @@ class DryRunReport:
 
         total_containers = sum(len(u.containers) for u in units)
         total_volumes = sum(len(u.volumes) for u in units)
+        total_binds = sum(len(u.bind_mounts) for u in units)
 
         print(f"Total Containers: {total_containers}")
         print(f"Total Volumes: {total_volumes}")
+        print(f"Total Bind Mounts: {total_binds}")
 
     def _analyze_unit(self, unit: BackupUnit):
         """
@@ -195,11 +197,20 @@ class DryRunReport:
             if total_size > 0:
                 print(f"Total Volume Size: {self.utils.format_bytes(total_size)}")
 
+        # Persistent bind mounts (host-directory mappings such as ./data:/data)
+        if unit.bind_mounts:
+            print(f"Bind Mounts: {len(unit.bind_mounts)}")
+            for bind in unit.bind_mounts:
+                size = bind.size_bytes or 0
+                size_str = self.utils.format_bytes(size) if size > 0 else "Unknown"
+                ro = " (read-only)" if bind.read_only else ""
+                print(f"  - {bind.source} → {bind.destination}: {size_str}{ro}")
+
         # Estimated operations (cold backup sequence)
         print("Operations:")
         print(f"  1. Stop {len(unit.running_containers)} containers")
         print("  2. Backup recipes (compose + inspect data)")
-        print(f"  3. Backup {len(unit.volumes)} volumes")
+        print(f"  3. Backup {len(unit.volumes)} volumes, {len(unit.bind_mounts)} bind mounts")
         print(f"  4. Start {len(unit.running_containers)} containers")
 
     def _print_estimates(self, units: List[BackupUnit]):

@@ -453,7 +453,7 @@ Fix the errors in: /etc/kopi-docka.conf
 | `stop_timeout` | Container stop timeout (sec) | `30` |
 | `start_timeout` | Container start timeout (sec) | `60` |
 | `task_timeout` | Volume backup timeout (0=unlimited) | `0` |
-| `exclude_patterns` | Tar exclude patterns (array) | `[]` |
+| `exclude_patterns` | Glob patterns excluded from volume & bind-mount snapshots (`kopia --ignore`, array). Operator opt-in to trim logs/caches; empty = back up everything | `[]` |
 | `backup_scope` | What to backup: `minimal` (volumes only), `standard` (volumes+recipes+networks), `full` (everything+docker_config) | `standard` |
 | `update_recovery_bundle` | DR bundle with every backup | `false` |
 | `recovery_bundle_retention` | DR bundles to keep | `3` |

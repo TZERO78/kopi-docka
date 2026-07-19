@@ -337,9 +337,11 @@ class TestDockerDiscoveryErrors:
         """Should skip containers that fail to inspect."""
         from kopi_docka.cores.docker_discovery import DockerDiscovery
 
-        # First call returns container IDs, second fails, third succeeds
+        # ps -q returns IDs, ps -aq --filter returns none, then inspects
+        # (c1 fails, c2 succeeds).
         mock_run.side_effect = [
             CompletedProcess([], 0, stdout="c1\nc2\n", stderr=""),
+            CompletedProcess([], 0, stdout="", stderr=""),  # ps -aq --filter (none)
             Exception("Container not found"),  # c1 inspect fails
             CompletedProcess(
                 [],
