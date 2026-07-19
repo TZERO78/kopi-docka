@@ -5,6 +5,39 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🧾 Backup coverage manifest: gaps are now explicit, not silent
+
+**Why:** v7.7.0 closed the bind-mount data-loss gap, but there was still no
+single receipt proving that *every* dependency of a stack was accounted
+for. If something persistent was not captured — an `env_file` outside the
+compose directory, an external Swarm secret — it simply wasn't there, with
+no record saying "seen but not protected". Issue #129's core ask is to
+never silently omit state; this makes coverage auditable.
+
+**Changes:**
+- Every backup now writes a **`coverage-manifest.json`** into the recipe
+  snapshot: for each discovered dependency it records a status —
+  `backed_up`, `skipped_runtime` (sockets/pseudo-fs/tmpfs), `not_protected`
+  (persistent but not captured, e.g. an out-of-dir `env_file`), or
+  `not_supported` (e.g. an external Swarm secret). Includes a summary and a
+  `has_gaps` flag.
+- Mounts are classified straight from `docker inspect`, so runtime mounts
+  that were deliberately skipped still appear in the receipt.
+- Compose files are parsed for `env_file:` and `secrets:`/`configs:` to
+  surface dependencies that live outside the compose directory or that
+  Kopi-Docka cannot protect.
+- `dry-run` prints the coverage summary and flags any gaps **before** the
+  run; the backup logs a warning when gaps exist.
+- New module `cores/coverage_manifest.py`; `pyyaml` added as a dependency.
+
+**Upgrade notes:** No config or repository-format changes. This is
+transparency, **not** a gate — a gap is reported, never fail-closed; the
+backup still captures everything it can (completeness over exclusion). Run
+`dry-run` to review coverage, or read `coverage-manifest.json` from a
+restored recipe. Follow-up to issue #129.
+
 ## [7.7.0] - 2026-07-19
 
 ### 🗂️ Backup completeness: bind mounts and stopped compose containers no longer silently omitted

@@ -206,6 +206,17 @@ class DryRunReport:
                 ro = " (read-only)" if bind.read_only else ""
                 print(f"  - {bind.source} → {bind.destination}: {size_str}{ro}")
 
+        # Coverage manifest preview (Plan 0040 Phase 2 / #129): surface any
+        # persistent dependency that would NOT be protected, before the run.
+        try:
+            from ..cores.coverage_manifest import build_manifest, render_summary
+
+            manifest = build_manifest(unit)
+            for line in render_summary(manifest):
+                print(line)
+        except Exception:
+            pass
+
         # Estimated operations (cold backup sequence)
         print("Operations:")
         print(f"  1. Stop {len(unit.running_containers)} containers")

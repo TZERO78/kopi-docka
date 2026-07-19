@@ -92,7 +92,17 @@ services:
      trim sub-paths such as logs or caches; it applies to both named volumes and
      bind mounts. Empty by default — nothing is trimmed unless you ask.
 
-4. **Tags (Kopia)**
+4. **Coverage manifest (transparency)**
+   - Every backup writes a `coverage-manifest.json` into the recipe snapshot: a
+     receipt listing every discovered dependency with a status — `backed_up`,
+     `skipped_runtime` (sockets/pseudo-fs/tmpfs), `not_protected` (persistent but
+     not captured, e.g. an `env_file` outside the compose dir), or `not_supported`
+     (e.g. an external Swarm secret).
+   - `dry-run` prints the coverage summary and flags gaps before the run. This is
+     transparency, not a gate — a gap is reported, never fail-closed; the backup
+     still captures everything it can.
+
+5. **Tags (Kopia)**
    ```json
    {
      "type": "recipe",  // or "volume", "bind", "networks", "docker_config"
