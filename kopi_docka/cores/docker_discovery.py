@@ -33,7 +33,7 @@ from pathlib import Path
 
 from ..helpers.logging import get_logger
 from ..helpers.ui_utils import run_command, SubprocessError
-from ..types import BackupUnit, ContainerInfo, VolumeInfo
+from ..types import BackupUnit, ContainerInfo, VolumeInfo, BindMountInfo
 from ..helpers.constants import (
     DOCKER_COMPOSE_PROJECT_LABEL,
     DOCKER_COMPOSE_CONFIG_LABEL,
@@ -122,14 +122,45 @@ class DockerDiscovery:
 
     def _discover_containers(self) -> List[ContainerInfo]:
         """
-        Entdeckt laufende Container (für Cold-Backup genügt das in der Regel).
+        Entdeckt zu sichernde Container.
+
+        Umfasst (Plan 0040 / #129):
+        - alle **laufenden** Container (``docker ps -q``), und
+        - **gestoppte** Container, die zu einem Compose-Projekt gehören
+          (``docker ps -aq --filter label=<project>``).
+
+        Gestoppte Standalone-Container (ohne Compose-Label) werden bewusst
+        ausgelassen — sonst würde jeder tote Wegwerf-Container zum Backup-Ziel.
+        Ein zum Stack gehörender, gerade gestoppter Container samt seiner
+        Volumes/Binds darf hingegen nicht stillschweigend fehlen.
         """
-        out = self._run_docker(["ps", "-q"])
-        if not out.strip():
-            logger.warning("No running containers found", extra={"operation": "discover"})
+        running = self._run_docker(["ps", "-q"])
+        # Best effort: a failure of the compose-filter call must not abort the
+        # whole run — fall back to the running-only set rather than raising.
+        try:
+            compose_all = self._run_docker(
+                ["ps", "-aq", "--filter", f"label={DOCKER_COMPOSE_PROJECT_LABEL}"]
+            )
+        except Exception as e:
+            logger.warning(
+                f"Could not list stopped compose containers, backing up running only: {e}",
+                extra={"operation": "discover"},
+            )
+            compose_all = ""
+
+        ids: List[str] = []
+        seen: set[str] = set()
+        for out in (running, compose_all):
+            for cid in out.strip().split("\n"):
+                cid = cid.strip()
+                if cid and cid not in seen:
+                    seen.add(cid)
+                    ids.append(cid)
+
+        if not ids:
+            logger.warning("No containers found to back up", extra={"operation": "discover"})
             return []
 
-        ids = [c for c in out.strip().split("\n") if c]
         containers: List[ContainerInfo] = []
 
         for cid in ids:
@@ -164,11 +195,29 @@ class DockerDiscovery:
                 k, v = e.split("=", 1)
                 env_map[k] = v
 
-        # Volumes (nur named volumes)
+        # Mounts: named volumes + persistente Bind-Mounts (Plan 0040 / #129).
+        # Runtime-only Binds (docker.sock, /proc, /sys, /dev) werden klassifiziert
+        # und übersprungen — nie als gewöhnliche Dateien archiviert.
         vol_names: List[str] = []
+        bind_mounts: List[BindMountInfo] = []
         for m in d.get("Mounts", []) or []:
-            if m.get("Type") == "volume" and m.get("Name"):
+            mtype = m.get("Type")
+            if mtype == "volume" and m.get("Name"):
                 vol_names.append(m["Name"])
+            elif mtype == "bind" and m.get("Source"):
+                bind = BindMountInfo(
+                    source=m["Source"],
+                    destination=m.get("Destination", ""),
+                    read_only=(m.get("RW") is False),
+                    container_ids=[cid],
+                )
+                if bind.is_runtime_only:
+                    logger.debug(
+                        f"Skipping runtime-only bind mount {bind.source} on {name}",
+                        extra={"operation": "discover", "container": name},
+                    )
+                    continue
+                bind_mounts.append(bind)
 
         # Compose-Dateien (Label kann mehrere Dateien enthalten, kommagetrennt)
         compose_files: List[Path] = []
@@ -190,6 +239,7 @@ class DockerDiscovery:
             labels=labels,
             environment=env_map,
             volumes=vol_names,
+            bind_mounts=bind_mounts,
             compose_files=compose_files,
             inspect_data=d,
             database_type=db_type,
@@ -302,6 +352,9 @@ class DockerDiscovery:
                     if v.name in c.volumes:
                         v.container_ids.append(c.id)
 
+            # Persistente Bind-Mounts über alle Container aggregieren
+            unit.bind_mounts = self._aggregate_bind_mounts(c_list)
+
             units.append(unit)
 
         # Units für Standalone-Container
@@ -312,8 +365,39 @@ class DockerDiscovery:
             unit.volumes = [vmap[n] for n in c.volumes if n in vmap]
             for v in unit.volumes:
                 v.container_ids.append(c.id)
+            unit.bind_mounts = self._aggregate_bind_mounts([c])
             units.append(unit)
 
         # Sortierung: DB-lastige Einheiten zuerst, dann Name
         units.sort(key=lambda u: (0 if u.has_databases else 1, u.name.lower()))
         return units
+
+    def _aggregate_bind_mounts(self, containers: List[ContainerInfo]) -> List[BindMountInfo]:
+        """Dedupliziert persistente Bind-Mounts über eine Container-Liste.
+
+        Mehrere Container eines Stacks können denselben Host-Pfad einbinden;
+        er wird nur einmal als Backup-Ziel geführt, die betroffenen
+        container_ids werden zusammengeführt. Größe best effort via ``du``.
+        Read-only gilt nur, wenn *alle* Einbindungen read-only sind.
+        """
+        by_source: Dict[str, BindMountInfo] = {}
+        for c in containers:
+            for b in c.bind_mounts:
+                existing = by_source.get(b.source)
+                if existing is None:
+                    merged = BindMountInfo(
+                        source=b.source,
+                        destination=b.destination,
+                        read_only=b.read_only,
+                        container_ids=[c.id],
+                    )
+                    by_source[b.source] = merged
+                else:
+                    if c.id not in existing.container_ids:
+                        existing.container_ids.append(c.id)
+                    existing.read_only = existing.read_only and b.read_only
+
+        binds = list(by_source.values())
+        for b in binds:
+            b.size_bytes = self._estimate_volume_size(b.source)
+        return binds

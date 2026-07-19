@@ -5,6 +5,54 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🗂️ Backup completeness: bind mounts and stopped compose containers no longer silently omitted
+
+**Why:** Kopi-Docka reported a green, successful backup while silently
+leaving out persistent workload state (issue #129). Two gaps caused
+false recovery confidence: (1) discovery only recorded named volumes,
+so **bind-mounted host directories were never backed up** — a
+Vaultwarden stack with `./vw-data:/data` produced snapshots that
+looked complete but omitted all of its data; (2) discovery only saw
+**running** containers, so a stopped container belonging to a Compose
+project — and its volumes — was skipped entirely.
+
+**Changes:**
+- Discovery now captures **persistent bind mounts** as first-class
+  backup targets. Their host source path is snapshotted just like a
+  named volume. Only genuine runtime host internals
+  (`/proc`, `/sys`, `/dev`, `/run`, `/var/run`, `docker.sock`) are
+  classified and skipped — never archived as ordinary files (new
+  `BindMountInfo.is_runtime_only`). All other persistent data,
+  **including secrets and sensitive config**, is captured: a backup that
+  omits secrets makes the restore worthless; protection comes from the
+  encrypted repository, not from skipping paths.
+- The **restore wizard now restores bind mounts** back to their original
+  host path, with a safety backup of existing content and
+  permission-preserving sync (new `cores/restore/bind_restore.py`). Bind
+  mounts appear in restore-point listings and are no longer silently
+  dropped.
+- Discovery now includes **stopped containers that belong to a Compose
+  project** (`docker ps -aq --filter label=com.docker.compose.project`),
+  in addition to all running containers. Stopped standalone throwaway
+  containers are still ignored; the compose-filter call is best-effort so
+  a failure degrades to running-only rather than aborting the run.
+- Containers that were **already stopped** before the run are no longer
+  restarted afterwards — only containers Kopi-Docka itself stopped are
+  brought back up.
+- Bind mounts are surfaced in `dry-run`, the backup summary, and
+  success notifications; a new `bind_mounts_backed_up` counter is
+  recorded in backup metadata.
+
+**Upgrade notes:** No config or repository-format changes. Backups will
+now include bind-mounted directories that were previously missed, so the
+first run after upgrading may snapshot additional data. Review the
+`dry-run` output to see which bind mounts are now covered. A
+machine-readable coverage manifest (transparency over every discovered
+dependency) follows in a later release; this release closes the
+backup-and-restore data-loss gap for bind mounts.
+
 ## [7.6.4] - 2026-05-25
 
 ### 📚 Windows DR-stream guidance + single combined demo SVG
