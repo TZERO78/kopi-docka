@@ -37,6 +37,21 @@ python -m build
 kopi-docka --help
 ```
 
+## Project Commands (`.claude/commands/`)
+
+Projektspezifische Slash-Commands, die wiederkehrende Workflows automatisieren und Architekturregeln erzwingen. Liegen in `.claude/commands/`, jede `*.md`-Datei ist ein Command.
+
+| Command | Wofür |
+|---|---|
+| `/release-bump X.Y.Z` | Bumpt die Version an **allen 5 Stellen** der Releasecheckliste in einem Schritt (`pyproject.toml`, `helpers/constants.py`, `templates/config_template.json`, `CLAUDE.md`-Header, `CHANGELOG.md`-Datum). Erstellt Release-Branch, kein Tag (Tag passt erst nach Merge). |
+| `/changelog-entry [text]` | Erzeugt einen `CHANGELOG.md`-Eintrag im Hausstil (`### Emoji Titel` → **Why / Changes / Upgrade notes**) aus aktuellem Diff oder Freitext. Schreibt in `## [Unreleased]`. |
+| `/plan-new <slug>` | Legt `plan/active/plan_NNNN_<slug>.md` mit Standard-Frontmatter an. Vergibt nächste freie Nummer (sucht in `plan/active/` **und** `plan/archive/**`, recycelt keine Lücken). |
+| `/claudemd-sync [--fix]` | Erkennt Drift zwischen `CLAUDE.md` und Realität: Versionsnummer, "Active Plans" vs. `plan/active/`, "Completed Plans" vs. Archiv, Zeilenzahlen in "Key Files", stale Technical-Debt-Punkte. Mit `--fix` Patches nach Bestätigung. |
+| `/kopia-bypass-check [--diff]` | Findet direkte `subprocess`→`kopia`-Aufrufe außerhalb von `KopiaRepository._run()`. Whitelistet die zwei dokumentierten Bypässe in `repo_helper.py` und `create_snapshot_from_stdin()`. Architekturregel aus Plan 0020 maschinell statt nur in Doku. |
+| `/docs <query>` | Dokulookup für Kopia, Docker, rclone, Backends. |
+
+Allgemeine Skills aus dem Harness (`/code-review`, `/simplify`, `/verify`, `/loop`, `/schedule`, ...) sind weiterhin verfügbar.
+
 ## Architecture Overview
 
 ```
@@ -49,22 +64,22 @@ CLI (typer) → Commands → Cores → KopiaRepository → subprocess → kopia
 
 | Package | Purpose | Lines |
 |---|---|---|
-| `commands/` | Typer CLI handlers, no business logic | ~6,600 |
-| `cores/` | Business logic (backup, restore, DR, policies, snapshot mgmt) | ~9,000 |
-| `helpers/` | Config, logging, UI, system utils | ~4,000 |
-| `backends/` | Storage backend implementations (8 backends) | ~2,500 |
+| `commands/` | Typer CLI handlers, no business logic | ~6,700 |
+| `cores/` | Business logic (backup, restore, DR, policies, snapshot mgmt) | ~7,300 |
+| `helpers/` | Config, logging, UI, system utils | ~3,800 |
+| `backends/` | Storage backend implementations (8 backends) | ~2,800 |
 | `types.py` | Dataclasses (ContainerInfo, VolumeInfo, BackupUnit) | shared |
 
 ### Key Files
 
 | File | What it does |
 |---|---|
-| `cores/repository_manager.py` | **KopiaRepository** — central Kopia CLI wrapper (834 lines) |
+| `cores/repository_manager.py` | **KopiaRepository** — central Kopia CLI wrapper (1,182 lines) |
 | `cores/backup_manager.py` | Backup orchestration |
-| `cores/restore_manager.py` | Interactive restore wizard (2,279 lines, largest) |
+| `cores/restore_manager.py` | Interactive restore wizard (2,294 lines, largest) |
 | `cores/snapshot_manager.py` | **SnapshotManager** — interactive snapshot lifecycle (delete, pin, retention, maintenance) |
 | `cores/disaster_recovery_manager.py` | DR bundle export (encrypted ZIP) |
-| `helpers/config.py` | Config loading, validation, password handling (936 lines) |
+| `helpers/config.py` | Config loading, validation, password handling (1,034 lines) |
 | `__main__.py` | Typer app, command registration |
 
 ### KopiaRepository — Single Point of Contact
@@ -110,7 +125,7 @@ Note: `advanced repo maintenance` was moved to `advanced snapshot maintenance` i
 - Tests in `tests/unit/` and `tests/integration/`
 - `__new__` pattern for manager instantiation (bypasses `__init__`, isolated tests)
 - `monkeypatch` for env vars/attributes, `@patch` for external calls
-- Coverage: CI enforces 40%, actual ~44%
+- Coverage: CI enforces 40%, actual ~52%
 - Integration tests guarded with `@pytest.mark` (Docker/Root required)
 
 ### Git & Releases
@@ -156,27 +171,38 @@ The tag triggers the GitHub Actions workflow that publishes to PyPI.
 - Standard frontmatter with status, target_release
 - Plans are local-only, never pushed to GitHub (`plan/` is in `.gitignore`)
 
-## Current State (Mai 2026)
+## Current State (Mai 2026, Stand v7.6.4)
 
-### Active Plans
-- **Plan 0028**: Global-Policy-Only + Interface-Vorbereitung für Multi-Path — committed on `refactor/global-policy-only` (target v7.3.0), end-to-end test in testlab pending
+> Diese Sektion driftet erfahrungsgemäß. Mit `/claudemd-sync` gegen Realität abgleichen.
 
-### Completed Plans
-- **Plan 0020**: Bypass Cleanup — done, merged (v6.2.3)
-- **Plan 0021**: Backup History Command — done, merged (v6.3.0)
-- **Retention Policy Fix**: Path mismatch + doctor check — done (v6.4.0)
-- **Plan 0023**: Security Hardening & Docs Overhaul — done, merged (v6.5.0)
-- **Plan 0024**: Snapshot Management Wizard — done, merged (v7.0.0)
-- **Plan 0025**: Alerting Overhaul (pre-flight check, verbose failures, missed-backup detection) — done, merged (v7.1.0)
-- **Plan 0027**: Orphaned Policy Cleanup (`advanced policy prune`) — done, merged (v7.1.2)
-- **Plan 0026**: Policy Overhaul — Staging cleanup, Smart-Skip, Auto-prune, Single Pre-flight, plus configurable rclone startup timeout with self-healing migration — done (v7.2.0)
+### Active Plans (`plan/active/`)
+- **Plan 0031**: Adaptive Health Timeout
+- **Plan 0032**: Code Hygiene Modernization
+- **Plan 0033**: Restore-Manager Decomposition — 2.294 Zeilen, 211 `console.print()`, 23 `input()`; Refactor-First-Argument vor jeder UI-Anbindung
+- **Plan 0034**: Repository-Manager Decomposition — 1.182 Zeilen, 36 Methoden, 6 Themen in einer Klasse
+- **Plan 0036**: ui-utils KVP
+- **Plan 0038**: SFTP Canonical Params
+
+### Recently Completed (archiviert in `plan/archive/v7.x/`)
+- **Plan 0024** Snapshot Management Wizard (v7.0.0)
+- **Plan 0025** Alerting Overhaul (v7.1.0)
+- **Plan 0027** Orphaned Policy Cleanup (v7.1.2)
+- **Plan 0026** Policy Overhaul / Smart-Skip / Auto-prune (v7.2.0)
+- **Plan 0028** Global-Policy-Only + Multi-Path-Vorbereitung
+- **Plan 0029** Tailscale-SFTP Correctness
+- **Plan 0030** DR-Bundle SSH-Key Hygiene
+- **Plan 0037** Sudo-Helper Extraction
+- **Plan 0039** Docs Pass (v7.6.2)
+
+Plan 0023 (Security Hardening) liegt in `plan/archive/v6.x/`; ältere Pläne (0020–0022) sind nur über `CHANGELOG.md` referenzierbar.
 
 ### Known Technical Debt
 - Test coverage at ~52 % (target: higher)
-- `tests/README.md` is outdated (copy of v2.0 project README)
+- `tests/README.md` is at v6.4.0 stand and should be refreshed to v7.x
 - Commands and backends have very low test coverage (~18 % and ~20 %)
-- `engine/` directory exists but is empty (reserved, may not be needed)
 - TAR-mode volume backup keeps its own per-volume path through `volume_handler.backup_volume_tar` instead of going through `create_snapshots()` — stdin streams don't fit the BackupSource shape. Low priority; TAR mode is legacy and not the default.
+- **Restore-Manager-Größe** (2.294 Zeilen, niedrigste Coverage im Projekt) — siehe Plan 0033.
+- **Repository-Manager-Größe** (1.182 Zeilen, 36 Methoden) — siehe Plan 0034.
 
 ### Intentional Exceptions (not debt)
 The two bypass points listed in the **KopiaRepository** section above (pre-init `kopia repository connect/disconnect` in `repo_helper.py`, and stdin-piping `create_snapshot_from_stdin()`) are documented architectural exceptions, not items for cleanup. Each has a structural reason (chicken-and-egg before `__init__`; no stdin-stream mode in `_run()`), each has an inline comment, both have been stable since v6.2.3. Only refactor if a new feature actively requires it.
