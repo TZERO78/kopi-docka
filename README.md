@@ -620,3 +620,7 @@ your environment details.
 - 🐛 **Bug Reports:** [GitHub Issues](https://github.com/TZERO78/kopi-docka/issues)
 - 💬 **Discussions:** [GitHub Discussions](https://github.com/TZERO78/kopi-docka/discussions)
 - 🧑‍🤝‍🧑 **Code of Conduct:** [CODE_OF_CONDUCT.md](https://github.com/TZERO78/kopi-docka/blob/main/CODE_OF_CONDUCT.md)
+
+## AI-assisted development
+
+This project was developed with the assistance of generative AI tools. AI was used as a development tool for code generation, review, documentation, and problem solving. The project owner remains responsible for the design, testing, and published software.
