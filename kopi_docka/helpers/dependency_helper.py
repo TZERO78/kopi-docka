@@ -25,7 +25,9 @@ class DependencyHelper:
         "tailscale": ["tailscale", "version"],
         "rclone": ["rclone", "version"],
         "ssh": ["ssh", "-V"],
-        "ssh-keygen": ["ssh-keygen", "-V"],
+        # ssh-keygen has no version flag ("-V" needs a validity interval);
+        # it ships with the ssh client, so report the client version.
+        "ssh-keygen": ["ssh", "-V"],
         "ssh-copy-id": ["ssh-copy-id", "-h"],  # No --version, only -h
         "openssl": ["openssl", "version"],
         "tar": ["tar", "--version"],

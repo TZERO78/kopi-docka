@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🐛 `doctor`: "openssh ✗ Missing" on hosts that have OpenSSH
+
+**Why:** The core-dependency table looked every entry up with `which <name>`.
+`openssh` is a package, not a binary, so it was always reported missing; the
+entry's own `check_method` (`ssh` + `ssh-keygen`) was never called. The
+`ssh-keygen` version probe used `ssh-keygen -V`, which is not a version flag
+(it expects a validity interval) and failed.
+
+**Changes:**
+- Core dependencies take the installed state from each entry's `check_method`;
+  `openssh` shows the version and path of `ssh`.
+- `ssh-keygen` version is read from `ssh -V` (same OpenSSH package).
+
 ### 🐛 Compose `env_file` entries were reported as backed up but never copied
 
 **Why:** The coverage manifest marks every `env_file` that sits in the compose
