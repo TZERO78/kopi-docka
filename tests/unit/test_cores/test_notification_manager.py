@@ -795,18 +795,30 @@ class TestNotificationTimeout:
 
         manager = NotificationManager(config)
 
-        # Simulate ImportError by making sys.modules['apprise'] raise when accessed
-        original_apprise = sys.modules.get('apprise')
-
-        # Remove apprise from sys.modules to simulate it not being installed
-        if 'apprise' in sys.modules:
-            del sys.modules['apprise']
-
-        try:
-            # The code inside _do_send will try to import apprise and fail
+        # A None entry in sys.modules makes `import apprise` raise ImportError.
+        # (Only deleting the entry just re-imports the installed package, so
+        # the outcome depended on the installed apprise version.)
+        with patch.dict(sys.modules, {"apprise": None}):
             result = manager._send_notification("Test", "Body")
-            assert result is False
-        finally:
-            # Restore apprise module if it was there
-            if original_apprise is not None:
-                sys.modules['apprise'] = original_apprise
+        assert result is False
+
+
+def test_send_notification_returns_bool_for_apprise_result():
+    """apprise >= 2.0 returns an AppriseResult object; the API stays bool."""
+    config = make_mock_config({"enabled": True, "service": "telegram", "url": "123", "secret": "TOKEN"})
+    manager = NotificationManager(config)
+
+    class FakeResult:
+        def __init__(self, ok):
+            self.ok = ok
+
+        def __bool__(self):
+            return self.ok
+
+    fake = Mock()
+    fake.Apprise.return_value.notify.return_value = FakeResult(True)
+    with patch.dict(sys.modules, {"apprise": fake}):
+        assert manager._send_notification("T", "B") is True
+    fake.Apprise.return_value.notify.return_value = FakeResult(False)
+    with patch.dict(sys.modules, {"apprise": fake}):
+        assert manager._send_notification("T", "B") is False
