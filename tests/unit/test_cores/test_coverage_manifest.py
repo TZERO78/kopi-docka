@@ -10,6 +10,7 @@ import pytest
 
 from kopi_docka.cores.coverage_manifest import (
     build_manifest,
+    declared_env_files,
     render_summary,
     STATUS_BACKED_UP,
     STATUS_SKIPPED_RUNTIME,
@@ -188,3 +189,67 @@ class TestSummaryAndRender:
         lines = render_summary(build_manifest(_unit(compose_files=[cf])))
         assert any("unsupported" in lines[0] for _ in [0])
         assert any("swarm_secret" in ln for ln in lines[1:])
+
+
+@pytest.mark.unit
+class TestDeclaredEnvFiles:
+    """declared_env_files() returns exactly what the manifest reports as backed up."""
+
+    def _compose(self, d, body):
+        cf = d / "docker-compose.yml"
+        cf.write_text(textwrap.dedent(body))
+        return cf
+
+    def test_env_file_without_dot_prefix_is_returned(self, tmp_path):
+        (tmp_path / "dashboard.env").write_text("A=1\n")
+        cf = self._compose(tmp_path, """
+            services:
+              dashboard:
+                image: alpine
+                env_file: dashboard.env
+        """)
+        assert declared_env_files([cf]) == [(tmp_path / "dashboard.env").resolve()]
+
+    def test_list_and_dict_forms(self, tmp_path):
+        (tmp_path / "a.env").write_text("A=1\n")
+        (tmp_path / "b.env").write_text("B=1\n")
+        cf = self._compose(tmp_path, """
+            services:
+              x:
+                env_file: [a.env]
+              y:
+                env_file:
+                  - path: ./b.env
+                    required: false
+                  - a.env
+        """)
+        names = [p.name for p in declared_env_files([cf])]
+        assert names == ["a.env", "b.env"]
+
+    def test_outside_subdir_and_missing_are_skipped(self, tmp_path):
+        stack = tmp_path / "stack"
+        (stack / "env").mkdir(parents=True)
+        (stack / "env" / "sub.env").write_text("S=1\n")
+        (tmp_path / "shared.env").write_text("X=1\n")
+        cf = self._compose(stack, """
+            services:
+              app:
+                env_file: [../shared.env, env/sub.env, missing.env]
+        """)
+        assert declared_env_files([cf]) == []
+
+    def test_unparseable_compose_is_skipped(self, tmp_path):
+        cf = tmp_path / "docker-compose.yml"
+        cf.write_text("services: [unclosed\n")
+        assert declared_env_files([cf]) == []
+
+    def test_manifest_and_helper_agree(self, tmp_path):
+        (tmp_path / "dashboard.env").write_text("A=1\n")
+        cf = self._compose(tmp_path, """
+            services:
+              dashboard:
+                env_file: dashboard.env
+        """)
+        m = build_manifest(_unit(compose_files=[cf]))
+        backed = {e.identifier for e in m.entries if e.kind == "env_file" and e.status == STATUS_BACKED_UP}
+        assert backed == {str(p) for p in declared_env_files([cf])}
