@@ -309,8 +309,16 @@ def _show_core_dependencies(dep_manager: DependencyManager):
     table.add_column("Version", style="yellow", width=15)
     table.add_column("Path", style="dim")
 
+    # Entries whose name is not a binary (e.g. "openssh" = ssh + ssh-keygen):
+    # report the version/path of a representative tool and take the
+    # installed state from the entry's own check_method.
+    probe_binary = {"openssh": "ssh"}
+
     for dep_name, dep_info in dep_manager.dependencies.items():
-        tool_info = DependencyHelper.check(dep_name)
+        tool_info = DependencyHelper.check(probe_binary.get(dep_name, dep_name))
+        check_method = dep_info.get("check_method")
+        if callable(check_method):
+            tool_info.installed = bool(check_method())
 
         category = str(dep_info.get("category", "UNKNOWN")).replace("DependencyCategory.", "")
 
