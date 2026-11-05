@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🐛 `doctor` / `history`: mixed naive and timezone-aware metadata timestamps
+
+**Why:** Metadata written before the tz-aware cleanup (a9daf7d, v7.5.x) stores
+naive *local* timestamps; newer files carry a UTC offset. `MetadataReader`
+sorted both together, so on any host with old and new files `doctor` showed
+`Could not check backup freshness: can't compare offset-naive and
+offset-aware datetimes`, and `history --since YYYY-MM-DD` crashed the same way.
+
+**Changes:**
+- `MetadataReader` compares timestamps as timezone-aware; naive values are read
+  as local time (what they were written as). Applies to sorting and `since`.
+- `doctor` freshness and `MissedBackupChecker` interpret naive timestamps as
+  local time instead of UTC (age was off by the UTC offset).
+- Regression tests for mixed metadata directories.
+
 ### 🐛 Notifications: keep the bool contract with apprise 2.x
 
 **Why:** apprise 2.0 returns an `AppriseResult` object from `notify()` instead
