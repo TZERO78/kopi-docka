@@ -2,7 +2,7 @@
 
 import json
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -174,3 +174,40 @@ class TestBackupMetadataFromDict:
         assert restored.success == original.success
         assert restored.error_message == original.error_message
         assert restored.errors == original.errors
+
+
+class TestMixedNaiveAndAwareTimestamps:
+    """Regression: pre-v7.5 metadata has naive local timestamps, newer files are UTC-aware.
+
+    Sorting or filtering a mix raised
+    ``TypeError: can't compare offset-naive and offset-aware datetimes``
+    (seen in ``doctor`` → Backup Freshness and ``history --since``).
+    """
+
+    @pytest.fixture
+    def mixed_dir(self, tmp_path):
+        d = tmp_path / "metadata"
+        d.mkdir()
+        files = {
+            "old.json": {"unit_name": "vaultwarden", "timestamp": "2026-01-25T03:00:00", "backup_id": "old"},
+            "new.json": {"unit_name": "vaultwarden", "timestamp": "2026-11-01T01:09:01+00:00", "backup_id": "new"},
+        }
+        for name, data in files.items():
+            (d / name).write_text(json.dumps(data), encoding="utf-8")
+        return d
+
+    def test_read_all_sorts_mixed(self, mixed_dir):
+        results = MetadataReader(mixed_dir).read_all()
+        assert [m.backup_id for m in results] == ["new", "old"]
+
+    def test_get_unit_names_mixed(self, mixed_dir):
+        assert MetadataReader(mixed_dir).get_unit_names() == ["vaultwarden"]
+
+    def test_since_naive_against_mixed(self, mixed_dir):
+        results = MetadataReader(mixed_dir).read_all(since=datetime(2026, 6, 1))
+        assert [m.backup_id for m in results] == ["new"]
+
+    def test_since_aware_against_mixed(self, mixed_dir):
+        since = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        results = MetadataReader(mixed_dir).read_all(since=since)
+        assert [m.backup_id for m in results] == ["new"]

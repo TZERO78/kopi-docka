@@ -32,6 +32,18 @@ from ..types import BackupMetadata
 logger = get_logger(__name__)
 
 
+def _as_aware(ts: datetime) -> datetime:
+    """Return *ts* as a timezone-aware datetime for comparisons.
+
+    Metadata written before v7.5.x (commit a9daf7d) used ``datetime.now()``,
+    i.e. naive *local* time; newer files carry an explicit UTC offset. Mixing
+    both in one sort or comparison raises ``TypeError: can't compare
+    offset-naive and offset-aware datetimes``. Naive values are therefore
+    interpreted as local time, which is what they were written as.
+    """
+    return ts.astimezone() if ts.tzinfo is None else ts
+
+
 class MetadataReader:
     """Reads backup metadata JSONs from the metadata directory.
 
@@ -59,7 +71,7 @@ class MetadataReader:
                 entries.append(meta)
 
         # Sort newest first
-        entries.sort(key=lambda m: m.timestamp, reverse=True)
+        entries.sort(key=lambda m: _as_aware(m.timestamp), reverse=True)
 
         # Apply filters
         if unit_name is not None:
@@ -67,7 +79,8 @@ class MetadataReader:
         if only_failed:
             entries = [m for m in entries if not m.success]
         if since is not None:
-            entries = [m for m in entries if m.timestamp >= since]
+            since_aware = _as_aware(since)
+            entries = [m for m in entries if _as_aware(m.timestamp) >= since_aware]
         if limit is not None:
             entries = entries[:limit]
 
