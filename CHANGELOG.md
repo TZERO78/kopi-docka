@@ -22,6 +22,19 @@ offset-aware datetimes`, and `history --since YYYY-MM-DD` crashed the same way.
   local time instead of UTC (age was off by the UTC offset).
 - Regression tests for mixed metadata directories.
 
+### 🐛 Notifications: keep the bool contract with apprise 2.x
+
+**Why:** apprise 2.0 returns an `AppriseResult` object from `notify()` instead
+of `True`/`False`. `_send_notification()` passed it through, so its documented
+`bool` return no longer held. The test for a missing apprise only deleted the
+module from `sys.modules`, which re-imported the installed package — with
+apprise 2.x it failed and turned CI red on every branch.
+
+**Changes:**
+- `_send_notification()` returns `bool(result)`.
+- The missing-apprise test blocks the import via `sys.modules["apprise"] = None`.
+- New test: an `AppriseResult`-like object maps to `True`/`False`.
+
 ## [7.9.0] - 2026-07-19
 
 ### ✨ Portainer-managed stacks: compose files are now captured per unit (Plan 0042)
