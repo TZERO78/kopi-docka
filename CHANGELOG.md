@@ -5,6 +5,27 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🐛 Compose `env_file` entries were reported as backed up but never copied
+
+**Why:** The coverage manifest marks every `env_file` that sits in the compose
+directory as `backed_up`. The recipe step, however, only copies files matching
+`.env*`, `*.conf`, `*.config` and `*.toml`. An `env_file: dashboard.env` (the
+NetBird quickstart layout) matched none of them: the manifest said "protected",
+the snapshot did not contain the file, and a restore came back without the
+stack's secrets.
+
+**Changes:**
+- New `coverage_manifest.declared_env_files()` parses the compose files and
+  returns the declared `env_file` paths (string, list and `{path: …}` forms)
+  that exist directly in a compose directory — exactly the set the manifest
+  reports as backed up.
+- `_collect_recipe_sources()` copies those files into `project-files/`, next to
+  the glob matches; restore picks them up unchanged.
+- `env_file`s in sub-directories or outside the compose directory stay
+  `not_protected` in the manifest, as before.
+
 ## [7.9.0] - 2026-07-19
 
 ### ✨ Portainer-managed stacks: compose files are now captured per unit (Plan 0042)

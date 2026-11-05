@@ -507,6 +507,29 @@ class BackupManager:
                                     extra={"unit_name": unit.name},
                                 )
 
+            # Compose-declared env_file entries (e.g. ``env_file: dashboard.env``)
+            # that the glob patterns above miss. The coverage manifest reports
+            # these as backed up, so they must actually land in the recipe.
+            from ..cores.coverage_manifest import declared_env_files
+
+            for env_file in declared_env_files(unit.compose_files):
+                dest = project_files_dir / env_file.name
+                if dest.exists():
+                    if env_file.name not in backed_up_files:
+                        logger.warning(
+                            f"env_file {env_file} not backed up: name collides with another project file",
+                            extra={"unit_name": unit.name},
+                        )
+                    continue
+                try:
+                    shutil.copy2(env_file, dest)
+                    backed_up_files.append(env_file.name)
+                except Exception as e:
+                    logger.warning(
+                        f"Could not backup env_file {env_file}: {e}",
+                        extra={"unit_name": unit.name},
+                    )
+
             if backed_up_files:
                 logger.info(
                     f"Backed up {len(backed_up_files)} project files: {', '.join(backed_up_files[:5])}{'...' if len(backed_up_files) > 5 else ''}",

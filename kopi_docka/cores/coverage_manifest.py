@@ -208,6 +208,46 @@ def _classify_compose_declared(unit: BackupUnit, m: CoverageManifest) -> None:
         _scan_secrets_configs(data, "configs", cf.parent, captured, m)
 
 
+def declared_env_files(compose_files: List[Path]) -> List[Path]:
+    """Return compose-declared ``env_file`` paths that exist and sit directly
+    in a compose directory.
+
+    These are exactly the files ``_scan_env_files`` reports as backed up
+    ("env_file inside compose directory"), so the recipe step copies this list
+    to keep the manifest honest. Files in sub-directories or elsewhere stay
+    ``not_protected`` and are not returned. Unparseable compose files are
+    skipped (the manifest already records them as not_supported).
+    """
+    try:
+        import yaml
+    except Exception:  # pragma: no cover - yaml is a declared dependency
+        return []
+
+    existing = [cf for cf in compose_files if cf.exists()]
+    compose_dirs = {cf.parent for cf in existing}
+    found: List[Path] = []
+    for cf in existing:
+        try:
+            data = yaml.safe_load(cf.read_text()) or {}
+        except Exception:
+            continue
+        services = data.get("services") if isinstance(data, dict) else None
+        if not isinstance(services, dict):
+            continue
+        for svc in services.values():
+            ef = svc.get("env_file") if isinstance(svc, dict) else None
+            if ef is None:
+                continue
+            for item in ef if isinstance(ef, list) else [ef]:
+                path_str = item.get("path") if isinstance(item, dict) else item
+                if not isinstance(path_str, str):
+                    continue
+                resolved = (cf.parent / path_str).resolve()
+                if resolved.is_file() and resolved.parent in compose_dirs and resolved not in found:
+                    found.append(resolved)
+    return found
+
+
 def _scan_env_files(data: dict, compose_dir: Path, compose_dirs: set, captured: set, m: CoverageManifest) -> None:
     services = data.get("services") or {}
     if not isinstance(services, dict):
