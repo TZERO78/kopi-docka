@@ -191,3 +191,41 @@ class TestBackendSanityHint:
         )
         # Make sure we no longer dump a sed line at the user.
         assert "sudo sed -i" not in out, "Doctor should no longer emit the sed migration"
+
+
+class TestCoreDependencyOpenssh:
+    """Regression: "openssh" is not a binary; doctor used `which openssh` and
+    always reported it Missing, ignoring DependencyManager.check_openssh()."""
+
+    def _render(self, check_result):
+        from io import StringIO
+        from rich.console import Console
+        from kopi_docka.commands import doctor_commands
+        from kopi_docka.helpers.dependency_helper import ToolInfo
+
+        dep_manager = Mock()
+        dep_manager.dependencies = {
+            "openssh": {"check_method": lambda: check_result, "category": "BACKEND"},
+        }
+        buf = StringIO()
+        with patch.object(doctor_commands, "console", Console(file=buf, width=200)), \
+             patch.object(doctor_commands.DependencyHelper, "check",
+                          return_value=ToolInfo(name="ssh", installed=False)) as mock_check:
+            doctor_commands._show_core_dependencies(dep_manager)
+        return buf.getvalue(), mock_check
+
+    def test_uses_check_method_and_ssh_binary(self):
+        out, mock_check = self._render(True)
+        mock_check.assert_called_once_with("ssh")
+        assert "Installed" in out
+        assert "Missing" not in out
+
+    def test_missing_when_check_method_fails(self):
+        out, _ = self._render(False)
+        assert "Missing" in out
+
+
+def test_ssh_keygen_version_command_is_valid():
+    """ssh-keygen has no version flag; `-V` expects a validity interval."""
+    from kopi_docka.helpers.dependency_helper import DependencyHelper
+    assert DependencyHelper.VERSION_COMMANDS["ssh-keygen"] == ["ssh", "-V"]

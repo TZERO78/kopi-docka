@@ -5,6 +5,21 @@ All notable changes to Kopi-Docka will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🐛 `doctor`: "openssh ✗ Missing" on hosts that have OpenSSH
+
+**Why:** The core-dependency table looked every entry up with `which <name>`.
+`openssh` is a package, not a binary, so it was always reported missing; the
+entry's own `check_method` (`ssh` + `ssh-keygen`) was never called. The
+`ssh-keygen` version probe used `ssh-keygen -V`, which is not a version flag
+(it expects a validity interval) and failed.
+
+**Changes:**
+- Core dependencies take the installed state from each entry's `check_method`;
+  `openssh` shows the version and path of `ssh`.
+- `ssh-keygen` version is read from `ssh -V` (same OpenSSH package).
+
 ## [7.9.0] - 2026-07-19
 
 ### ✨ Portainer-managed stacks: compose files are now captured per unit (Plan 0042)
