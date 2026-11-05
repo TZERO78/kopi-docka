@@ -107,7 +107,7 @@ class MissedBackupChecker:
 
             ts = last_success.timestamp
             if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
+                ts = ts.astimezone()  # pre-v7.5 metadata: naive local time
             age_hours = (now - ts).total_seconds() / 3600
 
             if age_hours > threshold:

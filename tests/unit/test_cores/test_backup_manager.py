@@ -2225,3 +2225,36 @@ class TestPrepareStagingDir:
                 # Verify return values
                 assert snapshot_id == "snap123"
                 assert network_count == 1
+
+
+class TestRecipeEnvFiles:
+    """Regression: env_file entries like ``dashboard.env`` (no ``.env`` prefix)
+    were reported as backed up by the coverage manifest but never copied."""
+
+    def test_declared_env_file_lands_in_project_files(self, tmp_path):
+        stack = tmp_path / "netbird"
+        stack.mkdir()
+        (stack / "dashboard.env").write_text("SECRET=1\n")
+        (stack / ".env").write_text("A=1\n")
+        cf = stack / "docker-compose.yml"
+        cf.write_text(
+            "services:\n"
+            "  dashboard:\n"
+            "    image: alpine\n"
+            "    env_file: dashboard.env\n"
+            "  other:\n"
+            "    image: alpine\n"
+            "    env_file: .env\n"
+        )
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        unit = BackupUnit(name="netbird", type="stack", compose_files=[cf], containers=[], volumes=[])
+        manager = make_backup_manager()
+
+        with patch.object(manager, "_prepare_staging_dir", return_value=staging):
+            manager._collect_recipe_sources(unit, "b1", BACKUP_SCOPE_STANDARD)
+
+        pf = staging / "project-files"
+        assert (pf / "dashboard.env").read_text() == "SECRET=1\n"
+        assert (pf / ".env").read_text() == "A=1\n"
+        assert (staging / "docker-compose.yml").exists()

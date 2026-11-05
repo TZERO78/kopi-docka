@@ -20,6 +20,53 @@ entry's own `check_method` (`ssh` + `ssh-keygen`) was never called. The
   `openssh` shows the version and path of `ssh`.
 - `ssh-keygen` version is read from `ssh -V` (same OpenSSH package).
 
+### 🐛 Compose `env_file` entries were reported as backed up but never copied
+
+**Why:** The coverage manifest marks every `env_file` that sits in the compose
+directory as `backed_up`. The recipe step, however, only copies files matching
+`.env*`, `*.conf`, `*.config` and `*.toml`. An `env_file: dashboard.env` (the
+NetBird quickstart layout) matched none of them: the manifest said "protected",
+the snapshot did not contain the file, and a restore came back without the
+stack's secrets.
+
+**Changes:**
+- New `coverage_manifest.declared_env_files()` parses the compose files and
+  returns the declared `env_file` paths (string, list and `{path: …}` forms)
+  that exist directly in a compose directory — exactly the set the manifest
+  reports as backed up.
+- `_collect_recipe_sources()` copies those files into `project-files/`, next to
+  the glob matches; restore picks them up unchanged.
+- `env_file`s in sub-directories or outside the compose directory stay
+  `not_protected` in the manifest, as before.
+
+### 🐛 `doctor` / `history`: mixed naive and timezone-aware metadata timestamps
+
+**Why:** Metadata written before the tz-aware cleanup (a9daf7d, v7.5.x) stores
+naive *local* timestamps; newer files carry a UTC offset. `MetadataReader`
+sorted both together, so on any host with old and new files `doctor` showed
+`Could not check backup freshness: can't compare offset-naive and
+offset-aware datetimes`, and `history --since YYYY-MM-DD` crashed the same way.
+
+**Changes:**
+- `MetadataReader` compares timestamps as timezone-aware; naive values are read
+  as local time (what they were written as). Applies to sorting and `since`.
+- `doctor` freshness and `MissedBackupChecker` interpret naive timestamps as
+  local time instead of UTC (age was off by the UTC offset).
+- Regression tests for mixed metadata directories.
+
+### 🐛 Notifications: keep the bool contract with apprise 2.x
+
+**Why:** apprise 2.0 returns an `AppriseResult` object from `notify()` instead
+of `True`/`False`. `_send_notification()` passed it through, so its documented
+`bool` return no longer held. The test for a missing apprise only deleted the
+module from `sys.modules`, which re-imported the installed package — with
+apprise 2.x it failed and turned CI red on every branch.
+
+**Changes:**
+- `_send_notification()` returns `bool(result)`.
+- The missing-apprise test blocks the import via `sys.modules["apprise"] = None`.
+- New test: an `AppriseResult`-like object maps to `True`/`False`.
+
 ## [7.9.0] - 2026-07-19
 
 ### ✨ Portainer-managed stacks: compose files are now captured per unit (Plan 0042)
