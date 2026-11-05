@@ -26,6 +26,34 @@ stack's secrets.
 - `env_file`s in sub-directories or outside the compose directory stay
   `not_protected` in the manifest, as before.
 
+### 🐛 `doctor` / `history`: mixed naive and timezone-aware metadata timestamps
+
+**Why:** Metadata written before the tz-aware cleanup (a9daf7d, v7.5.x) stores
+naive *local* timestamps; newer files carry a UTC offset. `MetadataReader`
+sorted both together, so on any host with old and new files `doctor` showed
+`Could not check backup freshness: can't compare offset-naive and
+offset-aware datetimes`, and `history --since YYYY-MM-DD` crashed the same way.
+
+**Changes:**
+- `MetadataReader` compares timestamps as timezone-aware; naive values are read
+  as local time (what they were written as). Applies to sorting and `since`.
+- `doctor` freshness and `MissedBackupChecker` interpret naive timestamps as
+  local time instead of UTC (age was off by the UTC offset).
+- Regression tests for mixed metadata directories.
+
+### 🐛 Notifications: keep the bool contract with apprise 2.x
+
+**Why:** apprise 2.0 returns an `AppriseResult` object from `notify()` instead
+of `True`/`False`. `_send_notification()` passed it through, so its documented
+`bool` return no longer held. The test for a missing apprise only deleted the
+module from `sys.modules`, which re-imported the installed package — with
+apprise 2.x it failed and turned CI red on every branch.
+
+**Changes:**
+- `_send_notification()` returns `bool(result)`.
+- The missing-apprise test blocks the import via `sys.modules["apprise"] = None`.
+- New test: an `AppriseResult`-like object maps to `True`/`False`.
+
 ## [7.9.0] - 2026-07-19
 
 ### ✨ Portainer-managed stacks: compose files are now captured per unit (Plan 0042)
