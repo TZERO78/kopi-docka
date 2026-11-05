@@ -414,7 +414,9 @@ class NotificationManager:
                 body=body,
                 body_format=apprise.NotifyFormat.MARKDOWN,
             )
-            return result
+            # apprise >= 2.0 returns an AppriseResult object (truthy on
+            # success) instead of a bool; keep this method's bool contract.
+            return bool(result)
 
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
